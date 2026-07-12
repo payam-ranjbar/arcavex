@@ -1,0 +1,72 @@
+"""IR package: dependency-free domain model for Arcavex scenes.
+
+Exposes units, colors, canonical hashing, and the compiled/layout document types.
+"""
+
+from arcavex.kernel.ir.canonical import canonical_bytes, canonical_hash, canonicalize
+from arcavex.kernel.ir.colors import Color
+from arcavex.kernel.ir.models import (
+    RGBA,
+    AnchorEdge,
+    CanvasSpec,
+    ColorPolicy,
+    CompiledDocument,
+    CompiledGroup,
+    CompiledImage,
+    CompiledNode,
+    CompiledPath,
+    CompiledShape,
+    CompiledText,
+    Constraints,
+    EffectSpec,
+    FontRef,
+    LayoutDocument,
+    LayoutNode,
+    MaskSpec,
+    ResolvedCanvas,
+    ResolvedContent,
+    ResolvedImage,
+    ResolvedShape,
+    ResolvedText,
+    SizeSpec,
+    Style,
+    Transform,
+)
+from arcavex.kernel.ir.units import Dim, Insets, Matrix3, Rect, Unit
+
+__all__ = [
+    "RGBA",
+    "AnchorEdge",
+    "CanvasSpec",
+    "Color",
+    "ColorPolicy",
+    "CompiledDocument",
+    "CompiledGroup",
+    "CompiledImage",
+    "CompiledNode",
+    "CompiledPath",
+    "CompiledShape",
+    "CompiledText",
+    "Constraints",
+    "Dim",
+    "EffectSpec",
+    "FontRef",
+    "Insets",
+    "LayoutDocument",
+    "LayoutNode",
+    "MaskSpec",
+    "Matrix3",
+    "Rect",
+    "ResolvedCanvas",
+    "ResolvedContent",
+    "ResolvedImage",
+    "ResolvedShape",
+    "ResolvedText",
+    "SizeSpec",
+    "Style",
+    "Transform",
+    "Unit",
+    "canonical_bytes",
+    "canonical_hash",
+    "canonicalize",
+]

@@ -1,0 +1,86 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "arcavex"
+version = "0.1.0.dev0"
+description = "Local-first, headless, deterministic, template-driven rendering engine."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Arcavex" }]
+dependencies = [
+    "skia-python>=144.0,<145",
+    "pydantic>=2",
+    "typer",
+    "ruamel.yaml",
+    "rich",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "hypothesis",
+    "ruff",
+    "mypy",
+    "import-linter",
+    "pillow",
+    "numpy",
+    "watchfiles",
+    "mcp",
+]
+
+[project.scripts]
+arcavex = "arcavex.clients.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arcavex"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["skia", "skia.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.importlinter]
+root_package = "arcavex"
+
+[[tool.importlinter.contracts]]
+name = "Kernel is pure (imports nothing from builtin/services/clients)"
+type = "forbidden"
+source_modules = ["arcavex.kernel"]
+forbidden_modules = [
+    "arcavex.builtin",
+    "arcavex.services",
+    "arcavex.clients",
+    "arcavex.bootstrap",
+]
+
+# Built-ins face downward toward the kernel and the shared text service (the single shaper,
+# spec §4.3); they must never reach up into a client or the composition root. This makes the
+# intended boundary explicit so the Phase 0 builtin -> services.text shortcut does not creep
+# into importing CLI/bootstrap code (CR-20).
+[[tool.importlinter.contracts]]
+name = "Built-ins do not import clients or the composition root"
+type = "forbidden"
+source_modules = ["arcavex.builtin"]
+forbidden_modules = [
+    "arcavex.clients",
+    "arcavex.bootstrap",
+]

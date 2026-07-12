@@ -5,13 +5,13 @@ Statuses: Not started | In progress | Implemented | Tested | Reviewed | Accepted
 | Spec section | Requirement | Status | Source | Tests | Acceptance | Review | Blocker |
 |---|---|---|---|---|---|---|---|
 | §11 Phase -1 | Skia feasibility (SkParagraph, fonts, SkSL, PNG, PDF, determinism) | Accepted | docs/adr/0001, tests (Phase 0 converts probes) | feasibility probe (9/9 pass) | probe script run 2026-07-12 | ADR recorded | — |
-| §3.1 | IR: CompiledDocument/LayoutDocument, units, colors, hashing | Not started | | | | | |
-| §3.2 | Contracts (8 SPIs) | Not started | | | | | |
-| §3.3 | Registry + bootstrap + extension loader | Not started | | | | | |
-| §3.4 | Pipeline orchestrator | Not started | | | | | |
+| §3.1 | IR: CompiledDocument/LayoutDocument, units, colors, hashing | Accepted (v0; canonical float form ticketed CR-13 for Phase 4) | src/arcavex/kernel/ir/ | tests/unit (units, colors, canonical), tests/property | hello-poster render + validate | phase-00 loop: accepted | — |
+| §3.2 | Contracts (8 SPIs) | Accepted (v0 contracts; Effect/Mask/Shape/AssetDecoder impls in later phases) | src/arcavex/kernel/contracts/ | tests/unit/test_registry.py | — | phase-00 loop: accepted | — |
+| §3.3 | Registry + bootstrap + extension loader | Accepted (registry+bootstrap; local ext loader = Phase 6) | src/arcavex/kernel/registry/, bootstrap.py | tests/unit/test_registry.py | lint-imports | phase-00 loop: accepted | — |
+| §3.4 | Pipeline orchestrator | Accepted (v0 compile→layout→render→export sequencing in facade) | src/arcavex/kernel/api.py | tests/e2e/test_cli.py | render CLI | phase-00 loop: accepted | — |
 | §3.5 | Observer-only hooks | Not started | | | | | |
-| §3.6 | Diagnostics model + codes + explain | Not started | | | | | |
-| §3.7 | Service API facade | Not started | | | | | |
+| §3.6 | Diagnostics model + codes + explain | Accepted (model+codes+located+hints; explain = Phase 1) | src/arcavex/kernel/diagnostics.py | tests across suites | validate --json failure paths (exit 1/3/4/5 demonstrated) | phase-00 loop: accepted | — |
+| §3.7 | Service API facade | Accepted (render_file, validate_template; rest per later phases) | src/arcavex/kernel/api.py | tests/e2e | CLI acceptance | phase-00 loop: accepted | — |
 | §4.1 | Template system: loader, expressions, styles, formats/locales/patches, compiler | Not started | | | | | |
 | §4.2 | Anchor layout solver + fit policies | Not started | | | | | |
 | §4.3 | Text stack (SkParagraph, bundled fonts, BiDi/RTL, locale digits) | Not started | | | | | |

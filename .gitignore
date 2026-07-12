@@ -25,3 +25,7 @@ htmlcov/
 Thumbs.db
 .idea/
 .vscode/
+
+outputs-tmp/
+memory/
+
