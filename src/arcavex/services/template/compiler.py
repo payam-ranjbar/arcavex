@@ -35,6 +35,7 @@ from arcavex.kernel.ir.models import (
     CompiledText,
     Constraints,
     SizeSpec,
+    SourceRef,
     Style,
     Transform,
 )
@@ -42,10 +43,17 @@ from arcavex.kernel.ir.units import Dim
 from arcavex.services.template.expressions import (
     BudgetError,
     ExpressionError,
+    FunctionTable,
     MissingVariableError,
     render_value,
 )
-from arcavex.services.template.loader import line_of, load_yaml, node_line
+from arcavex.services.template.loader import (
+    TemplateSource,
+    line_of,
+    load_template,
+    load_yaml,
+    node_line,
+)
 
 _PARENT_EDGES = {"top", "bottom", "left", "right", "center_x", "center_y"}
 _NODE_TYPES = {"group", "text", "image", "shape", "path"}
@@ -84,7 +92,11 @@ def _to_plain(obj: Any) -> Any:
 class Compiler:
     """Compiles a one-file template plus data into a :class:`CompiledDocument`."""
 
-    def __init__(self, available_fonts: frozenset[str] | None = None) -> None:
+    def __init__(
+        self,
+        available_fonts: frozenset[str] | None = None,
+        functions: FunctionTable | None = None,
+    ) -> None:
         """Create a compiler.
 
         Args:
@@ -92,8 +104,12 @@ class Compiler:
                 supplied, a text node requesting a family outside this set fails compilation
                 (and therefore validation) with a located diagnostic. When ``None`` (the
                 default used by isolated unit tests) font availability is not enforced.
+            functions: The template-function resolution table, wired from the registry by
+                :mod:`arcavex.bootstrap`. When ``None`` the evaluator falls back to the
+                built-in functions (isolated unit tests).
         """
         self._available_fonts = available_fonts
+        self._functions = functions
 
     def compile(
         self,
@@ -106,36 +122,37 @@ class Compiler:
         """Compile a template. Returns a document (on success) plus diagnostics."""
         diags: list[Diagnostic] = []
         inferred: dict[str, str] = {}
-        template = Path(template)
         try:
             if style is not None:
                 return _reject_unsupported(
-                    "ARC-TPL-090", "style packs", template, "styles are Phase 3"
+                    "ARC-TPL-090", "style packs", Path(template), "styles are Phase 3"
                 )
             if locale is not None:
+                # Locale files are parsed for shape in Phase 1, but applying a requested
+                # locale (direction/digit policy/overlays) is Phase 2.
                 return _reject_unsupported(
-                    "ARC-TPL-091", "locales", template, "locales are Phase 2"
+                    "ARC-TPL-091", "locales", Path(template), "locale application is Phase 2"
                 )
 
-            raw = load_yaml(template)
-            if not isinstance(raw, dict):
-                raise DiagnosticError(
-                    diagnostic(
-                        "ARC-TPL-003",
-                        "Template root must be a mapping",
-                        file=str(template),
-                        hint="A template file is a YAML mapping with 'root:' and other sections.",
-                    )
-                )
+            source = load_template(template)
+            template_path = source.template_path
+            raw = source.raw
 
-            _reject_unsupported_sections(raw, template)
-
-            context = self._build_context(raw, template, data, diags, inferred)
+            # RR-4: collect every non-goal section offense in one pass instead of raising on
+            # the first, so the AI/human correction loop sees them together.
+            diags.extend(_collect_unsupported_sections(source))
+            diags.extend(self._validate_locales_shape(source))
             if has_errors(diags):
                 return CompileResult(None, diags, inferred)
 
-            canvas, resolved_format = self._resolve_format(raw, format_name, template, inferred)
-            seed = _int_field(raw.get("seed", 0), template, "seed", line_of(raw, "seed"))
+            context = self._build_context(source, data, diags, inferred)
+            if has_errors(diags):
+                return CompileResult(None, diags, inferred)
+
+            canvas, resolved_format = self._resolve_format(source, format_name, inferred)
+            seed = _int_field(
+                raw.get("seed", 0), template_path, "seed", line_of(raw, "seed")
+            )
 
             root_raw = raw.get("root")
             if not isinstance(root_raw, dict):
@@ -143,19 +160,21 @@ class Compiler:
                     diagnostic(
                         "ARC-TPL-004",
                         "Template is missing a 'root' node",
-                        file=str(template),
+                        file=str(template_path),
                         hint="Add a 'root:' group node describing the scene.",
                     )
                 )
 
             seen_ids: set[str] = set()
-            root = self._build_node(root_raw, context, template, canvas, seen_ids, "root")
+            root = self._build_node(
+                root_raw, context, template_path, canvas, seen_ids, "root", diags, ""
+            )
             if not isinstance(root, CompiledGroup):
                 raise DiagnosticError(
                     diagnostic(
                         "ARC-TPL-005",
                         "The root node must be of type 'group'",
-                        file=str(template),
+                        file=str(template_path),
                         keypath="root.type",
                         line=line_of(root_raw, "type"),
                         hint="Set 'type: group' on the root node.",
@@ -170,12 +189,10 @@ class Compiler:
     def list_formats(self, template: Path) -> list[str]:
         """Return the sorted names of formats declared by the template (best effort)."""
         try:
-            raw = load_yaml(Path(template))
+            source = load_template(template)
         except DiagnosticError:
             return []
-        if not isinstance(raw, dict):
-            return []
-        formats = raw.get("formats")
+        formats = source.raw.get("formats")
         if not isinstance(formats, dict):
             return []
         return sorted(str(k) for k in formats)
@@ -183,12 +200,13 @@ class Compiler:
     # ------------------------------------------------------------ variables & context
     def _build_context(
         self,
-        raw: dict[str, Any],
-        template: Path,
+        source: TemplateSource,
         data: Path | None,
         diags: list[Diagnostic],
         inferred: dict[str, str],
     ) -> dict[str, Any]:
+        raw = source.raw
+        var_file = source.file_for("variables")
         variables = raw.get("variables")
         if variables is None:
             variables = {}
@@ -197,7 +215,7 @@ class Compiler:
                 diagnostic(
                     "ARC-TPL-013",
                     "'variables' must be a mapping of names to declarations",
-                    file=str(template),
+                    file=str(var_file),
                     keypath="variables",
                     line=node_line(variables),
                     hint="Write 'variables:' as a mapping, e.g. 'title: {type: string}'.",
@@ -229,12 +247,30 @@ class Compiler:
                 inferred["data"] = "preview_data"
 
         for name, decl in variables.items():
-            decl = decl or {}
-            required = bool(decl.get("required", False)) if isinstance(decl, dict) else False
-            has_default = isinstance(decl, dict) and "default" in decl
+            decl = decl if isinstance(decl, dict) else {}
+            # RR-1: a typo'd / unknown declared type is a located error, not a silent skip of
+            # all further checking for this variable.
+            declared = decl.get("type")
+            if declared is not None and declared not in _VAR_PY_TYPES:
+                diags.append(
+                    diagnostic(
+                        "ARC-TPL-016",
+                        f"Variable {name!r} has unknown type {declared!r}",
+                        file=str(var_file),
+                        keypath=name,
+                        line=line_of(variables, name),
+                        hint=f"Valid types are: {', '.join(sorted(_VAR_PY_TYPES))}.",
+                    )
+                )
+                continue
+            required = bool(decl.get("required", False))
+            has_default = "default" in decl
             if name not in context:
                 if has_default:
-                    context[name] = _to_plain(decl["default"])
+                    default_val = _to_plain(decl["default"])
+                    context[name] = self._check_variable_value(
+                        name, decl, default_val, data, var_file, variables, diags, is_default=True
+                    )
                 elif required:
                     # Report the template's declaration site: a real (file, line) pair. The
                     # value is missing from the data file, so the data file has no line to
@@ -243,66 +279,163 @@ class Compiler:
                         diagnostic(
                             "ARC-TPL-014",
                             f"Variable {name!r} is required but was not provided",
-                            file=str(template),
+                            file=str(var_file),
                             keypath=name,
-                            line=line_of(raw.get("variables"), name),
+                            line=line_of(variables, name),
                             hint=(
                                 f"Add '{name}:' to your data file, "
                                 "or mark the variable optional in the template."
                             ),
                         )
                     )
+                else:
+                    # A declared optional variable with no default evaluates as none, so
+                    # the spec's canonical guard `if: "{{ x is not none }}"` works without
+                    # requiring an explicit `default: null` (§4.1.2 example).
+                    context[name] = None
             else:
-                self._check_variable_type(name, decl, context[name], data, template, raw, diags)
+                context[name] = self._check_variable_value(
+                    name, decl, context[name], data, var_file, variables, diags, is_default=False
+                )
         return context
 
-    def _check_variable_type(
+    def _check_variable_value(
         self,
         name: str,
-        decl: Any,
+        decl: dict[str, Any],
         value: Any,
         data: Path | None,
-        template: Path,
-        raw: dict[str, Any],
+        var_file: Path,
+        variables: Any,
         diags: list[Diagnostic],
-    ) -> None:
-        """Warn-free type enforcement: a supplied value must match the declared type."""
-        if not isinstance(decl, dict):
-            return
+        *,
+        is_default: bool,
+    ) -> Any:
+        """Type/enum-check a supplied or default value; return the (possibly coerced) value.
+
+        A default value cites the template declaration; a supplied value cites the data file.
+        Per RR-2, a number for a declared ``string`` coerces to text with a warning rather
+        than failing; every other mismatch remains a located error.
+        """
+        # A default always comes from the template declaration line; a supplied value comes
+        # from the data file (which has no per-variable line to cite).
+        if is_default:
+            src, line = str(var_file), line_of(variables, name)
+        else:
+            src, line = (str(data), None) if data is not None else (str(var_file), None)
+
         declared = decl.get("type")
-        expected = _VAR_PY_TYPES.get(declared) if isinstance(declared, str) else None
-        if expected is None:
-            return
+        if isinstance(declared, str) and declared in _VAR_PY_TYPES:
+            coerced = self._check_type(name, declared, value, src, line, diags)
+            if coerced is not _UNCHANGED:
+                value = coerced
+        enum = decl.get("enum")
+        if isinstance(enum, list) and enum and value not in enum:
+            allowed = ", ".join(repr(e) for e in enum)
+            diags.append(
+                diagnostic(
+                    "ARC-TPL-017",
+                    f"Variable {name!r} value {value!r} is not one of the allowed values",
+                    file=src,
+                    keypath=name,
+                    line=line,
+                    hint=f"Allowed values: {allowed}.",
+                )
+            )
+        return value
+
+    def _check_type(
+        self,
+        name: str,
+        declared: str,
+        value: Any,
+        src: str,
+        line: int | None,
+        diags: list[Diagnostic],
+    ) -> Any:
+        """Return ``_UNCHANGED``, or a coerced value; append a diagnostic on mismatch."""
         # bool is an int subclass, so keep boolean and number distinct in both directions.
         if declared == "boolean":
             ok = isinstance(value, bool)
         elif declared == "number":
             ok = isinstance(value, (int, float)) and not isinstance(value, bool)
         else:
-            ok = isinstance(value, expected) and not isinstance(value, bool)
-        if not ok:
-            src = str(data) if data is not None else str(template)
+            ok = isinstance(value, _VAR_PY_TYPES[declared]) and not isinstance(value, bool)
+        if ok:
+            return _UNCHANGED
+        # RR-2: a number supplied for a declared string coerces (locale-aware stringification
+        # is the Phase 1 rule anyway) with a warning; other mismatches stay hard errors.
+        if declared == "string" and isinstance(value, (int, float)) and not isinstance(value, bool):
+            coerced = str(int(value)) if isinstance(value, int) else _num_to_str(value)
             diags.append(
                 diagnostic(
-                    "ARC-TPL-015",
-                    f"Variable {name!r} should be {declared} but got "
-                    f"{type(value).__name__}",
+                    "ARC-TPL-018",
+                    f"Variable {name!r} is a number but declared string; using {coerced!r}",
+                    severity="warning",
                     file=src,
                     keypath=name,
-                    line=None if data is not None else line_of(raw.get("variables"), name),
-                    hint=f"Provide a {declared} value for {name!r}.",
+                    line=line,
+                    hint="Quote the value in your data to make the string intent explicit.",
                 )
             )
+            return coerced
+        diags.append(
+            diagnostic(
+                "ARC-TPL-015",
+                f"Variable {name!r} should be {declared} but got {type(value).__name__}",
+                file=src,
+                keypath=name,
+                line=line,
+                hint=f"Provide a {declared} value for {name!r}.",
+            )
+        )
+        return _UNCHANGED
+
+    def _validate_locales_shape(self, source: TemplateSource) -> list[Diagnostic]:
+        """Validate the shape of a ``locales`` section without applying it (Phase 1).
+
+        Locale application (direction, digit policy, overlays) is Phase 2; here we only accept
+        the file so it is not silently dropped, and reject a malformed shape.
+        """
+        locales = source.raw.get("locales")
+        if locales is None:
+            return []
+        loc_file = source.file_for("locales")
+        if not isinstance(locales, dict):
+            return [
+                diagnostic(
+                    "ARC-TPL-098",
+                    "'locales' must be a mapping of locale names to locale settings",
+                    file=str(loc_file),
+                    keypath="locales",
+                    line=node_line(locales),
+                    hint="Write 'locales:' as e.g. 'fa: {direction: rtl}'.",
+                )
+            ]
+        out: list[Diagnostic] = []
+        for loc_name, settings in locales.items():
+            if settings is not None and not isinstance(settings, dict):
+                out.append(
+                    diagnostic(
+                        "ARC-TPL-098",
+                        f"Locale {loc_name!r} must be a mapping of settings",
+                        file=str(loc_file),
+                        keypath=f"locales.{loc_name}",
+                        line=line_of(locales, str(loc_name)),
+                        hint="Each locale is a mapping, e.g. 'fa: {direction: rtl}'.",
+                    )
+                )
+        return out
 
     # ---------------------------------------------------------------------- formats
     def _resolve_format(
         self,
-        raw: dict[str, Any],
+        source: TemplateSource,
         format_name: str | None,
-        template: Path,
         inferred: dict[str, str],
     ) -> tuple[CanvasSpec, str]:
-        formats = raw.get("formats") or {}
+        template = source.file_for("formats")
+        formats = source.raw.get("formats") or {}
         if not isinstance(formats, dict) or not formats:
             raise DiagnosticError(
                 diagnostic(
@@ -337,17 +470,6 @@ class Compiler:
                 )
             )
         spec = formats[format_name] or {}
-        if isinstance(spec, dict) and "patch" in spec:
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-TPL-095",
-                    f"Per-format 'patch' on format {format_name!r} is not supported in this build",
-                    file=str(template),
-                    keypath=f"formats.{format_name}.patch",
-                    line=line_of(spec, "patch"),
-                    hint="Format patch operations arrive in a later phase.",
-                )
-            )
         canvas_raw = spec.get("canvas") if isinstance(spec, dict) else None
         if not isinstance(canvas_raw, dict):
             raise DiagnosticError(
@@ -403,11 +525,13 @@ class Compiler:
         canvas: CanvasSpec,
         seen_ids: set[str],
         keypath: str,
+        diags: list[Diagnostic],
+        id_suffix: str,
     ) -> CompiledNode:
         self._reject_unsupported_constructs(raw, template, keypath)
 
-        node_id = raw.get("id")
-        if not isinstance(node_id, str) or not node_id:
+        authored_id = raw.get("id")
+        if not isinstance(authored_id, str) or not authored_id:
             raise DiagnosticError(
                 diagnostic(
                     "ARC-TPL-030",
@@ -418,6 +542,9 @@ class Compiler:
                     hint="Add a unique human-readable 'id:' to this node.",
                 )
             )
+        # Inside a repeat expansion every id in the subtree carries the key suffix so IDs stay
+        # globally unique and stable (keyed, not index-based): 'card' -> 'card[ann]'.
+        node_id = f"{authored_id}{id_suffix}"
         if node_id in seen_ids:
             raise DiagnosticError(
                 diagnostic(
@@ -468,6 +595,11 @@ class Compiler:
             "style": style,
             "visible": visible,
             "z": z,
+            # Carry the authoring location so layout/render-time diagnostics can locate the
+            # node in the source (RR-3). Kept out of the canonical hash (SourceRef.exclude).
+            "source": SourceRef(
+                file=str(template), keypath=keypath, line=node_line(raw)
+            ),
         }
 
         if node_type == "group":
@@ -482,12 +614,14 @@ class Compiler:
                         hint="Provide 'children:' as a YAML list of nodes.",
                     )
                 )
-            children = tuple(
-                self._build_node(
-                    child, context, template, canvas, seen_ids, f"{keypath}.children[{i}]"
+            built: list[CompiledNode] = []
+            for i, child in enumerate(children_raw):
+                built.extend(
+                    self._expand_child(
+                        child, context, template, canvas, seen_ids, keypath, i, diags, id_suffix
+                    )
                 )
-                for i, child in enumerate(children_raw)
-            )
+            children = tuple(built)
             direction = raw.get("direction", "ltr")
             if direction not in {"ltr", "rtl"}:
                 raise DiagnosticError(
@@ -572,25 +706,248 @@ class Compiler:
         # path
         return CompiledPath(**common, d=str(raw.get("d", "")))
 
+    # --------------------------------------------------------------- structural constructs
+    def _expand_child(
+        self,
+        child: Any,
+        context: dict[str, Any],
+        template: Path,
+        canvas: CanvasSpec,
+        seen_ids: set[str],
+        parent_keypath: str,
+        index: int,
+        diags: list[Diagnostic],
+        id_suffix: str,
+    ) -> list[CompiledNode]:
+        """Expand one authored child entry into zero or more compiled sibling nodes.
+
+        A plain node compiles to itself; a ``repeat`` construct expands to one node per item;
+        an ``if`` construct includes its node only when the condition is truthy. Expansion is
+        compiler-level (spec §4.1.2), so expanded IDs and diagnostics are stable.
+        """
+        kp = f"{parent_keypath}.children[{index}]"
+        if not isinstance(child, dict):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-032",
+                    f"Child at {kp} must be a node mapping",
+                    file=str(template),
+                    keypath=kp,
+                    hint="Each child is a node mapping or a 'repeat'/'if' construct.",
+                )
+            )
+        if "repeat" in child:
+            return self._expand_repeat(
+                child, context, template, canvas, seen_ids, kp, diags, id_suffix
+            )
+        if "if" in child:
+            return self._expand_if(
+                child, context, template, canvas, seen_ids, kp, diags, id_suffix
+            )
+        return [
+            self._build_node(child, context, template, canvas, seen_ids, kp, diags, id_suffix)
+        ]
+
+    def _expand_if(
+        self,
+        child: dict[str, Any],
+        context: dict[str, Any],
+        template: Path,
+        canvas: CanvasSpec,
+        seen_ids: set[str],
+        keypath: str,
+        diags: list[Diagnostic],
+        id_suffix: str,
+    ) -> list[CompiledNode]:
+        node_raw = self._construct_node(child, template, keypath)
+        condition = self._eval_structural(
+            child.get("if"), context, template, keypath, "if", line_of(child, "if")
+        )
+        if _truthy_value(condition):
+            return [
+                self._build_node(
+                    node_raw, context, template, canvas, seen_ids,
+                    f"{keypath}.node", diags, id_suffix,
+                )
+            ]
+        return []
+
+    def _expand_repeat(
+        self,
+        child: dict[str, Any],
+        context: dict[str, Any],
+        template: Path,
+        canvas: CanvasSpec,
+        seen_ids: set[str],
+        keypath: str,
+        diags: list[Diagnostic],
+        id_suffix: str,
+    ) -> list[CompiledNode]:
+        node_raw = self._construct_node(child, template, keypath)
+        as_name = child.get("as")
+        if not isinstance(as_name, str) or not as_name:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-054",
+                    "A 'repeat' requires an 'as' name for the loop variable",
+                    file=str(template),
+                    keypath=f"{keypath}.as",
+                    line=node_line(child),
+                    hint="Add 'as: item' so the node can reference each element.",
+                )
+            )
+        key_raw = child.get("key")
+        if not isinstance(key_raw, str) or not key_raw:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-055",
+                    "A 'repeat' requires a stable 'key' expression",
+                    file=str(template),
+                    keypath=f"{keypath}.key",
+                    line=node_line(child),
+                    hint="Add 'key: \"{{ item.id }}\"' (or '{{ loop.index }}' if order is stable).",
+                )
+            )
+        collection = self._eval_structural(
+            child.get("repeat"), context, template, keypath, "repeat", line_of(child, "repeat")
+        )
+        if not isinstance(collection, list):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-056",
+                    f"'repeat' expression must be a list, got {type(collection).__name__}",
+                    file=str(template),
+                    keypath=f"{keypath}.repeat",
+                    line=line_of(child, "repeat"),
+                    hint="Iterate over a list variable, e.g. 'repeat: \"{{ guests }}\"'.",
+                )
+            )
+        if len(collection) > _REPEAT_CAP:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-063",
+                    f"'repeat' produced {len(collection)} items, over the cap of {_REPEAT_CAP}",
+                    file=str(template),
+                    keypath=f"{keypath}.repeat",
+                    line=line_of(child, "repeat"),
+                    hint=f"Reduce the collection to at most {_REPEAT_CAP} items.",
+                )
+            )
+        if "loop.index" in key_raw:
+            # Index-derived keys are allowed but flagged: reordering the collection changes
+            # every expanded ID (spec §4.1.1).
+            diags.append(
+                diagnostic(
+                    "ARC-TPL-057",
+                    "'repeat' key is derived from loop.index; reordering will change node IDs",
+                    severity="warning",
+                    file=str(template),
+                    keypath=f"{keypath}.key",
+                    line=line_of(child, "key"),
+                    hint="Prefer a stable field like '{{ item.id }}' when the data has one.",
+                )
+            )
+        out: list[CompiledNode] = []
+        seen_keys: dict[str, int] = {}
+        total = len(collection)
+        for i, item in enumerate(collection):
+            item_ctx = dict(context)
+            item_ctx[as_name] = item
+            item_ctx["loop"] = {"index": i, "first": i == 0, "last": i == total - 1}
+            key_value = self._eval_structural(
+                key_raw, item_ctx, template, keypath, "key", line_of(child, "key")
+            )
+            key_str = _stringify_key(key_value)
+            if key_str in seen_keys:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-TPL-058",
+                        f"'repeat' produced duplicate key {key_str!r} "
+                        f"(items {seen_keys[key_str]} and {i})",
+                        file=str(template),
+                        keypath=f"{keypath}.key",
+                        line=line_of(child, "key"),
+                        hint="The key expression must be unique per item for stable IDs.",
+                    )
+                )
+            seen_keys[key_str] = i
+            out.append(
+                self._build_node(
+                    node_raw, item_ctx, template, canvas, seen_ids,
+                    f"{keypath}.node", diags, f"{id_suffix}[{key_str}]",
+                )
+            )
+        return out
+
+    def _construct_node(
+        self, child: dict[str, Any], template: Path, keypath: str
+    ) -> dict[str, Any]:
+        node_raw = child.get("node")
+        if not isinstance(node_raw, dict):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-059",
+                    f"Construct at {keypath} requires a 'node' mapping",
+                    file=str(template),
+                    keypath=f"{keypath}.node",
+                    line=node_line(child),
+                    hint="Give the 'repeat'/'if' construct a single 'node:' to expand.",
+                )
+            )
+        return node_raw
+
+    def _eval_structural(
+        self,
+        raw: Any,
+        context: dict[str, Any],
+        template: Path,
+        keypath: str,
+        field: str,
+        line: int | None,
+    ) -> Any:
+        """Evaluate a structural ``repeat``/``if``/``key`` expression to a native value."""
+        if not isinstance(raw, str):
+            return raw
+        try:
+            return render_value(raw, context, self._functions)
+        except MissingVariableError as exc:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-014",
+                    f"'{field}' at {keypath} references undefined variable '{exc.path}'",
+                    file=str(template),
+                    keypath=f"{keypath}.{field}",
+                    line=line,
+                    hint=f"Declare and supply '{exc.path}', or guard it with | default(...).",
+                )
+            ) from exc
+        except BudgetError as exc:
+            raise DiagnosticError(
+                diagnostic(
+                    BUDGET_CODE,
+                    f"'{field}' at {keypath} exceeded its evaluation budget: {exc.message}",
+                    file=str(template),
+                    keypath=f"{keypath}.{field}",
+                    line=line,
+                    hint="Simplify the expression.",
+                )
+            ) from exc
+        except ExpressionError as exc:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-060",
+                    f"'{field}' at {keypath} has an invalid expression: {exc.message}",
+                    file=str(template),
+                    keypath=f"{keypath}.{field}",
+                    line=line,
+                    hint="Check the '{{ … }}' expression syntax.",
+                )
+            ) from exc
+
     # ------------------------------------------------------------------- sub-parsers
     def _reject_unsupported_constructs(
         self, raw: dict[str, Any], template: Path, keypath: str
     ) -> None:
-        for key, code, what in (
-            ("repeat", "ARC-TPL-050", "'repeat' loops"),
-            ("if", "ARC-TPL-051", "'if' conditionals"),
-        ):
-            if key in raw:
-                raise DiagnosticError(
-                    diagnostic(
-                        code,
-                        f"Structural {what} are not supported in this build",
-                        file=str(template),
-                        keypath=f"{keypath}.{key}",
-                        line=line_of(raw, key),
-                        hint="Structural constructs arrive in Phase 1.",
-                    )
-                )
         layout = raw.get("layout")
         if layout in {"hstack", "vstack"}:
             raise DiagnosticError(
@@ -927,7 +1284,7 @@ class Compiler:
         if not isinstance(raw, str):
             return str(raw)
         try:
-            value = render_value(raw, context)
+            value = render_value(raw, context, self._functions)
         except MissingVariableError as exc:
             raise DiagnosticError(
                 diagnostic(
@@ -971,20 +1328,18 @@ class Compiler:
 
 
 # ------------------------------------------------------------------- module helpers
-# Template-level sections / sidecar files that belong to later phases. Authoring one is a
-# located error, not a silent no-op (brief non-goals; matches the ARC-TPL-050 house style).
+# Iteration cap for structural 'repeat' (spec §4.1.2). Exceeding it is a resource error.
+_REPEAT_CAP = 1000
+
+# Sentinel returned by type checking to mean "value unchanged" (distinct from None, which is
+# a legitimate coerced value the caller may want to keep).
+_UNCHANGED = object()
+
+# Template-level sections still deferred to later phases. Authoring one is a located error,
+# not a silent no-op. Per RR-4 these are collected together rather than raised on the first.
 _UNSUPPORTED_SECTIONS: tuple[tuple[str, str, str], ...] = (
     ("styles", "ARC-TPL-093", "Style-pack definitions arrive in Phase 3."),
     ("style", "ARC-TPL-094", "Opting into a style pack arrives in Phase 3."),
-    ("locales", "ARC-TPL-092", "Locales arrive in Phase 2."),
-)
-_SPLIT_SIDECARS: tuple[str, ...] = (
-    "schema.yaml",
-    "formats.yaml",
-    "locales.yaml",
-    "styles.yaml",
-    "preview-data.yaml",
-    "preview_data.yaml",
 )
 
 
@@ -1002,30 +1357,80 @@ def _reject_unsupported(code: str, what: str, template: Path, detail: str) -> Co
     )
 
 
-def _reject_unsupported_sections(raw: dict[str, Any], template: Path) -> None:
-    """Reject authored template-level sections and split sidecars that are Phase 1+."""
+def _collect_unsupported_sections(source: TemplateSource) -> list[Diagnostic]:
+    """Return one diagnostic per still-unsupported section, aggregated (RR-4).
+
+    Covers deferred template-level sections (styles/style), a ``styles.yaml`` sidecar (Phase
+    3), and per-format ``patch`` operations (Phase 2) — all reported together so the
+    correction loop sees every offense in one run.
+    """
+    raw = source.raw
+    out: list[Diagnostic] = []
     for key, code, detail in _UNSUPPORTED_SECTIONS:
         if key in raw:
-            raise DiagnosticError(
+            out.append(
                 diagnostic(
                     code,
                     f"Template-level '{key}' section is not supported in this build",
-                    file=str(template),
+                    file=str(source.template_path),
                     keypath=key,
                     line=line_of(raw, key),
                     hint=detail,
                 )
             )
-    for sidecar in _SPLIT_SIDECARS:
-        if (template.parent / sidecar).is_file():
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-TPL-096",
-                    f"Split-template sidecar {sidecar!r} is not supported in this build",
-                    file=str(template.parent / sidecar),
-                    hint="Split templates arrive in a later phase; keep one template file.",
-                )
+    styles_sidecar = source.root_dir / "styles.yaml"
+    if styles_sidecar.is_file():
+        out.append(
+            diagnostic(
+                "ARC-TPL-096",
+                "Split-template sidecar 'styles.yaml' is not supported in this build",
+                file=str(styles_sidecar),
+                hint="Style packs arrive in Phase 3.",
             )
+        )
+    formats = raw.get("formats")
+    if isinstance(formats, dict):
+        for fmt_name, spec in formats.items():
+            if isinstance(spec, dict) and "patch" in spec:
+                out.append(
+                    diagnostic(
+                        "ARC-TPL-095",
+                        f"Per-format 'patch' on format {fmt_name!r} is not supported "
+                        "in this build",
+                        file=str(source.file_for("formats")),
+                        keypath=f"formats.{fmt_name}.patch",
+                        line=line_of(spec, "patch"),
+                        hint="Format patch operations arrive in Phase 2.",
+                    )
+                )
+    return out
+
+
+def _num_to_str(value: float) -> str:
+    """Render a float value the way string interpolation does."""
+    return str(int(value)) if float(value).is_integer() else repr(value)
+
+
+def _truthy_value(value: Any) -> bool:
+    """Truthiness for structural ``if`` (booleans/null/numbers/strings/collections)."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, (str, list, dict)):
+        return len(value) > 0
+    return bool(value)
+
+
+def _stringify_key(value: Any) -> str:
+    """Render a repeat key value to the string used inside expanded node IDs."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return _num_to_str(value)
+    return str(value)
 
 
 def _int_field(value: Any, template: Path, keypath: str, line: int | None) -> int:

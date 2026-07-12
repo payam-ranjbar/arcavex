@@ -16,6 +16,7 @@ dependencies = [
     "typer",
     "ruamel.yaml",
     "rich",
+    "watchfiles",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +28,6 @@ dev = [
     "import-linter",
     "pillow",
     "numpy",
-    "watchfiles",
     "mcp",
 ]
 
@@ -83,4 +83,17 @@ source_modules = ["arcavex.builtin"]
 forbidden_modules = [
     "arcavex.clients",
     "arcavex.bootstrap",
+]
+
+# Services (compiler, expressions, text, authoring, …) resolve template functions through an
+# injected registry table wired by bootstrap; they must never import the built-ins directly.
+# This keeps the single-source-of-truth function table honest (Phase 1 CR-15 remediation).
+[[tool.importlinter.contracts]]
+name = "Services do not import built-ins or the composition root"
+type = "forbidden"
+source_modules = ["arcavex.services"]
+forbidden_modules = [
+    "arcavex.builtin",
+    "arcavex.bootstrap",
+    "arcavex.clients",
 ]

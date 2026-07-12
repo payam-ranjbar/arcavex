@@ -201,10 +201,28 @@ def _nongoal_template(tmp_path: Path, extra: str) -> Path:
     )
 
 
-def test_nongoal_locales_section_rejected(tmp_path: Path) -> None:
-    template = _nongoal_template(tmp_path, "locales:\n  en: {}\n")
+def test_locales_section_shape_accepted(tmp_path: Path) -> None:
+    """Scope item 1: a well-formed locales section is parsed, not rejected (Phase 1)."""
+    template = _nongoal_template(
+        tmp_path, "locales:\n  en: {direction: ltr}\n  fa: {direction: rtl}\n"
+    )
     result = Compiler().compile(template, None, "square", None, None)
-    assert any(d.code == "ARC-TPL-092" for d in result.diagnostics)
+    assert result.document is not None
+    assert not any(d.is_error() for d in result.diagnostics)
+
+
+def test_locales_malformed_shape_rejected(tmp_path: Path) -> None:
+    """A locales section that is not a mapping of mappings is a located error."""
+    template = _nongoal_template(tmp_path, "locales:\n  en: not-a-mapping\n")
+    result = Compiler().compile(template, None, "square", None, None)
+    assert any(d.code == "ARC-TPL-098" for d in result.diagnostics)
+
+
+def test_requesting_locale_still_deferred(tmp_path: Path) -> None:
+    """Applying a requested --locale remains a Phase 2 deferral (ARC-TPL-091)."""
+    template = _nongoal_template(tmp_path, "locales:\n  fa: {direction: rtl}\n")
+    result = Compiler().compile(template, None, "square", "fa", None)
+    assert any(d.code == "ARC-TPL-091" for d in result.diagnostics)
 
 
 def test_nongoal_styles_section_rejected(tmp_path: Path) -> None:

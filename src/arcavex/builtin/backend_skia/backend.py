@@ -22,6 +22,7 @@ from arcavex.kernel.ir.models import (
     ResolvedImage,
     ResolvedShape,
     ResolvedText,
+    SourceRef,
 )
 from arcavex.kernel.ir.units import Rect
 from arcavex.services.text.service import TextService
@@ -60,7 +61,7 @@ class SkiaBackend(RendererBackend):
         elif isinstance(content, ResolvedText):
             self._draw_text(canvas, node.bounds, content)
         elif isinstance(content, ResolvedImage):
-            self._draw_image(canvas, node.bounds, content, node.opacity)
+            self._draw_image(canvas, node.bounds, content, node.opacity, node.source)
 
         if node.kind == "group" and node.children:
             did_clip = False
@@ -119,30 +120,25 @@ class SkiaBackend(RendererBackend):
         )
 
     def _draw_image(
-        self, canvas: object, bounds: Rect, image_spec: ResolvedImage, opacity: float
+        self,
+        canvas: object,
+        bounds: Rect,
+        image_spec: ResolvedImage,
+        opacity: float,
+        source: SourceRef | None,
     ) -> None:
         # Missing assets are caught at compile time (ARC-AST-001) so validate reports them.
         # A file that exists but cannot be decoded still reaches here; skia raises
         # ValueError/RuntimeError rather than returning None, so guard the decode and
-        # surface a located asset diagnostic (exit 3) instead of an ARC-INT-999 leak.
+        # surface a located asset diagnostic (exit 3) instead of an ARC-INT-999 leak. The
+        # node's source location is carried through so the diagnostic points at the node
+        # (RR-3).
         try:
             image = skia.Image.open(image_spec.asset_path)
         except (ValueError, RuntimeError) as exc:
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-AST-002",
-                    f"Could not decode image asset: {image_spec.asset_path}",
-                    hint="Check that the file is a supported, undamaged image format.",
-                )
-            ) from exc
+            raise _undecodable_image(image_spec.asset_path, source) from exc
         if image is None:
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-AST-002",
-                    f"Could not decode image asset: {image_spec.asset_path}",
-                    hint="Check that the file is a supported, undamaged image format.",
-                )
-            )
+            raise _undecodable_image(image_spec.asset_path, source)
         iw, ih = float(image.width()), float(image.height())
         dst = _skrect(bounds)
         paint = skia.Paint()
@@ -165,6 +161,20 @@ class SkiaBackend(RendererBackend):
             target = skia.Rect.MakeXYWH(dx, dy, dw, dh)
         canvas.drawImageRect(image, target, sampling, paint)  # type: ignore[attr-defined]
         canvas.restore()  # type: ignore[attr-defined]
+
+
+def _undecodable_image(asset_path: str, source: SourceRef | None) -> DiagnosticError:
+    kwargs: dict[str, str | int | None] = {}
+    if source is not None:
+        kwargs = {"file": source.file, "keypath": source.keypath, "line": source.line}
+    return DiagnosticError(
+        diagnostic(
+            "ARC-AST-002",
+            f"Could not decode image asset: {asset_path}",
+            hint="Check that the file is a supported, undamaged image format.",
+            **kwargs,
+        )
+    )
 
 
 def _visible(node: LayoutNode) -> bool:

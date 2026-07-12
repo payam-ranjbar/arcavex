@@ -18,6 +18,21 @@ from arcavex.kernel.ir.units import Matrix3, Rect
 RGBA = tuple[float, float, float, float]
 
 
+class SourceRef(BaseModel):
+    """A node's authoring source location, carried for render/layout-time diagnostics.
+
+    This is excluded from serialization (``exclude=True``) so it never enters the canonical
+    hash — canonical forms must contain no absolute filesystem paths (spec §3.1.4) — while
+    still letting the solver and backend cite the node's file/line/keypath (RR-3).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    file: str | None = None
+    keypath: str | None = None
+    line: int | None = None
+
+
 # --------------------------------------------------------------------------- shared specs
 class Transform(BaseModel):
     """A node transform in points and degrees, applied about ``origin``."""
@@ -140,6 +155,8 @@ class _CompiledNodeBase(BaseModel):
     mask: MaskSpec | None = None
     visible: bool = True
     z: int = 0
+    # Authoring location, kept out of serialization/hash but used for located diagnostics.
+    source: SourceRef | None = Field(default=None, exclude=True)
 
 
 class CompiledGroup(_CompiledNodeBase):
@@ -301,6 +318,8 @@ class LayoutNode(BaseModel):
     clip: bool = False
     resolved_content: ResolvedContent = None
     children: tuple[LayoutNode, ...] = ()
+    # Authoring location propagated from the compiled node for located diagnostics (RR-3).
+    source: SourceRef | None = Field(default=None, exclude=True)
 
 
 class ResolvedCanvas(BaseModel):

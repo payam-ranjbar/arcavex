@@ -92,6 +92,7 @@ class AnchorLayoutSolver(LayoutSolver):
             clip=clip,
             resolved_content=self._resolve_content(node),
             children=children,
+            source=node.source,
         )
 
     def _resolve_content(self, node: CompiledNode) -> ResolvedContent:
@@ -153,6 +154,7 @@ class AnchorLayoutSolver(LayoutSolver):
                     "ARC-LAY-020",
                     f"Node {node.id!r} uses 'fit_content' but is not a text node",
                     hint="Only text nodes support fit_content in Phase 0.",
+                    **self._loc(node),
                 )
             )
         req = MeasureRequest(
@@ -168,13 +170,21 @@ class AnchorLayoutSolver(LayoutSolver):
         )
         return measure(req)
 
+    @staticmethod
+    def _loc(node: CompiledNode) -> dict[str, str | int | None]:
+        """Return located-diagnostic kwargs from a node's carried source (RR-3)."""
+        src = node.source
+        if src is None:
+            return {}
+        return {"file": src.file, "keypath": src.keypath, "line": src.line}
+
     def _resolve_x(self, node: CompiledNode, parent: Rect, width: float) -> float:
         anchors = node.constraints.anchors
         present = [k for k in ("left", "right", "center_x") if k in anchors]
         self._require_single(node, present, "horizontal", node.constraints)
         key = present[0]
         anchor = anchors[key]
-        ref = _parent_edge(anchor.edge, parent) + anchor.offset_pt
+        ref = self._parent_edge(anchor.edge, parent, node) + anchor.offset_pt
         if key == "left":
             return ref
         if key == "right":
@@ -187,7 +197,7 @@ class AnchorLayoutSolver(LayoutSolver):
         self._require_single(node, present, "vertical", node.constraints)
         key = present[0]
         anchor = anchors[key]
-        ref = _parent_edge(anchor.edge, parent) + anchor.offset_pt
+        ref = self._parent_edge(anchor.edge, parent, node) + anchor.offset_pt
         if key == "top":
             return ref
         if key == "bottom":
@@ -204,6 +214,7 @@ class AnchorLayoutSolver(LayoutSolver):
                     "ARC-LAY-030",
                     f"Node {node.id!r} is under-constrained on the {axis} axis",
                     hint=f"Add exactly one {axis} anchor ({options}).",
+                    **self._loc(node),
                 )
             )
         if len(present) > 1:
@@ -213,30 +224,31 @@ class AnchorLayoutSolver(LayoutSolver):
                     "ARC-LAY-031",
                     f"Node {node.id!r} is over-constrained on the {axis} axis: {joined}",
                     hint=f"Keep exactly one {axis} anchor; size comes from the size spec.",
+                    **self._loc(node),
                 )
             )
 
-
-def _parent_edge(edge: str, parent: Rect) -> float:
-    if edge == "top":
-        return parent.y
-    if edge == "bottom":
-        return parent.bottom
-    if edge == "center_y":
-        return parent.center_y
-    if edge == "left":
-        return parent.x
-    if edge == "right":
-        return parent.right
-    if edge == "center_x":
-        return parent.center_x
-    # The compiler only emits the six physical parent edges; anything else (e.g. the
-    # logical start/end the model admits for future phases) is a real error, not silently
-    # resolved to the centre.
-    raise DiagnosticError(
-        diagnostic(
-            "ARC-LAY-014",
-            f"Unsupported anchor edge {edge!r}",
-            hint="Phase 0 supports top, bottom, left, right, center_x, and center_y.",
+    def _parent_edge(self, edge: str, parent: Rect, node: CompiledNode) -> float:
+        if edge == "top":
+            return parent.y
+        if edge == "bottom":
+            return parent.bottom
+        if edge == "center_y":
+            return parent.center_y
+        if edge == "left":
+            return parent.x
+        if edge == "right":
+            return parent.right
+        if edge == "center_x":
+            return parent.center_x
+        # The compiler only emits the six physical parent edges; anything else (e.g. the
+        # logical start/end the model admits for future phases) is a real error, not silently
+        # resolved to the centre.
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-LAY-014",
+                f"Unsupported anchor edge {edge!r}",
+                hint="Phase 0 supports top, bottom, left, right, center_x, and center_y.",
+                **self._loc(node),
+            )
         )
-    )

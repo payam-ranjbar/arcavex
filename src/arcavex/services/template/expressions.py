@@ -13,11 +13,20 @@ input; neither is an input to the rendered output, so determinism is preserved.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Union
 
+from arcavex.services.template.functions import BUILTIN_FUNCTIONS
+
 # Union (not ``|``) because the recursive forward reference is not evaluable at runtime.
 Value = Union[str, int, float, bool, None, list["Value"], dict[str, "Value"]]  # noqa: UP007
+
+# A function table resolves a call name plus evaluated arguments to a value. It raises
+# :class:`UnknownFunctionError` for an unregistered name and :class:`ValueError` for a bad
+# call; the evaluator wraps the latter as an expression error. Production wires a
+# registry-backed table (``arcavex.bootstrap``); standalone use falls back to the built-ins.
+FunctionTable = Callable[[str, list["Value"]], "Value"]
 
 _STEP_CAP = 100_000
 _TIME_BUDGET_S = 0.010
@@ -47,6 +56,28 @@ class BudgetError(ExpressionError):
     """The expression exceeded its evaluation budget."""
 
 
+class UnknownFunctionError(ExpressionError):
+    """A call references a function name that is not registered."""
+
+    def __init__(self, name: str, available: list[str]) -> None:
+        self.func_name = name
+        self.available = available
+        detail = f" (available: {', '.join(available)})" if available else ""
+        super().__init__(f"unknown function {name!r}{detail}")
+
+
+def default_function_table() -> FunctionTable:
+    """Return a table backed by the built-in functions, for standalone evaluation."""
+
+    def table(name: str, args: list[Value]) -> Value:
+        fn = BUILTIN_FUNCTIONS.get(name)
+        if fn is None:
+            raise UnknownFunctionError(name, sorted(BUILTIN_FUNCTIONS))
+        return fn(args)
+
+    return table
+
+
 # --------------------------------------------------------------------------- tokenizer
 @dataclass(frozen=True)
 class _Token:
@@ -55,7 +86,7 @@ class _Token:
     pos: int
 
 
-_KEYWORDS = {"if", "else", "and", "or", "not", "true", "false", "none", "null"}
+_KEYWORDS = {"if", "else", "and", "or", "not", "is", "true", "false", "none", "null"}
 _TWO_CHAR_OPS = {"==", "!=", "<=", ">="}
 _ONE_CHAR_OPS = set("+-*/%<>|")
 
@@ -165,6 +196,13 @@ class _Binary(_Node):
 
 
 @dataclass(frozen=True)
+class _Is(_Node):
+    left: _Node
+    right: _Node
+    negate: bool
+
+
+@dataclass(frozen=True)
 class _Ternary(_Node):
     cond: _Node
     if_true: _Node
@@ -258,6 +296,15 @@ class _Parser:
 
     def _comparison(self) -> _Node:
         left = self._additive()
+        # 'is' / 'is not' identity test (chiefly 'x is none' / 'x is not none'); it does not
+        # chain, so it is handled before the relational operators.
+        if self._peek().kind == "KEYWORD" and self._peek().value == "is":
+            self._advance()
+            negate = False
+            if self._peek().kind == "KEYWORD" and self._peek().value == "not":
+                self._advance()
+                negate = True
+            return _Is(left, self._additive(), negate)
         comparisons = {"==", "!=", "<", "<=", ">", ">="}
         while self._peek().kind == "OP" and self._peek().value in comparisons:
             op = self._advance().value
@@ -344,8 +391,9 @@ class _Parser:
 
 # ------------------------------------------------------------------------- evaluator
 class _Evaluator:
-    def __init__(self, context: dict[str, Value]) -> None:
+    def __init__(self, context: dict[str, Value], functions: FunctionTable) -> None:
         self._ctx = context
+        self._functions = functions
         self._steps = 0
         self._deadline = time.perf_counter() + _TIME_BUDGET_S
 
@@ -370,6 +418,8 @@ class _Evaluator:
             return self._eval_unary(node)
         if isinstance(node, _Binary):
             return self._eval_binary(node)
+        if isinstance(node, _Is):
+            return self._eval_is(node)
         if isinstance(node, _Ternary):
             branch = node.if_true if _truthy(self.eval(node.cond)) else node.if_false
             return self.eval(branch)
@@ -434,9 +484,25 @@ class _Evaluator:
             return _compare(node.op, left, right)
         return _arith(node.op, left, right)
 
+    def _eval_is(self, node: _Is) -> Value:
+        left = self.eval(node.left)
+        right = self.eval(node.right)
+        if left is None or right is None:
+            same = left is None and right is None
+        else:
+            same = left == right and type(left) is type(right)
+        return (not same) if node.negate else same
+
+    def _call(self, name: str, args: list[Value]) -> Value:
+        try:
+            return self._functions(name, args)
+        except ValueError as exc:
+            # A bad call (wrong arity/type) is an authoring error, surfaced as ARC-TPL-060.
+            raise ExpressionError(str(exc)) from exc
+
     def _eval_call(self, node: _Call) -> Value:
         args = [self.eval(a) for a in node.args]
-        return _call_builtin(node.func, args)
+        return self._call(node.func, args)
 
     def _eval_filter(self, node: _Filter) -> Value:
         if node.name == "default":
@@ -449,7 +515,7 @@ class _Evaluator:
             return self.eval(node.args[0]) if value is None else value
         target = self.eval(node.target)
         args = [self.eval(a) for a in node.args]
-        return _call_builtin(node.name, [target, *args])
+        return self._call(node.name, [target, *args])
 
 
 # --------------------------------------------------------------------- helper builtins
@@ -504,40 +570,6 @@ def _compare(op: str, left: Value, right: Value) -> bool:
     return lo >= ro
 
 
-def _call_builtin(name: str, args: list[Value]) -> Value:
-    if name == "len":
-        _check_arity(name, args, 1)
-        target = args[0]
-        if isinstance(target, (str, list, dict)):
-            return len(target)
-        raise ExpressionError("len() requires a string, list, or object")
-    if name == "upper":
-        _check_arity(name, args, 1)
-        return _as_str_arg(name, args[0]).upper()
-    if name == "lower":
-        _check_arity(name, args, 1)
-        return _as_str_arg(name, args[0]).lower()
-    if name == "format":
-        if not args or not isinstance(args[0], str):
-            raise ExpressionError("format() requires a template string as its first argument")
-        try:
-            return args[0].format(*[_stringify(a) for a in args[1:]])
-        except (IndexError, KeyError, ValueError) as exc:
-            raise ExpressionError(f"format() failed: {exc}") from exc
-    raise ExpressionError(f"unknown function {name!r}")
-
-
-def _check_arity(name: str, args: list[Value], n: int) -> None:
-    if len(args) != n:
-        raise ExpressionError(f"{name}() takes exactly {n} argument(s)")
-
-
-def _as_str_arg(name: str, value: Value) -> str:
-    if not isinstance(value, str):
-        raise ExpressionError(f"{name}() requires a string")
-    return value
-
-
 def stringify(value: Value) -> str:
     """Convert an expression value to its interpolation string form."""
     return _stringify(value)
@@ -560,16 +592,29 @@ def _stringify(value: Value) -> str:
 
 
 # ------------------------------------------------------------------------- public API
-def evaluate_expression(src: str, context: dict[str, Value]) -> Value:
-    """Parse and evaluate a single expression body (without ``{{ }}``)."""
+def evaluate_expression(
+    src: str, context: dict[str, Value], functions: FunctionTable | None = None
+) -> Value:
+    """Parse and evaluate a single expression body (without ``{{ }}``).
+
+    Args:
+        src: The expression body.
+        context: Variable bindings visible to the expression.
+        functions: The function-resolution table. Defaults to the built-in functions so
+            standalone callers work without wiring a registry; production injects a
+            registry-backed table.
+    """
+    table = functions if functions is not None else default_function_table()
     tokens = _tokenize(src)
     if len(tokens) > _TOKEN_CAP:
         raise BudgetError("expression exceeds the maximum token budget")
     ast = _Parser(tokens).parse()
-    return _Evaluator(context).eval(ast)
+    return _Evaluator(context, table).eval(ast)
 
 
-def render_value(raw: str, context: dict[str, Value]) -> Value:
+def render_value(
+    raw: str, context: dict[str, Value], functions: FunctionTable | None = None
+) -> Value:
     """Resolve a scalar string that may contain ``{{ … }}`` expressions.
 
     If the string is exactly one expression, the native value type is preserved. Otherwise
@@ -579,9 +624,10 @@ def render_value(raw: str, context: dict[str, Value]) -> Value:
     if "{{" not in raw and "\\{{" not in raw:
         return raw
 
+    table = functions if functions is not None else default_function_table()
     exact = _match_exact(raw)
     if exact is not None:
-        return evaluate_expression(exact, context)
+        return evaluate_expression(exact, context, table)
 
     out: list[str] = []
     i = 0
@@ -596,7 +642,7 @@ def render_value(raw: str, context: dict[str, Value]) -> Value:
             if end == -1:
                 raise ExpressionError("unterminated '{{' expression")
             body = raw[i + 2 : end]
-            out.append(_stringify(evaluate_expression(body, context)))
+            out.append(_stringify(evaluate_expression(body, context, table)))
             i = end + 2
             continue
         out.append(raw[i])
