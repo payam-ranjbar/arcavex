@@ -1,5 +1,5 @@
 # ARC-TPL-070 — Scaffold target already exists
 
-'template new' will not scaffold into a path that already exists and is not empty.
+'template new' refuses to write into a directory that already exists and contains files, so it can never overwrite work you already have. A path that does not yet exist, or an empty directory, is accepted.
 
-**Typical fix:** Choose a new directory name, or remove the existing one.
+**Typical fix:** Point 'template new' at a new or empty directory, or move the existing contents aside first. To evolve a template you already have, edit it directly rather than re-scaffolding over it.

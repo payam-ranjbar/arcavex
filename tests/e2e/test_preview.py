@@ -75,8 +75,9 @@ root:
     assert Path(good.output_path).read_bytes() == good_bytes
 
 
-def test_watch_rerenders_on_data_change(tmp_path: Path) -> None:
-    """Drive the watch loop through its stop-event seam and observe a re-render."""
+def test_watch_rerenders_on_single_save(tmp_path: Path) -> None:
+    """CR-7: one save re-renders — no retry loop, because the watcher is live before the
+    initial render, so the startup race that used to drop that save is gone."""
     facade = build_facade()
     template, data = _make_template(tmp_path)
     results: list = []
@@ -91,17 +92,13 @@ def test_watch_rerenders_on_data_change(tmp_path: Path) -> None:
     thread.start()
     try:
         _wait_until(lambda: len(results) >= 1, timeout=15.0)
-        assert results[0].ok  # initial render
+        assert results[0].ok  # initial render; watcher already registered
         good_bytes = Path(results[0].output_path).read_bytes()
 
-        # Re-touch the data until the change-driven render lands (watcher startup race).
-        deadline = time.time() + 20.0
-        n = 1
-        while len(results) < 2 and time.time() < deadline:
-            data.write_text(f"title: Changed {n}\nsubtitle: v{n}\n", encoding="utf-8")
-            n += 1
-            time.sleep(0.4)
-        assert len(results) >= 2, "watch did not re-render on the data change"
+        # A single save (not a retry loop) must produce exactly one re-render.
+        time.sleep(0.3)  # settle so the write clearly follows the initial render
+        data.write_text("title: Changed\nsubtitle: v2\n", encoding="utf-8")
+        _wait_until(lambda: len(results) >= 2, timeout=15.0)
         assert results[-1].ok
         assert results[-1].changed_file is not None
         # The re-render produced fresh bytes to the same stable path.
@@ -109,6 +106,28 @@ def test_watch_rerenders_on_data_change(tmp_path: Path) -> None:
     finally:
         stop.set()
         thread.join(timeout=10.0)
+        assert not thread.is_alive()
+
+
+def test_watch_stops_promptly_without_events(tmp_path: Path) -> None:
+    """CR-13: a set stop_event is honored within the finite rust timeout, without needing a
+    filesystem event to wake the loop, so the thread never leaks."""
+    facade = build_facade()
+    template, data = _make_template(tmp_path)
+    results: list = []
+    stop = threading.Event()
+
+    thread = threading.Thread(
+        target=run_watch,
+        args=(facade, template, data, "square", None, results.append),
+        kwargs={"stop_event": stop},
+        daemon=True,
+    )
+    thread.start()
+    _wait_until(lambda: len(results) >= 1, timeout=15.0)  # initial render
+    stop.set()
+    thread.join(timeout=5.0)
+    assert not thread.is_alive()
 
 
 def _wait_until(predicate, timeout: float) -> None:

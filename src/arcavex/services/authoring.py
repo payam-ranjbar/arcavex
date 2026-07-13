@@ -13,15 +13,16 @@ from typing import Any
 from arcavex.kernel.api import (
     CompilerProtocol,
     FormatInfo,
+    FunctionInfo,
     NodeInfo,
     ScaffoldResult,
     SplitResult,
     TemplateInspectReport,
     VariableInfo,
 )
-from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic
-from arcavex.kernel.ir.models import CompiledGroup, CompiledNode
+from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
 from arcavex.kernel.ir.units import Dim
+from arcavex.services.template.functions import FUNCTION_SIGNATURES
 from arcavex.services.template.loader import (
     _SIDECARS,
     dump_yaml,
@@ -47,6 +48,9 @@ version: 0.1.0
 variables:
   title: {type: string, required: true, doc: "Main headline shown large"}
   subtitle: {type: string, required: false, doc: "Optional supporting line"}
+  # An optional variable with no default reads as none when omitted, which the `if:` below
+  # tests. Set `badge:` in data.yaml to make the footer appear.
+  badge: {type: string, required: false, doc: "Optional corner badge; shows the footer when set"}
 
 formats:
   square:
@@ -94,11 +98,26 @@ root:
       constraints:
         anchor: {left: parent.left+64px, top: parent.center_y+70px}
         size: {w: 82%, h: fit_content}
+
+    # Conditional node: included only when `badge` is supplied. `if:` is fully usable today
+    # because this single node has its own distinct anchor. (Laying out a *dynamic* number of
+    # repeated nodes needs layout stacks, which arrive in Phase 2 — see the template README.)
+    - if: "{{ badge is not none }}"
+      node:
+        id: badge
+        type: text
+        text: "{{ badge }}"
+        style: {font: Inter, font_size: 28px, font_weight: 600, color: "#3ddc97", align: start}
+        constraints:
+          anchor: {left: parent.left+64px, bottom: parent.bottom-64px}
+          size: {w: 82%, h: fit_content}
 """
 
 _SCAFFOLD_DATA = """\
 title: "Hello from Arcavex"
 subtitle: "A scaffolded card"
+# Uncomment to make the conditional footer appear:
+# badge: "NEW"
 """
 
 
@@ -106,23 +125,38 @@ def _scaffold_readme(name: str) -> str:
     return f"""\
 # {name}
 
-A scaffolded Arcavex template. Render it out of the box:
+A scaffolded Arcavex template.
+
+Render it with the sample data (edit `data.yaml` and re-run to see changes):
 
 ```
-arcavex render {name} --format square -o {name}.png
+arcavex render {name} --data {name}/data.yaml --format square -o {name}.png
 ```
 
-Or start the save-to-preview loop:
+Omitting `--data` renders the `preview_data` baked into `template.yaml` instead, so
+`arcavex render {name} --format square` also works out of the box.
+
+Start the save-to-preview loop (re-renders on every save):
 
 ```
 arcavex preview {name}/template.yaml --data {name}/data.yaml --format square --watch
 ```
 
-Edit `data.yaml` to change `title`/`subtitle`, or inspect the contract:
+Check it without data, or inspect the machine-readable contract:
 
 ```
+arcavex template check {name}
 arcavex template inspect {name} --json
 ```
+
+## What this template shows
+
+- `{{{{ subtitle | default('…') }}}}` — an optional variable with a fallback.
+- `if: "{{{{ badge is not none }}}}"` — a conditional node. Set `badge:` in `data.yaml` to
+  make the footer appear; leave it out and the node is dropped.
+
+For the full feature set (repeat, all template functions, split layout, `doctor`, `explain`),
+see the top-level project README.
 """
 
 
@@ -169,7 +203,14 @@ class AuthoringService:
 
     # ------------------------------------------------------------------ inspect
     def inspect(self, template: Path) -> TemplateInspectReport:
-        """Report a template's variables, formats, node IDs, functions, and example data."""
+        """Report a template's authored contract: variables, formats, nodes, functions, data.
+
+        Nodes are reported *as authored* (DX-3): ``repeat``/``if`` constructs appear once with
+        their origin and expression, never expanded against preview data, so the structural
+        contract is complete regardless of what the preview data instantiates. The template is
+        still compiled to detect and surface failures (CR-6): a compile error sets ``ok`` and
+        ``compiled`` false and the reason rides in ``diagnostics``.
+        """
         source = load_template(template)
         raw = source.raw
         variables = _variable_infos(raw.get("variables"))
@@ -177,26 +218,24 @@ class AuthoringService:
         preview_data = _to_plain(raw.get("preview_data") or {})
         version = raw.get("version")
         version_str = str(version) if version is not None else None
+        nodes = _walk_authored_nodes(raw.get("root"))
 
-        # Compile with preview data (no external data) to enumerate compiled node IDs. This is
-        # best-effort: a template needing supplied data may not compile, in which case node
-        # IDs are omitted and the reason is surfaced as diagnostics.
-        nodes: list[NodeInfo] = []
-        diagnostics: list[Diagnostic] = list(fmt_diags)
         format_name = formats[0].name if formats else None
         result = self._compiler.compile(template, None, format_name, None, None)
-        if result.document is not None:
-            nodes = _walk_nodes(result.document.root)
-        else:
-            diagnostics.extend(result.diagnostics)
+        diagnostics: list[Diagnostic] = []
+        for diag in [*fmt_diags, *result.diagnostics]:
+            if diag not in diagnostics:
+                diagnostics.append(diag)
+        compiled = result.document is not None and not has_errors(result.diagnostics)
         return TemplateInspectReport(
-            ok=True,
+            ok=not has_errors(diagnostics),
+            compiled=compiled,
             version=version_str,
             is_split=source.is_split,
             variables=variables,
             formats=formats,
             nodes=nodes,
-            functions=list(self._functions),
+            functions=_function_infos(self._functions),
             preview_data=preview_data if isinstance(preview_data, dict) else {},
             diagnostics=diagnostics,
         )
@@ -257,6 +296,7 @@ def _variable_infos(variables: Any) -> list[VariableInfo]:
                 name=str(name),
                 type=decl.get("type"),
                 required=bool(decl.get("required", False)),
+                has_default="default" in decl,
                 default=_to_plain(decl["default"]) if "default" in decl else None,
                 doc=decl.get("doc"),
                 enum=[_to_plain(e) for e in enum] if isinstance(enum, list) else None,
@@ -274,10 +314,11 @@ def _format_infos(formats: Any) -> tuple[list[FormatInfo], list[Diagnostic]]:
         canvas = spec.get("canvas") if isinstance(spec, dict) else None
         if not isinstance(canvas, dict):
             continue
+        raw_w, raw_h = canvas.get("width"), canvas.get("height")
         try:
             dpi = int(canvas.get("dpi", 96))
-            width = Dim.parse(canvas.get("width")).to_pt(dpi)
-            height = Dim.parse(canvas.get("height")).to_pt(dpi)
+            width = Dim.parse(raw_w).to_pt(dpi)
+            height = Dim.parse(raw_h).to_pt(dpi)
         except (ValueError, TypeError):
             diags.append(
                 diagnostic(
@@ -289,20 +330,71 @@ def _format_infos(formats: Any) -> tuple[list[FormatInfo], list[Diagnostic]]:
                 )
             )
             continue
-        out.append(FormatInfo(name=str(name), width_pt=width, height_pt=height, dpi=dpi))
+        out.append(
+            FormatInfo(
+                name=str(name),
+                width=str(raw_w) if raw_w is not None else None,
+                height=str(raw_h) if raw_h is not None else None,
+                width_pt=width,
+                height_pt=height,
+                dpi=dpi,
+            )
+        )
     return out, diags
 
 
-def _walk_nodes(root: CompiledGroup) -> list[NodeInfo]:
+def _function_infos(names: list[str]) -> list[FunctionInfo]:
+    """Build inspect's function list with a signature and one-line doc for each name (DX-3)."""
+    out: list[FunctionInfo] = []
+    for name in sorted(names):
+        signature, doc = FUNCTION_SIGNATURES.get(name, (f"{name}(…)", None))
+        out.append(FunctionInfo(name=name, signature=signature, doc=doc))
+    return out
+
+
+def _str_or_none(value: Any) -> str | None:
+    return str(value) if value is not None else None
+
+
+def _walk_authored_nodes(root_raw: Any) -> list[NodeInfo]:
+    """Walk the authored node tree, reporting repeat/if constructs unexpanded (DX-3)."""
     out: list[NodeInfo] = []
 
-    def visit(node: CompiledNode) -> None:
-        out.append(NodeInfo(id=node.id, type=node.type))
-        if isinstance(node, CompiledGroup):
-            for child in node.children:
-                visit(child)
+    def visit_node(node_raw: Any, origin: str, meta: dict[str, str | None]) -> None:
+        if not isinstance(node_raw, dict):
+            return
+        out.append(
+            NodeInfo(
+                id=_str_or_none(node_raw.get("id")) or "?",
+                type=_str_or_none(node_raw.get("type")) or "?",
+                origin=origin,  # type: ignore[arg-type]
+                **meta,
+            )
+        )
+        children = node_raw.get("children")
+        if isinstance(children, list):
+            for child in children:
+                visit_child(child)
 
-    visit(root)
+    def visit_child(child: Any) -> None:
+        if not isinstance(child, dict):
+            return
+        if "repeat" in child and "node" in child:
+            visit_node(
+                child["node"],
+                "repeat",
+                {
+                    "collection": _str_or_none(child.get("repeat")),
+                    "loop_var": _str_or_none(child.get("as")),
+                    "key": _str_or_none(child.get("key")),
+                },
+            )
+        elif "if" in child and "node" in child:
+            visit_node(child["node"], "if", {"condition": _str_or_none(child.get("if"))})
+        else:
+            visit_node(child, "static", {})
+
+    visit_node(root_raw, "static", {})
     return out
 
 

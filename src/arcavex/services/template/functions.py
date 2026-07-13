@@ -167,4 +167,30 @@ BUILTIN_FUNCTIONS: dict[str, Callable[[list[Value]], Value]] = {
     "contrast_color": _contrast_color,
 }
 
-__all__ = ["BUILTIN_FUNCTIONS"]
+# Human/AI-facing signature and one-line doc per built-in, surfaced by ``template inspect``
+# (DX-3) so a consumer need not read source to call a function. Keyed by the same call name.
+FUNCTION_SIGNATURES: dict[str, tuple[str, str]] = {
+    "upper": ("upper(text: string) -> string", "Uppercase a string."),
+    "lower": ("lower(text: string) -> string", "Lowercase a string."),
+    "len": ("len(value: string|list|object) -> number", "Length of a string, list, or object."),
+    "format": (
+        "format(fmt: string, *args) -> string",
+        "printf-style substitution of positional '{}' fields.",
+    ),
+    "min": ("min(*numbers | list) -> number", "Minimum of numbers or a single list of numbers."),
+    "max": ("max(*numbers | list) -> number", "Maximum of numbers or a single list of numbers."),
+    "round": (
+        "round(value: number, ndigits: number = 0) -> number",
+        "Round a number to an optional digit count (banker's rounding).",
+    ),
+    "locale_digits": (
+        "locale_digits(text, locale: 'en'|'fa') -> string",
+        "Map ASCII digits in text to a locale's digit set (fa -> ۰۱۲۳۴۵۶۷۸۹).",
+    ),
+    "contrast_color": (
+        "contrast_color(color: string) -> string",
+        "Return '#000000' or '#ffffff' for best WCAG contrast on the given color.",
+    ),
+}
+
+__all__ = ["BUILTIN_FUNCTIONS", "FUNCTION_SIGNATURES"]

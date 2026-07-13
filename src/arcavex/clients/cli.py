@@ -139,6 +139,9 @@ def render(
     template: Path = typer.Argument(..., help="Path to the template YAML file."),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
+    locale: str | None = typer.Option(
+        None, "--locale", "-l", help="Locale name (application is Phase 2)."
+    ),
     output: Path | None = typer.Option(
         None,
         "--output",
@@ -160,6 +163,7 @@ def render(
         template=template,
         data=data,
         format_name=format_name,
+        locale=locale,
         output=output,
         dpi=dpi,
         debug=debug,
@@ -194,6 +198,9 @@ def validate(
     template: Path = typer.Argument(..., help="Path to the template YAML file."),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
+    locale: str | None = typer.Option(
+        None, "--locale", "-l", help="Locale name (application is Phase 2)."
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
@@ -204,7 +211,7 @@ def validate(
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
     diagnostics = facade.validate_template(
-        template=template, data=data, format_name=format_name
+        template=template, data=data, format_name=format_name, locale=locale
     )
     ok = not has_errors(diagnostics)
     if json_out:
@@ -291,6 +298,9 @@ def preview(
     template: Path = typer.Argument(..., help="Template file or directory."),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
+    locale: str | None = typer.Option(
+        None, "--locale", "-l", help="Locale name (application is Phase 2)."
+    ),
     watch: bool = typer.Option(False, "--watch", help="Re-render on every dependent-file save."),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
@@ -303,13 +313,13 @@ def preview(
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
     if watch:
-        _run_preview_watch(facade, console, template, data, format_name, dpi, quiet)
+        _run_preview_watch(facade, console, template, data, format_name, locale, dpi, quiet)
         raise typer.Exit(EXIT_OK)  # Ctrl+C / stop exits cleanly
-    result = facade.render_preview(template, data, format_name, dpi=dpi)
+    result = facade.render_preview(template, data, format_name, locale=locale, dpi=dpi)
     if json_out:
         _emit_json(result)
     else:
-        _print_preview_line(console, result, quiet)
+        _print_preview_line(console, result, quiet, watching=False)
     raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
 
 
@@ -319,35 +329,51 @@ def _run_preview_watch(
     template: Path,
     data: Path | None,
     format_name: str | None,
+    locale: str | None,
     dpi: int | None,
     quiet: bool,
 ) -> None:
     if not quiet:
         console.print("[dim]watching for changes… (Ctrl+C to stop)[/dim]")
     stop_event = threading.Event()
+    seen_ok = {"value": False}
 
     def on_result(res: PreviewResult) -> None:
-        _print_preview_line(console, res, quiet)
+        _print_preview_line(console, res, quiet, watching=True, had_good=seen_ok["value"])
+        if res.ok:
+            seen_ok["value"] = True
 
     try:
-        run_watch(facade, template, data, format_name, dpi, on_result, stop_event=stop_event)
+        run_watch(
+            facade, template, data, format_name, dpi, on_result,
+            locale=locale, stop_event=stop_event,
+        )
     except KeyboardInterrupt:  # pragma: no cover - interactive only
         stop_event.set()
 
 
-def _print_preview_line(console: Console, res: PreviewResult, quiet: bool) -> None:
+def _print_preview_line(
+    console: Console,
+    res: PreviewResult,
+    quiet: bool,
+    *,
+    watching: bool,
+    had_good: bool = False,
+) -> None:
     if quiet:
         return
     if res.ok:
-        changed = res.changed_file or "(initial)"
+        # In one-shot mode there is no change to report, so drop the watch-only 'changed='.
+        prefix = f"changed={res.changed_file} " if (watching and res.changed_file) else ""
         console.print(
-            f"changed={changed} compile={res.compile_ms:.1f}ms "
+            f"{prefix}compile={res.compile_ms:.1f}ms "
             f"render={res.render_ms:.1f}ms -> {res.output_path}"
         )
     else:
-        # Keep-last-good: no file was written; report the first actionable diagnostic.
-        changed = res.changed_file or "(initial)"
-        console.print(f"[red]changed={changed} render failed (kept last good preview)[/red]")
+        # A prior good preview is only "kept" if one was ever written (DX-10).
+        kept = " (kept last good preview)" if (watching and had_good) else ""
+        prefix = f"changed={res.changed_file} " if (watching and res.changed_file) else ""
+        console.print(f"[red]{prefix}render failed{kept}[/red]")
         errors = [d for d in res.diagnostics if d.is_error()]
         _print_diagnostics(console, errors[:1] or res.diagnostics[:1], quiet)
 
@@ -381,6 +407,9 @@ def template_new(
 def template_check(
     template: Path = typer.Argument(..., help="Template file or directory."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
+    locale: str | None = typer.Option(
+        None, "--locale", "-l", help="Locale name (application is Phase 2)."
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
@@ -390,7 +419,7 @@ def template_check(
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
-    result = facade.check_template(template, format_name)
+    result = facade.check_template(template, format_name, locale)
     if json_out:
         _emit_json(result)
     else:
@@ -417,6 +446,8 @@ def template_inspect(
         _emit_json(report)
     elif not quiet:
         if not report.ok:
+            # CR-6: a template that fails to compile shows its diagnostics in human mode too,
+            # not just in the JSON payload, and the exit code reflects the failure.
             _print_diagnostics(console, report.diagnostics, quiet)
         else:
             console.print(f"[bold]variables[/bold] ({len(report.variables)}):")
@@ -424,8 +455,13 @@ def template_inspect(
                 req = "required" if var.required else "optional"
                 console.print(f"  {var.name}: {var.type or '?'} ({req}) {var.doc or ''}")
             console.print(f"[bold]formats[/bold]: {', '.join(f.name for f in report.formats)}")
-            console.print(f"[bold]nodes[/bold]: {', '.join(n.id for n in report.nodes)}")
-            console.print(f"[bold]functions[/bold]: {', '.join(report.functions)}")
+            console.print("[bold]nodes[/bold]:")
+            for node in report.nodes:
+                tag = "" if node.origin == "static" else f" [{node.origin}]"
+                console.print(f"  {node.id}: {node.type}{tag}")
+            console.print("[bold]functions[/bold]:")
+            for fn in report.functions:
+                console.print(f"  {fn.signature}")
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
 

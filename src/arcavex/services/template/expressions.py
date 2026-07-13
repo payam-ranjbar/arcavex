@@ -4,7 +4,9 @@ Hand-rolled tokenizer, recursive-descent parser, and tree-walking evaluator (no 
 Explicitly not Turing-complete: no I/O, no imports, no host attribute access, no recursion,
 no unbounded loops. Supports literals, dotted/indexed variable paths, arithmetic,
 comparisons, boolean ``and``/``or``/``not``, ternary ``a if cond else b``, string concat,
-the functions ``len``/``upper``/``lower``/``format``, and the ``x | default(v)`` operator.
+the ``x | default(v)`` operator, and calls to registered template functions resolved through
+an injected table (nine built-ins in production; see ``services/template/functions.py``) — the
+evaluator holds no hardcoded parallel function table.
 
 A per-expression evaluation-step cap and a 10 ms wall budget guard against pathological
 input; neither is an input to the rendered output, so determinism is preserved.

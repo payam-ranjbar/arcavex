@@ -12,7 +12,8 @@ Statuses: Not started | In progress | Implemented | Tested | Reviewed | Accepted
 | §3.5 | Observer-only hooks | Not started | | | | | |
 | §3.6 | Diagnostics model + codes + explain | Accepted (model+codes+located+hints; explain = Phase 1) | src/arcavex/kernel/diagnostics.py | tests across suites | validate --json failure paths (exit 1/3/4/5 demonstrated) | phase-00 loop: accepted | — |
 | §3.7 | Service API facade | Accepted (render_file, validate_template; rest per later phases) | src/arcavex/kernel/api.py | tests/e2e | CLI acceptance | phase-00 loop: accepted | — |
-| §4.1 | Template system: loader, expressions, styles, formats/locales/patches, compiler | Not started | | | | | |
+| §4.1 | Template system: loader, expressions, styles, formats/locales/patches, compiler | Accepted through Phase 1 scope (split files, repeat/if, functions, variable schema; styles Phase 3, format/locale patches Phase 2) | src/arcavex/services/template/ | tests/unit (expressions, structural, split, variables, functions) | template new/check/inspect/split, validate | phase-01 loop: accepted | — |
+| §6.1.3+§3.7 | doctor, explain, template authoring commands, watch preview | Accepted | src/arcavex/services/{doctor,explain,authoring}.py, clients/watch.py | tests/unit + tests/e2e | doctor --json, explain, preview --watch session | phase-01 loop: accepted | — |
 | §4.2 | Anchor layout solver + fit policies | Not started | | | | | |
 | §4.3 | Text stack (SkParagraph, bundled fonts, BiDi/RTL, locale digits) | Not started | | | | | |
 | §4.4 | Effect system + built-in effects | Not started | | | | | |

@@ -57,4 +57,8 @@ def canonical_bytes(value: Any) -> bytes:
 
 def canonical_hash(value: Any) -> str:
     """Return the SHA-256 hex digest of the canonical form of ``value``."""
+    # TODO(CR-13): before this gains a production caller (Phase 4 provenance), reconcile the
+    # int/float canonical text forms — `_norm_float(2.0)` and the int `2` must serialize
+    # identically so an authored `2` and a computed `2.0` do not hash differently. Tracked as
+    # the CR-13 canonical-float ticket; not required to close Phase 1.
     return hashlib.sha256(canonical_bytes(value)).hexdigest()

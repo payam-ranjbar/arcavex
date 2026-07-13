@@ -88,7 +88,11 @@ def test_template_inspect_json_golden() -> None:
     assert {v["name"] for v in payload["variables"]} == {"title", "subtitle"}
     assert {f["name"] for f in payload["formats"]} == {"square", "story"}
     assert "title" in {n["id"] for n in payload["nodes"]}
-    assert "locale_digits" in payload["functions"]
+    fn_names = {f["name"] for f in payload["functions"]}
+    assert "locale_digits" in fn_names
+    # DX-3: functions carry signatures, not bare names.
+    locale_fn = next(f for f in payload["functions"] if f["name"] == "locale_digits")
+    assert "locale_digits(" in locale_fn["signature"]
 
 
 # ------------------------------------------------------------------ template check
@@ -96,6 +100,46 @@ def test_template_check_ok() -> None:
     proc = _run(["template", "check", str(_HELLO), "--json"])
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout)["ok"] is True
+
+
+# ----------------------------------------------------------------- locale (CR-2)
+def test_render_locale_flag_parses_and_defers() -> None:
+    """CR-2: --locale is a real option; requesting one yields the located Phase-2 diagnostic."""
+    proc = _run(
+        ["render", str(_HELLO), "--format", "square", "--locale", "fa", "--json"]
+    )
+    assert proc.returncode == 1  # ARC-TPL-091 is a validation-class error, not a usage error
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert any(d["code"] == "ARC-TPL-091" for d in payload["diagnostics"])
+
+
+def test_preview_locale_flag_parses() -> None:
+    """The spec §6.1.1 example `preview … --locale fa` must parse (not exit 2 usage)."""
+    proc = _run(
+        [
+            "preview",
+            str(_HELLO / "template.yaml"),
+            "--format",
+            "square",
+            "--locale",
+            "fa",
+            "--json",
+        ]
+    )
+    assert proc.returncode != 2  # not a usage error
+    payload = json.loads(proc.stdout)
+    assert any(d["code"] == "ARC-TPL-091" for d in payload["diagnostics"])
+
+
+# ------------------------------------------------------------------------ doctor paths
+def test_doctor_reports_paths_row() -> None:
+    """DX-9: doctor states where Arcavex reads/writes (ARCAVEX_HOME + preview cache)."""
+    proc = _run(["doctor", "--json"])
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    paths = next(c for c in payload["checks"] if c["name"] == "paths")
+    assert "home=" in paths["detail"] and "preview cache=" in paths["detail"]
 
 
 # ------------------------------------------------------------------------ preview

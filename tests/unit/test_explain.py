@@ -57,3 +57,20 @@ def test_docs_diagnostics_mirror_catalog() -> None:
 def test_no_orphan_docs_files() -> None:
     doc_codes = {p.stem for p in _DOCS.glob("*.md")}
     assert doc_codes == documented_codes()
+
+
+def test_new_remediation_codes_are_documented() -> None:
+    """CR-3/DX-1/DX-5 added new codes; every one must have a catalog entry."""
+    for code in ("ARC-TPL-061", "ARC-TPL-099", "ARC-LAY-040"):
+        assert code in documented_codes()
+
+
+def test_lay012_explain_mentions_expression_boundary() -> None:
+    """DX-6: the LAY-012 entry now names the real cause (an expression in a constraint)."""
+    facade = build_facade()
+    help_ = facade.explain_diagnostic("ARC-LAY-012")
+    assert help_.found and help_.summary is not None
+    lowered = help_.summary.lower()
+    assert "expression" in lowered and "constraint" in lowered
+    # The entry adds value beyond the one-line inline hint (it is substantially longer).
+    assert len(help_.summary) > 120

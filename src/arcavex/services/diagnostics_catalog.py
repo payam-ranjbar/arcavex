@@ -247,6 +247,16 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Check the expression syntax and the functions it calls.",
         ),
         _e(
+            "ARC-TPL-061",
+            "repeat and if on the same node",
+            "A single child declares both a 'repeat' and an 'if'. Applying both to one entry "
+            "is ambiguous — whether the condition gates each iteration or the whole loop — so "
+            "rather than silently pick one, the compiler asks you to nest them explicitly.",
+            "Nest the constructs: make the 'if' construct the repeat's 'node' (the condition "
+            "then gates each item), or put the 'repeat' construct inside the if's 'node' (the "
+            "condition gates the whole loop).",
+        ),
+        _e(
             "ARC-TPL-062",
             "Expression budget exceeded",
             "An expression exceeded its evaluation step/time/token budget.",
@@ -261,15 +271,23 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-TPL-070",
             "Scaffold target already exists",
-            "'template new' will not scaffold into a path that already exists and is not "
-            "empty.",
-            "Choose a new directory name, or remove the existing one.",
+            "'template new' refuses to write into a directory that already exists and contains "
+            "files, so it can never overwrite work you already have. A path that does not yet "
+            "exist, or an empty directory, is accepted.",
+            "Point 'template new' at a new or empty directory, or move the existing contents "
+            "aside first. To evolve a template you already have, edit it directly rather than "
+            "re-scaffolding over it.",
         ),
         _e(
             "ARC-TPL-071",
             "Template is already split",
-            "'template split' refuses a template that is already a split directory.",
-            "The template already has sidecar files; there is nothing to split.",
+            "'template split' moves the inline variables/formats/locales/preview_data sections "
+            "of a one-file template into sidecar files. It refuses when a sidecar already "
+            "exists, because the template is already in directory form and re-splitting would "
+            "have nothing to move or could clobber a sidecar.",
+            "Edit the existing sidecar files directly — there is no reverse 'join' command. If "
+            "you deliberately merged sections back inline and want to re-split, delete the "
+            "leftover sidecar files first.",
         ),
         _e(
             "ARC-TPL-090",
@@ -310,14 +328,28 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-TPL-097",
             "Section defined twice",
-            "A section is defined both inline in template.yaml and in a split sidecar file.",
-            "Keep each section in exactly one place: template.yaml or its sidecar.",
+            "A section (variables, formats, locales, or preview_data) is defined both inline "
+            "in template.yaml and in its split sidecar file. Arcavex will not guess which wins "
+            "— silent precedence between two definitions is exactly the ambiguity the split "
+            "format exists to avoid.",
+            "Keep each section in exactly one place. Delete the inline section from "
+            "template.yaml, or delete the sidecar file, so the section has a single definition.",
         ),
         _e(
             "ARC-TPL-098",
             "Malformed locales section",
             "The 'locales' section is not a mapping of locale names to setting mappings.",
             "Write 'locales:' as e.g. 'fa: {direction: rtl}'.",
+        ),
+        _e(
+            "ARC-TPL-099",
+            "Invalid locale setting",
+            "A locale entry has an unknown setting key or an out-of-range value. Locale files "
+            "are validated for shape now even though locale application is Phase 2, so mistakes "
+            "surface while you author. Direction must be 'ltr' or 'rtl'; digits must be one of "
+            "'en', 'fa', 'latn', 'arab'; fonts and data must be mappings and patch a list.",
+            "Correct the flagged key or value. The known per-locale settings are direction, "
+            "digits, fonts, data, and patch.",
         ),
         _e(
             "ARC-IR-010",
@@ -376,8 +408,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-LAY-012",
             "Invalid anchor offset",
-            "An anchor offset could not be parsed.",
-            "Offsets look like '+20px', '+20pt', or '-6mm'.",
+            "An anchor offset could not be parsed into a fixed distance. The most common cause "
+            "is a '{{ … }}' expression inside a constraint (e.g. 'parent.left + {{ i*240 }}px'): "
+            "constraint values are static in this build — the evaluator does not run inside "
+            "anchors, sizes, or offsets, so the braces are read as literal text and fail to "
+            "parse. A malformed unit (missing number or unknown suffix) triggers it too.",
+            "Use a literal offset such as '+20px', '+20pt', or '-6mm'. Computed or per-item "
+            "offsets are not available until layout stacks arrive in Phase 2; until then give "
+            "each node a distinct literal anchor.",
         ),
         _e(
             "ARC-LAY-013",
@@ -390,6 +428,17 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Unsupported anchor edge",
             "The layout solver received an anchor edge it does not support in this build.",
             "Use one of the six physical parent edges.",
+        ),
+        _e(
+            "ARC-LAY-040",
+            "Repeated siblings overlap",
+            "A 'repeat' expanded more than one sibling node, and because constraint values are "
+            "static in this build (no expressions inside constraints, no layout stacks yet) "
+            "every expanded sibling inherits the same anchors and size — so they resolve to "
+            "identical bounds and stack on top of one another. This is a warning, not an "
+            "error: the render still succeeds.",
+            "Give each repeated item a distinct literal anchor when the count is fixed, or wait "
+            "for layout stacks (Phase 2), which position repeated children automatically.",
         ),
         _e(
             "ARC-LAY-020",

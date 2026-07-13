@@ -41,6 +41,7 @@ def run_doctor(text_service: TextService | None = None) -> DoctorReport:
         _check_icu(),
         _check_fonts(text_service),
         _check_temp_dir(),
+        _check_paths(),
     ]
     # 'ok' is true when no probe failed; warnings do not flip overall success.
     ok = all(c.status != "fail" for c in checks)
@@ -139,3 +140,25 @@ def _check_temp_dir() -> DoctorCheck:
             hint="Set TMP/TEMP to a writable directory.",
         )
     return DoctorCheck(name="temp_dir", status="ok", detail=f"Writable temp dir: {tmp}")
+
+
+def _check_paths() -> DoctorCheck:
+    """Report where Arcavex reads/writes: ARCAVEX_HOME and the preview cache (DX-9).
+
+    The value's source (the ARCAVEX_HOME environment variable or the built-in default) is
+    named so an author can see which of the §6.3 precedence layers is in effect.
+    """
+    home = os.environ.get("ARCAVEX_HOME")
+    if home:
+        home_dir = Path(home)
+        source = "env ARCAVEX_HOME"
+        preview_cache = home_dir / "cache" / "preview"
+    else:
+        home_dir = Path(tempfile.gettempdir()) / "arcavex"
+        source = "default (OS temp)"
+        preview_cache = home_dir / "cache" / "preview"
+    return DoctorCheck(
+        name="paths",
+        status="ok",
+        detail=f"home={home_dir} [{source}]; preview cache={preview_cache}",
+    )

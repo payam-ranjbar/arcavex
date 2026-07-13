@@ -1,11 +1,11 @@
 """Template compiler v0: (template, data, format) -> CompiledDocument.
 
 Loads the one-file template, validates variable declarations against supplied data,
-resolves the requested format canvas, evaluates ``{{ … }}`` expressions, parses constraints
-and styles into typed IR, normalizes units to points and colors to RGBA, and validates that
-node IDs are unique. Structural constructs (``if``/``repeat``), stacks, effects, masks,
-styles, and locales are Phase 1+ and are rejected with located "not supported" diagnostics
-rather than silently ignored.
+resolves the requested format canvas, evaluates ``{{ … }}`` expressions, expands the
+structural constructs ``if``/``repeat`` into compiled sibling nodes, parses constraints and
+styles into typed IR, normalizes units to points and colors to RGBA, and validates that node
+IDs are unique. Stacks, effects, masks, styles, and locale application are later phases and
+are rejected with located "not supported" diagnostics rather than silently ignored.
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ from arcavex.services.template.expressions import (
     ExpressionError,
     FunctionTable,
     MissingVariableError,
+    UnknownFunctionError,
     render_value,
 )
 from arcavex.services.template.loader import (
@@ -70,6 +71,10 @@ _VAR_PY_TYPES: dict[str, tuple[type, ...]] = {
     "color": (str,),
     "image": (str,),
 }
+# Locale setting vocabularies validated for shape in Phase 1 (application is Phase 2, DX-5).
+_LOCALE_DIRECTIONS = {"ltr", "rtl"}
+_LOCALE_DIGITS = {"en", "fa", "latn", "arab"}
+_LOCALE_KEYS = {"direction", "digits", "fonts", "data", "patch"}
 
 
 def _to_plain(obj: Any) -> Any:
@@ -186,6 +191,16 @@ class Compiler:
         except DiagnosticError as exc:
             return CompileResult(None, diags + list(exc.diagnostics), inferred)
 
+    def resolve_paths(self, template: Path) -> tuple[Path, Path]:
+        """Return ``(root_dir, template_yaml)`` for a template path (file or directory).
+
+        Passing the directory or its ``template.yaml`` resolves to the same pair, so callers
+        (default output naming, the preview cache key) treat both spellings identically.
+        """
+        from arcavex.services.template.loader import resolve_template_path
+
+        return resolve_template_path(Path(template))
+
     def list_formats(self, template: Path) -> list[str]:
         """Return the sorted names of formats declared by the template (best effort)."""
         try:
@@ -226,8 +241,12 @@ class Compiler:
         # §6.3). When a data file is given, required/default resolution runs against that
         # data alone; preview values must never backfill a missing supplied variable.
         context: dict[str, Any] = {}
+        # CR-8: per-variable line numbers in the data file, captured from the ruamel map
+        # before flattening so a value diagnostic can cite '<data.yaml>:<line>'.
+        data_lines: dict[str, int | None] = {}
         if data is not None:
-            loaded = _to_plain(load_yaml(data))
+            raw_data = load_yaml(data)
+            loaded = _to_plain(raw_data)
             if loaded is None:
                 loaded = {}
             if not isinstance(loaded, dict):
@@ -239,12 +258,20 @@ class Compiler:
                         hint="Top-level data is 'name: value' pairs, not a list or scalar.",
                     )
                 )
+            for key in loaded:
+                data_lines[str(key)] = line_of(raw_data, str(key))
             context.update(loaded)
         else:
             preview = _to_plain(raw.get("preview_data") or {})
             if isinstance(preview, dict) and preview:
                 context.update(preview)
                 inferred["data"] = "preview_data"
+
+        # CR-5: an explicit null (YAML 'name:' with an empty value) is equivalent to omission.
+        # Dropping None-valued supplied keys lets the declaration loop bind None for an
+        # optional variable (no spurious type/enum error) while still reporting a required
+        # one as ARC-TPL-014 — the same result as leaving the line out entirely.
+        context = {k: v for k, v in context.items() if v is not None}
 
         for name, decl in variables.items():
             decl = decl if isinstance(decl, dict) else {}
@@ -269,12 +296,13 @@ class Compiler:
                 if has_default:
                     default_val = _to_plain(decl["default"])
                     context[name] = self._check_variable_value(
-                        name, decl, default_val, data, var_file, variables, diags, is_default=True
+                        name, decl, default_val, data, var_file, variables, diags,
+                        data_lines, is_default=True,
                     )
                 elif required:
-                    # Report the template's declaration site: a real (file, line) pair. The
-                    # value is missing from the data file, so the data file has no line to
-                    # cite; the hint points the author at the fix.
+                    # The value is absent from the data file entirely, so there is no data-file
+                    # line to cite; report the template's declaration site instead and point
+                    # the author at the fix.
                     diags.append(
                         diagnostic(
                             "ARC-TPL-014",
@@ -295,7 +323,8 @@ class Compiler:
                     context[name] = None
             else:
                 context[name] = self._check_variable_value(
-                    name, decl, context[name], data, var_file, variables, diags, is_default=False
+                    name, decl, context[name], data, var_file, variables, diags,
+                    data_lines, is_default=False,
                 )
         return context
 
@@ -308,6 +337,7 @@ class Compiler:
         var_file: Path,
         variables: Any,
         diags: list[Diagnostic],
+        data_lines: dict[str, int | None],
         *,
         is_default: bool,
     ) -> Any:
@@ -318,11 +348,14 @@ class Compiler:
         than failing; every other mismatch remains a located error.
         """
         # A default always comes from the template declaration line; a supplied value comes
-        # from the data file (which has no per-variable line to cite).
+        # from the data file, whose per-key line was captured before flattening (CR-8). A
+        # preview_data value has no distinct line, so it falls back to the declaration.
         if is_default:
             src, line = str(var_file), line_of(variables, name)
+        elif data is not None:
+            src, line = str(data), data_lines.get(name)
         else:
-            src, line = (str(data), None) if data is not None else (str(var_file), None)
+            src, line = str(var_file), line_of(variables, name)
 
         declared = decl.get("type")
         if isinstance(declared, str) and declared in _VAR_PY_TYPES:
@@ -414,7 +447,9 @@ class Compiler:
             ]
         out: list[Diagnostic] = []
         for loc_name, settings in locales.items():
-            if settings is not None and not isinstance(settings, dict):
+            if settings is None:
+                continue
+            if not isinstance(settings, dict):
                 out.append(
                     diagnostic(
                         "ARC-TPL-098",
@@ -425,6 +460,73 @@ class Compiler:
                         hint="Each locale is a mapping, e.g. 'fa: {direction: rtl}'.",
                     )
                 )
+                continue
+            out.extend(self._validate_locale_values(loc_name, settings, loc_file))
+        return out
+
+    def _validate_locale_values(
+        self, loc_name: Any, settings: dict[str, Any], loc_file: Path
+    ) -> list[Diagnostic]:
+        """Validate one locale entry's field values (DX-5).
+
+        The values are checked now — direction/digit vocabularies and the shape of the
+        fonts/data/patch fields — even though locale APPLICATION is Phase 2, so an author
+        preparing locale files gets feedback immediately instead of at some future phase.
+        """
+        base = f"locales.{loc_name}"
+        out: list[Diagnostic] = []
+
+        def err(field: str, message: str, hint: str) -> None:
+            out.append(
+                diagnostic(
+                    "ARC-TPL-099",
+                    message,
+                    file=str(loc_file),
+                    keypath=f"{base}.{field}",
+                    line=line_of(settings, field),
+                    hint=hint,
+                )
+            )
+
+        for key in settings:
+            if key not in _LOCALE_KEYS:
+                err(
+                    str(key),
+                    f"Locale {loc_name!r} has unknown setting {key!r}",
+                    f"Known locale settings are: {', '.join(sorted(_LOCALE_KEYS))}.",
+                )
+        direction = settings.get("direction")
+        if direction is not None and direction not in _LOCALE_DIRECTIONS:
+            err(
+                "direction",
+                f"Locale {loc_name!r} has invalid direction {direction!r}",
+                f"Use one of: {', '.join(sorted(_LOCALE_DIRECTIONS))}.",
+            )
+        digits = settings.get("digits")
+        if digits is not None and digits not in _LOCALE_DIGITS:
+            err(
+                "digits",
+                f"Locale {loc_name!r} has invalid digits {digits!r}",
+                f"Use one of: {', '.join(sorted(_LOCALE_DIGITS))}.",
+            )
+        if "fonts" in settings and not isinstance(settings["fonts"], dict):
+            err(
+                "fonts",
+                f"Locale {loc_name!r} 'fonts' must be a mapping of role to font stack",
+                "Write 'fonts:' as e.g. 'body: [Vazirmatn, Inter]'.",
+            )
+        if "data" in settings and not isinstance(settings["data"], dict):
+            err(
+                "data",
+                f"Locale {loc_name!r} 'data' overlay must be a mapping",
+                "Write 'data:' as a mapping of variable names to overlay values.",
+            )
+        if "patch" in settings and not isinstance(settings["patch"], list):
+            err(
+                "patch",
+                f"Locale {loc_name!r} 'patch' must be a list of patch operations",
+                "Write 'patch:' as a YAML list of set/remove/insert operations.",
+            )
         return out
 
     # ---------------------------------------------------------------------- formats
@@ -616,11 +718,21 @@ class Compiler:
                 )
             built: list[CompiledNode] = []
             for i, child in enumerate(children_raw):
-                built.extend(
-                    self._expand_child(
-                        child, context, template, canvas, seen_ids, keypath, i, diags, id_suffix
+                try:
+                    built.extend(
+                        self._expand_child(
+                            child, context, template, canvas, seen_ids, keypath, i, diags,
+                            id_suffix,
+                        )
                     )
-                )
+                except DiagnosticError as exc:
+                    # DX-4: undeclared-variable references are the most common authoring
+                    # mistake; collect every one across the whole compile instead of aborting
+                    # at the first. Any other error still fails fast so cascades stay contained.
+                    if all(d.code == "ARC-TPL-014" for d in exc.diagnostics):
+                        diags.extend(exc.diagnostics)
+                        continue
+                    raise
             children = tuple(built)
             direction = raw.get("direction", "ltr")
             if direction not in {"ltr", "rtl"}:
@@ -734,6 +846,22 @@ class Compiler:
                     file=str(template),
                     keypath=kp,
                     hint="Each child is a node mapping or a 'repeat'/'if' construct.",
+                )
+            )
+        if "repeat" in child and "if" in child:
+            # Both on one child is ambiguous and would silently drop one directive — the exact
+            # class of behavior the compiler rejects elsewhere (CR-3). Make the author nest them.
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-061",
+                    f"Child at {kp} declares both 'repeat' and 'if' on the same node",
+                    file=str(template),
+                    keypath=kp,
+                    line=node_line(child),
+                    hint=(
+                        "Nest them: make the 'if' construct the repeat's 'node', or put the "
+                        "'repeat' construct inside the if's 'node'."
+                    ),
                 )
             )
         if "repeat" in child:
@@ -877,7 +1005,49 @@ class Compiler:
                     f"{keypath}.node", diags, f"{id_suffix}[{key_str}]",
                 )
             )
+        self._warn_on_overlap(out, template, keypath, node_line(child), diags)
         return out
+
+    def _warn_on_overlap(
+        self,
+        nodes: list[CompiledNode],
+        template: Path,
+        keypath: str,
+        line: int | None,
+        diags: list[Diagnostic],
+    ) -> None:
+        """Warn when a repeat expands >1 sibling to identical bounds (DX-1a).
+
+        Constraint values are static in this build (no expressions inside constraints and no
+        stacks), so every expanded sibling shares the body's constraints and therefore resolves
+        to the same bounds — an overlap the author cannot see until they view the render. The
+        warning names the repeat and points at the Phase 2 remedy rather than letting the
+        flagship construct demo as a silent bug.
+        """
+        if len(nodes) <= 1:
+            return
+        first = nodes[0]
+        if not all(
+            n.constraints == first.constraints and n.transform == first.transform
+            for n in nodes[1:]
+        ):
+            return
+        diags.append(
+            diagnostic(
+                "ARC-LAY-040",
+                f"'repeat' at {keypath} expands {len(nodes)} sibling nodes with identical "
+                "constraints; they resolve to the same bounds and will overlap",
+                severity="warning",
+                file=str(template),
+                keypath=f"{keypath}.node.constraints",
+                line=line,
+                hint=(
+                    "Constraint values are static in this build, so repeated siblings cannot "
+                    "self-offset; give each item a distinct anchor, or await layout stacks "
+                    "(Phase 2)."
+                ),
+            )
+        )
 
     def _construct_node(
         self, child: dict[str, Any], template: Path, keypath: str
@@ -918,7 +1088,10 @@ class Compiler:
                     file=str(template),
                     keypath=f"{keypath}.{field}",
                     line=line,
-                    hint=f"Declare and supply '{exc.path}', or guard it with | default(...).",
+                    hint=(
+                        f"Declare and supply '{exc.path}', or guard it with "
+                        f"| default(...).{_did_you_mean(exc.path, context)}"
+                    ),
                 )
             ) from exc
         except BudgetError as exc:
@@ -940,7 +1113,7 @@ class Compiler:
                     file=str(template),
                     keypath=f"{keypath}.{field}",
                     line=line,
-                    hint="Check the '{{ … }}' expression syntax.",
+                    hint=_expr_hint(exc),
                 )
             ) from exc
 
@@ -1293,7 +1466,10 @@ class Compiler:
                     file=str(template),
                     keypath=keypath,
                     line=line,
-                    hint=f"Declare '{exc.path}' in variables and supply it, or use | default(...).",
+                    hint=(
+                        f"Declare '{exc.path}' in variables and supply it, or use "
+                        f"| default(...).{_did_you_mean(exc.path, context)}"
+                    ),
                 )
             ) from exc
         except BudgetError as exc:
@@ -1317,7 +1493,7 @@ class Compiler:
                     file=str(template),
                     keypath=keypath,
                     line=line,
-                    hint="Check the '{{ … }}' expression syntax.",
+                    hint=_expr_hint(exc),
                 )
             ) from exc
         if isinstance(value, str):
@@ -1404,6 +1580,32 @@ def _collect_unsupported_sections(source: TemplateSource) -> list[Diagnostic]:
                     )
                 )
     return out
+
+
+def _did_you_mean(name: str, context: dict[str, Any]) -> str:
+    """Return a ' Did you mean 'x'?' suffix for the nearest declared variable (DX-10).
+
+    Only bare (undotted) names are suggested — the common ``{{ titel }}`` typo — matched
+    against the variables currently in scope. Returns an empty string when nothing is close.
+    """
+    import difflib
+
+    if "." in name:
+        return ""
+    candidates = [k for k in context if isinstance(k, str) and k != "loop"]
+    matches = difflib.get_close_matches(name, candidates, n=1)
+    return f" Did you mean {matches[0]!r}?" if matches else ""
+
+
+def _expr_hint(exc: ExpressionError) -> str | None:
+    """Return the ARC-TPL-060 hint, dropping the generic one when the message is precise.
+
+    An unknown-function error already lists the available functions, so a generic "check the
+    syntax" hint is noise (DX-10); a genuine parse error still benefits from it.
+    """
+    if isinstance(exc, UnknownFunctionError):
+        return None
+    return "Check the '{{ … }}' expression syntax and each function's expected arguments."
 
 
 def _num_to_str(value: float) -> str:
@@ -1579,7 +1781,13 @@ def _parse_anchor_value(
                         file=str(template),
                         keypath=f"{keypath}.constraints.anchor.{key}",
                         line=line,
-                        hint="Offsets look like '+20px', '+20pt', or '-6mm'.",
+                        hint=(
+                            "Constraint values are static in this build: '{{ }}' expressions "
+                            "are not evaluated inside anchors or offsets. Offsets look like "
+                            "'+20px', '+20pt', or '-6mm'."
+                            if "{{" in offset_raw
+                            else "Offsets look like '+20px', '+20pt', or '-6mm'."
+                        ),
                     )
                 ) from exc
             break

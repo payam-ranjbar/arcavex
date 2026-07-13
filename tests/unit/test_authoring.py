@@ -42,7 +42,8 @@ def test_inspect_reports_contract(tmp_path: Path) -> None:
     assert title.type == "string" and title.required is True and title.doc
     assert {f.name for f in report.formats} == {"square", "story"}
     assert "title" in {n.id for n in report.nodes}
-    assert "contrast_color" in report.functions and "locale_digits" in report.functions
+    fn_names = {f.name for f in report.functions}
+    assert "contrast_color" in fn_names and "locale_digits" in fn_names
     assert report.preview_data.get("title")
 
 

@@ -20,6 +20,10 @@
    - Rotation: explicit `origin` (default center), post-transform AABB contributes to
      inspection and paint bounds.
    - Geometry normalized to 1/1024 pt before hashing/rendering.
+   - **Expressions in constraint values** (Phase 1 DX-1 follow-up): `{{ }}` expressions are
+     evaluated inside constraint strings before anchor/dim parsing (one-delimiter rule §12.5),
+     e.g. `top: "parent.top+{{ 40 + loop.index * 90 }}pt"`. This plus stacks makes repeated
+     nodes layoutable. The Phase-1 identical-bounds warning stays.
 2. **Text stack completion** (§4.3):
    - Multi-run text: `runs: [{text, style_role?|style overrides}]` shaping in ONE paragraph
      (Latin-inside-Farsi via per-run families is handled by SkParagraph fallback; keep single
@@ -86,10 +90,15 @@
    pixel = background, cell pixel = image); inspect-layout JSON golden; debug overlay smoke;
    CLI transcripts for new flags; determinism re-check.
 
-## Carry-over
+## Carry-over (from phase-01 re-review, all P3 but required here)
 
-Any open P2/P3 from phase-01 re-review marked "fix in phase 2" (check
-docs/agent-runs/phase-01-rereview.md).
+- RR1-1 (first task): ARC-TPL-061 hint + explain entry + README recommend a nesting that does
+  not compile; correct them to the working wrapper-group form and add a test that the hint's
+  suggested form compiles.
+- RR1-2: escape Rich markup in human `template inspect` so [if]/[repeat] origin tags display.
+- RR1-3: print inferences truly before pipeline execution on long renders (restructure facade
+  callback or resolve inferences pre-call in CLI).
+- CR-13 ticket stands (canonical float form) — resolve no later than Phase 4.
 
 ## Non-goals
 

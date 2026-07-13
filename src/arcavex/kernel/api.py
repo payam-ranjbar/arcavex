@@ -33,7 +33,12 @@ from arcavex.kernel.diagnostics import (
     has_errors,
     internal_error,
 )
-from arcavex.kernel.ir.models import CompiledDocument
+from arcavex.kernel.ir.models import (
+    CompiledDocument,
+    CompiledGroup,
+    CompiledImage,
+    CompiledNode,
+)
 from arcavex.kernel.registry import Registries
 
 _EXPORTER_BY_EXT: dict[str, str] = {
@@ -94,6 +99,10 @@ class CompilerProtocol(Protocol):
         """Return the names of formats declared by a template (best effort)."""
         ...
 
+    def resolve_paths(self, template: Path) -> tuple[Path, Path]:
+        """Return ``(root_dir, template_yaml)`` for a template path (file or directory)."""
+        ...
+
 
 class RenderResult(BaseModel):
     """The result of a render request."""
@@ -147,36 +156,69 @@ class DiagnosticHelp(BaseModel):
 
 # ------------------------------------------------------------------ template authoring
 class VariableInfo(BaseModel):
-    """A declared template variable, as reported by inspect."""
+    """A declared template variable, as reported by inspect.
+
+    ``has_default`` distinguishes a variable with no declared default from one declared as
+    ``default: null`` (both serialize ``default`` as ``null``), so a machine consumer can
+    recover the authored contract exactly (CR-11).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     name: str
     type: str | None = None
     required: bool = False
+    has_default: bool = False
     default: Any = None
     doc: str | None = None
     enum: list[Any] | None = None
 
 
 class FormatInfo(BaseModel):
-    """A declared format's resolved canvas, as reported by inspect."""
+    """A declared format's canvas, as reported by inspect.
+
+    ``width``/``height`` echo the authored strings (e.g. ``"1080px"``) so an AI author can
+    round-trip a size without converting from the internal points, which ``width_pt`` reports
+    for layout math (DX-7).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     name: str
+    width: str | None = None
+    height: str | None = None
     width_pt: float
     height_pt: float
     dpi: int
 
 
 class NodeInfo(BaseModel):
-    """A compiled node's id and kind, as reported by inspect."""
+    """An authored node in the template contract, as reported by inspect.
+
+    Nodes are reported as authored, not expanded (DX-3): a ``repeat``/``if`` construct appears
+    once with its ``origin`` and the condition/collection expression, so a consumer sees the
+    full structural contract regardless of what the preview data happens to instantiate.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     id: str
     type: str
+    origin: Literal["static", "repeat", "if"] = "static"
+    condition: str | None = None  # the 'if' expression, for origin == "if"
+    collection: str | None = None  # the 'repeat' expression, for origin == "repeat"
+    loop_var: str | None = None  # the repeat 'as' name
+    key: str | None = None  # the repeat 'key' expression
+
+
+class FunctionInfo(BaseModel):
+    """A registered template function's name, signature, and one-line doc (DX-3)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    signature: str
+    doc: str | None = None
 
 
 class TemplateInspectReport(BaseModel):
@@ -186,12 +228,13 @@ class TemplateInspectReport(BaseModel):
 
     response_version: int = RESPONSE_VERSION
     ok: bool
+    compiled: bool = False
     version: str | None = None
     is_split: bool = False
     variables: list[VariableInfo] = Field(default_factory=list)
     formats: list[FormatInfo] = Field(default_factory=list)
     nodes: list[NodeInfo] = Field(default_factory=list)
-    functions: list[str] = Field(default_factory=list)
+    functions: list[FunctionInfo] = Field(default_factory=list)
     preview_data: dict[str, Any] = Field(default_factory=dict)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -364,14 +407,30 @@ class Facade:
         """Compile, lay out, render, and export a template to ``output``.
 
         Never raises: unexpected failures are returned in the result's diagnostics.
+
+        The default output name (§6.3) is resolved up front from the template stem and the
+        resolved format and carried in ``inferred`` on *every* return path — success, a
+        ``DiagnosticError``, or an unexpected failure — so the user always learns what would
+        have been written, even when the render fails (CR-1).
         """
+        inferred_base: dict[str, str] = {}
+        resolved_output = output
+        if output is None:
+            default_output = self._default_output_path(template, format_name)
+            if default_output is not None:
+                resolved_output = default_output
+                inferred_base["output"] = str(default_output)
         try:
             return self._render_file_inner(
-                template, data, format_name, locale, style, output, dpi, debug
+                template, data, format_name, locale, style, resolved_output, dpi, debug,
+                inferred_base,
             )
         except DiagnosticError as exc:
             return RenderResult(
-                ok=False, output_path=None, diagnostics=list(exc.diagnostics)
+                ok=False,
+                output_path=None,
+                diagnostics=list(exc.diagnostics),
+                inferred=dict(inferred_base),
             )
         except Exception:  # noqa: BLE001 - facade boundary must not leak
             last_line = traceback.format_exc().splitlines()[-1]
@@ -379,9 +438,40 @@ class Facade:
                 ok=False,
                 output_path=None,
                 diagnostics=[internal_error("Render failed unexpectedly", detail=last_line)],
+                inferred=dict(inferred_base),
             )
 
     # ------------------------------------------------------------------ internals
+    def _default_stem(self, template: Path) -> str:
+        """Return the default output stem for a template path (directory name or file stem).
+
+        A directory template, or its ``template.yaml`` file, both yield the directory name, so
+        the two spellings produce identical default names (CR-4). A one-file template named
+        something other than ``template.yaml`` yields that file's stem.
+        """
+        try:
+            root_dir, template_yaml = self._compiler.resolve_paths(template)
+        except Exception:  # noqa: BLE001 - fall back to the raw path when resolution fails
+            return Path(template).stem
+        if template_yaml.name == "template.yaml":
+            return root_dir.name
+        return template_yaml.stem
+
+    def _default_output_path(self, template: Path, format_name: str | None) -> Path | None:
+        """Resolve the deterministic default output path, or ``None`` if the format is ambiguous.
+
+        The format follows the same sole-format inference the compiler uses, so the name is
+        available before rendering; when several formats exist and none was chosen the name is
+        genuinely unknown (ambiguity is a diagnostic, not a silent pick).
+        """
+        fmt = format_name
+        if fmt is None:
+            formats = self._compiler.list_formats(template)
+            if len(formats) != 1:
+                return None
+            fmt = formats[0]
+        return Path(f"{self._default_stem(template)}.{fmt}.png")
+
     def _render_file_inner(
         self,
         template: Path,
@@ -392,20 +482,21 @@ class Facade:
         output: Path | None,
         dpi: int | None,
         debug: bool,
+        inferred_base: dict[str, str],
     ) -> RenderResult:
         compiled = self._compiler.compile(template, data, format_name, locale, style)
         diagnostics = list(compiled.diagnostics)
-        inferred = dict(compiled.inferred)
+        inferred = {**inferred_base, **dict(compiled.inferred)}
         if compiled.document is None or has_errors(diagnostics):
             return RenderResult(
                 ok=False, output_path=None, diagnostics=diagnostics, inferred=inferred
             )
 
         if output is None:
-            # §6.3: a deterministic default output name, reported to the caller. The
-            # resolved format (possibly itself inferred) drives the stem.
+            # Safety net for the ambiguous-format path (compile normally raises ARC-TPL-021
+            # before here): name from the format the compiler actually resolved.
             fmt = compiled.format_name or "out"
-            output = Path(f"{Path(template).stem}.{fmt}.png")
+            output = Path(f"{self._default_stem(template)}.{fmt}.png")
             inferred["output"] = str(output)
 
         exporter_name = _EXPORTER_BY_EXT.get(output.suffix.lower())
@@ -509,10 +600,12 @@ class Facade:
             )
 
     def check_template(
-        self, template: Path, format_name: str | None = None
+        self, template: Path, format_name: str | None = None, locale: str | None = None
     ) -> CheckResult:
         """Validate a template without data (schema + structure + preview_data)."""
-        diagnostics = self.validate_template(template, data=None, format_name=format_name)
+        diagnostics = self.validate_template(
+            template, data=None, format_name=format_name, locale=locale
+        )
         return CheckResult(ok=not has_errors(diagnostics), diagnostics=diagnostics)
 
     def inspect_template(self, template: Path) -> TemplateInspectReport:
@@ -545,11 +638,17 @@ class Facade:
     def preview_path(self, template: Path, format_name: str) -> Path:
         """Return the stable preview output path for a template + format.
 
-        The path is derived from the absolute template path so the same template always
-        previews to the same file (spec §6.1.1), under ``$ARCAVEX_HOME/cache/preview`` or an
-        OS temp directory.
+        The path is derived from the resolved ``template.yaml`` so the same template always
+        previews to the same file regardless of whether the caller passed the directory or the
+        file (§4.1.1 path equivalence, CR-4), under ``$ARCAVEX_HOME/cache/preview`` or an OS
+        temp directory.
         """
-        key = hashlib.sha256(str(Path(template).resolve()).encode("utf-8")).hexdigest()[:16]
+        try:
+            _root_dir, template_yaml = self._compiler.resolve_paths(template)
+            base = template_yaml
+        except Exception:  # noqa: BLE001 - fall back to the raw path when resolution fails
+            base = Path(template)
+        key = hashlib.sha256(str(base.resolve()).encode("utf-8")).hexdigest()[:16]
         root = self._resolve_preview_root()
         return root / f"{key}.{format_name}.png"
 
@@ -644,6 +743,37 @@ class Facade:
             inferred=inferred,
             diagnostics=diagnostics,
         )
+
+    def collect_asset_paths(
+        self,
+        template: Path,
+        data: Path | None = None,
+        format_name: str | None = None,
+        locale: str | None = None,
+        style: str | None = None,
+    ) -> list[str]:
+        """Return the resolved image-asset paths a template references (best effort, CR-9).
+
+        Used by watch mode to also observe out-of-tree assets. Never raises: on any compile
+        failure it returns an empty list, so watching degrades gracefully.
+        """
+        try:
+            compiled = self._compiler.compile(template, data, format_name, locale, style)
+        except Exception:  # noqa: BLE001 - best-effort asset discovery must not crash watch
+            return []
+        if compiled.document is None:
+            return []
+        out: list[str] = []
+
+        def visit(node: CompiledNode) -> None:
+            if isinstance(node, CompiledImage):
+                out.append(node.asset_path)
+            if isinstance(node, CompiledGroup):
+                for child in node.children:
+                    visit(child)
+
+        visit(compiled.document.root)
+        return out
 
     def _resolve_preview_root(self) -> Path:
         if self._preview_root is not None:
