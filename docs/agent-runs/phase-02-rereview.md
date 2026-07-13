@@ -4,7 +4,36 @@ Fresh strict re-review of the phase-02 remediation (diff `157b799..d8fadc3`), ju
 execution with independently authored fixtures. Probe artifacts under `outputs-tmp/rr2/`.
 Working tree verified clean at `d8fadc3`.
 
-## Verdict
+## FINAL VERDICT (after fix commit `7c22c62`): ACCEPTED
+
+The three actionable findings below (RR2-1 P1, RR2-2 P2, RR2-3 P3) were fixed in `7c22c62`
+and re-verified by execution with the same independent probes that found them:
+
+- **RR2-1 fixed.** `_locale_data_overlays` now returns `(pre, post)` and `_build_context`
+  layers preview → template `locales.<L>.data` → user `--data` → user sidecar, all via
+  `merge_overlay`. Probes: user `m: M-user` vs inline `m: M-inline` → **M-user**; inline
+  `a: !delete` vs user `a: A-user` → **A-user** (no deletion of user data, no default
+  resurrection); sidecar still outranks base (`from-user-sidecar`); inline still outranks
+  defaults and preview; explicit-null, required-null, digits (fa/arab/en), and plain-string
+  `"!delete"`-as-a-value at the pre-layer all unchanged. The new
+  `test_locales.py::test_four_layer_data_precedence` pins the order with a conflicting key
+  at every layer.
+- **RR2-2 fixed.** The a4 patch adds `nodes.subtitle.fit.max_lines = 3`; re-rendered and
+  viewed a4/en — the full sentence ("…in industry and education") is present in three lines,
+  `layout inspect` reports subtitle overflow `none` (99pt measured = 99pt box), and the page
+  composition holds.
+- **RR2-3 fixed.** The inline overlay application is now reported as
+  `inferred: locale_data=locales.<L>.data` (observed in probes; asserted in the new test),
+  matching the ADR-0002/README claim.
+
+Gates at `7c22c62`: pytest 306 passed exit 0, ruff clean, mypy `--strict` kernel clean,
+lint-imports 3/3 kept. Determinism re-verified (fa square byte-identical across runs), and the
+fa square render is **byte-identical to the `d8fadc3` render** — the layering fix is
+behavior-neutral for templates without inline locale data. Remaining P3s (RR2-4..RR2-12)
+carry to the Phase 3 backlog as listed below. The original verdict text is preserved
+unchanged beneath this section as the record of the pre-fix state.
+
+## Verdict (at `d8fadc3`, superseded by the section above)
 
 **REMEDIATE** — narrowly. Nearly the entire remediation is verified genuinely fixed by my own
 fixtures: every original P1/P2 I reproduced behaves correctly, the stack/anchor math is exact

@@ -64,9 +64,24 @@
    documented).
 8. **Perf guard**: pop-art grid (1080²) renders < 8s warm on this machine; note actuals.
 
-## Carry-over
+## Carry-over (phase-02 re-review P3s — fix all in this phase)
 
-Open P3s from phase-02 re-review (check docs/agent-runs/phase-02-rereview.md when written).
+- RR2-4: rendering `template.yaml` from inside its own directory must not yield a hidden
+  `.square.fa.png` (empty stem) — fall back to the directory name.
+- RR2-5: ARC-LAY-051 sub-line message mislabels full-text height as "one line is Xpt".
+- RR2-6: README intro still shows the default output name without the locale segment.
+- RR2-7: _FIT_WIDTH_MARGIN comment misattributes the cause (~500x off quantization claim);
+  investigate the real SkParagraph re-layout sensitivity or fix the comment honestly.
+- RR2-8: stack fill clamp does not redistribute freed space to other fill children.
+- RR2-9: containment-based overlap suppression also hides genuinely swallowed non-backdrop
+  siblings; refine (suppress only full-bleed/backdrop containers).
+- RR2-10: `--resolved` shows only the final value on overridden ops; record what the losing
+  layer set.
+- RR2-11: patch `set` cannot add a schema-valid-but-absent optional field (e.g. flip
+  direction on an undirected group); allow adding known-valid fields.
+- RR2-12: ARC-TPL-051 hint lists line_height as valid while ARC-TPL-053 rejects it.
+- Standing: phase-1 CR-13 canonical float form — due by Phase 4 at the latest; fixing here is
+  welcome if touched.
 
 ## Non-goals
 
