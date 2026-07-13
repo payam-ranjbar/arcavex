@@ -65,11 +65,22 @@ def test_stack_children_report_stack_positioning() -> None:
     assert any("vstack" in a.expression for a in day.anchors)
 
 
-def test_overlaps_and_coverage_present() -> None:
+def test_overlaps_suppress_full_bleed_background() -> None:
+    # DX-8: the full-bleed background fully contains every sibling, so those trivially-true
+    # overlaps are suppressed as noise (the genuine partial collisions stay).
     report = build_facade().inspect_layout(_TEMPLATE, _DATA, "square", "en")
-    # The full-bleed background overlaps every sibling; coverage is the full canvas.
-    assert any(o.a == "background" or o.b == "background" for o in report.overlaps)
+    assert not any(o.a == "background" or o.b == "background" for o in report.overlaps)
     assert 0.0 < report.covered_fraction <= 1.0
+
+
+def test_report_carries_transform_and_paint_px() -> None:
+    # CR-15: absolute_transform and paint_bounds_px are surfaced per node.
+    report = build_facade().inspect_layout(_TEMPLATE, _DATA, "square", "en")
+    assert report.root is not None
+    accent = _find(report.root, "accent-bar")  # rotated node
+    assert accent.rotate_deg != 0.0
+    assert accent.absolute_transform != (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    assert accent.paint_bounds_px[2] > 0.0
 
 
 def test_inspect_failure_reports_diagnostics(tmp_path: Path) -> None:

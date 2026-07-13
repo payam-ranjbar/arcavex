@@ -12,21 +12,25 @@ Statuses: Not started | In progress | Implemented | Tested | Reviewed | Accepted
 | §3.5 | Observer-only hooks | Not started | | | | | |
 | §3.6 | Diagnostics model + codes + explain | Accepted (model+codes+located+hints; explain = Phase 1) | src/arcavex/kernel/diagnostics.py | tests across suites | validate --json failure paths (exit 1/3/4/5 demonstrated) | phase-00 loop: accepted | — |
 | §3.7 | Service API facade | Accepted (render_file, validate_template; rest per later phases) | src/arcavex/kernel/api.py | tests/e2e | CLI acceptance | phase-00 loop: accepted | — |
-| §4.1 | Template system: loader, expressions, styles, formats/locales/patches, compiler | Accepted through Phase 1 scope (split files, repeat/if, functions, variable schema; styles Phase 3, format/locale patches Phase 2) | src/arcavex/services/template/ | tests/unit (expressions, structural, split, variables, functions) | template new/check/inspect/split, validate | phase-01 loop: accepted | — |
+| §4.1 | Template system: loader, expressions, styles, formats/locales/patches, compiler | Accepted through Phase 2 scope (Phase 1 split/repeat/if/functions/schema; Phase 2 formats+locale application incl. direction inheritance, null-as-value, data layering+sidecar, format/locale patches with provenance; styles Phase 3) | src/arcavex/services/template/ | tests/unit (expressions, structural, variables, functions, locales, patches) | validate/render, template inspect --resolved | phase-02 remediation (ADR-0002) | — |
+| §4.1.4 | Formats, locales, patches, data overlays + provenance | Accepted (Phase 2; set/remove/insert ops addressing authored IDs incl. root and repeat/if wrappers, unknown-final-segment error, !delete tag-only, PatchLog surfaced by --resolved) | src/arcavex/services/template/overlays.py, compiler.py | tests/unit/test_patches.py, test_locales.py | template inspect --resolved | phase-02 remediation | — |
 | §6.1.3+§3.7 | doctor, explain, template authoring commands, watch preview | Accepted | src/arcavex/services/{doctor,explain,authoring}.py, clients/watch.py | tests/unit + tests/e2e | doctor --json, explain, preview --watch session | phase-01 loop: accepted | — |
-| §4.2 | Anchor layout solver + fit policies | Not started | | | | | |
-| §4.3 | Text stack (SkParagraph, bundled fonts, BiDi/RTL, locale digits) | Not started | | | | | |
+| §4.2 | Anchor layout solver + fit policies | Accepted (Phase 2; sibling/logical anchors, stacks incl. RTL mirroring, aspect from clamped axis, min/max on all modes, rotation AABB for anchors/overlap, fit policies) | src/arcavex/builtin/layout_anchors/solver.py | tests/unit/test_layout*.py, tests/unit/test_text_fit.py, tests/layout_snapshots | ipen 6 renders + layout inspect | phase-02 loop + remediation | — |
+| §4.3 | Text stack (SkParagraph, bundled fonts, BiDi/RTL, locale digits) | Accepted (Phase 2; multi-run single-paragraph, fit policies, truncate ellipsis, fa+arab digits incl. exact-match, measured line-height metrics). line_height deferred: ARC-TPL-053, tracked below | src/arcavex/services/text/service.py, expressions.py | tests/unit/test_text_fit.py, test_locales.py | ipen fa shaping/digits | phase-02 remediation | — |
+| §4.3b | `line_height` honored (strut override) | Deferred by specification | — | — | — | rejected with ARC-TPL-053; skia-python 144 StrutStyle exposes no height override (ADR-0001) | skia-python binding |
 | §4.4 | Effect system + built-in effects | Not started | | | | | |
-| §4.5 | Skia renderer backend, masks, surface pool | Not started | | | | | |
+| §4.5 | Skia renderer backend, masks, surface pool | Accepted (Phase 2; masks_core rounded_rect/circle/diamond_grid, debug overlay with deconflicted labels) | src/arcavex/builtin/backend_skia/, builtin/masks_core/ | tests/unit/test_masks.py | ipen masked hero | phase-02 remediation | — |
 | §4.6 | Exporters: PNG/JPEG/WebP/PDF | Not started | | | | | |
 | §4.7 | Asset system: CAS, sidecars, decode guards, derived cache | Not started | | | | | |
 | §5 | Projects, library, provenance, runs, rerun, diff, versioning | Not started | | | | | |
-| §6.1 | CLI (direct + project modes, JSON, exit codes) | Not started | | | | | |
+| §6.1 | CLI (direct + project modes, JSON, exit codes) | Accepted (Phase 2 direct mode: render/validate/preview/doctor/explain, template new/check/inspect[--resolved]/split, layout inspect, --version; project mode later) | src/arcavex/clients/cli.py | tests/e2e/test_cli*.py | acceptance commands | phase-02 remediation | — |
+| §6.1.1 | Layout inspection + debug overlay | Accepted (Phase 2; per-node bounds pt/px, absolute_transform, paint_bounds_px, anchor derivation incl. RTL-correct, overlaps via AABB w/ backdrop suppression, free-regions, deconflicted debug labels) | src/arcavex/kernel/api.py, clients/cli.py, builtin/backend_skia | tests/unit/test_inspect_layout.py, tests/e2e/test_cli_layout.py | layout inspect --json | phase-02 remediation | — |
+| §6.3 | DX contract (watch preview, inference rules, naming) | Accepted (Phase 2; default name `<stem>.<format>[.<locale>].png`, inference reporting incl. data overlays, versioned JSON) | src/arcavex/kernel/api.py, clients/cli.py | tests/e2e | render naming/inference | phase-02 remediation | — |
 | §6.2 | MCP server | Not started | | | | | |
 | §6.3 | DX contract (watch preview, inference rules, naming) | Not started | | | | | |
 | §7 | Trusted local extension SDK + workflow | Not started | | | | | |
 | §8.3 | Local safety and resource limits | Not started | | | | | |
 | §8.5 | Testing strategy (property, snapshots, golden, e2e, CLI, MCP sessions) | Not started | | | | | |
 | §12/spec | Deferred: hostile-extension isolation, WASM, GPU, vector PDF/CMYK, animation, hosted concerns | Deferred by specification | — | — | — | — | — |
-| Task §9 | Reference poster bilingual template + 5 formats × 2 locales | Not started | | | | | |
+| Task §9 | Reference poster bilingual template + 5 formats × 2 locales | In progress (Phase 2 seed: examples/ipen-bilingual, 3 formats × 2 locales — simplified golden case #2; full 5-format reproduction is a later dedicated task) | examples/ipen-bilingual/ | tests/layout_snapshots/test_ipen_snapshots.py, tests/e2e/test_ipen.py | 6 renders viewed + self-assessed | phase-02 remediation | — |
 | Task §12 | Documentation set | Not started | | | | | |

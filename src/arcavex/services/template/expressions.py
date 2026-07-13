@@ -614,7 +614,23 @@ def evaluate_expression(
     return _Evaluator(context, table).eval(ast)
 
 
-_FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
+_FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹"  # Persian, U+06F0..U+06F9
+_ARAB_DIGITS = "٠١٢٣٤٥٦٧٨٩"  # Arabic-Indic, U+0660..U+0669
+# ASCII digit -> locale digit translation tables. 'en' and 'latn' are the identity (Latin
+# digits), so they carry no table and pass ASCII through unchanged (spec §4.1.4 / CR-9).
+_DIGIT_TABLES: dict[str, dict[int, str]] = {
+    "fa": {ord("0") + i: _FA_DIGITS[i] for i in range(10)},
+    "arab": {ord("0") + i: _ARAB_DIGITS[i] for i in range(10)},
+}
+
+
+def localize_digits(text: str, digits: str | None) -> str:
+    """Map ASCII digits in ``text`` to the locale's digit set (``fa``/``arab``).
+
+    ``en`` and ``latn`` are the Latin identity mapping and return ``text`` unchanged.
+    """
+    table = _DIGIT_TABLES.get(digits) if digits is not None else None
+    return text.translate(table) if table else text
 
 
 def render_value(
@@ -663,8 +679,8 @@ def render_value(
 
 def _localize_digits(text: str, value: Value, digits: str | None) -> str:
     """Map ASCII digits to a locale set, only for numeric interpolated values."""
-    if digits == "fa" and isinstance(value, (int, float)) and not isinstance(value, bool):
-        return text.translate({ord("0") + i: _FA_DIGITS[i] for i in range(10)})
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return localize_digits(text, digits)
     return text
 
 

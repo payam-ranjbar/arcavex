@@ -58,7 +58,7 @@ root:
     assert "ARC-TPL-061" in _codes(result)
 
 
-# ------------------------------------------------------------- CR-5: explicit null optional
+# ----------------------------------------------- CR-10 (was phase-1 CR-5): explicit null binds
 def _null_template(tmp_path: Path, required: str) -> Path:
     return _write(
         tmp_path,
@@ -81,7 +81,9 @@ def _null_template(tmp_path: Path, required: str) -> Path:
     )
 
 
-def test_explicit_null_optional_equals_omission(tmp_path: Path) -> None:
+def test_explicit_null_optional_binds_none(tmp_path: Path) -> None:
+    # CR-10: explicit null is a value (§4.1.4), bound as None without a type error; for an
+    # optional variable that leaves `s is none`, so the guarded node drops.
     template = _null_template(tmp_path, "false")
     data = tmp_path / "data.yaml"
     data.write_text("s:\n", encoding="utf-8")  # YAML 's:' with empty value is null

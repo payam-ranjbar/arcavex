@@ -47,6 +47,9 @@ from arcavex.kernel.ir.units import Matrix3, Rect
 _QUANT = 1024.0
 _HORIZONTAL = ("left", "right", "center_x")
 _VERTICAL = ("top", "bottom", "center_y")
+# Sub-point safety margin added to a fit_content *width* so quantization rounding can never
+# leave the box narrower than the measured text (which would force a spurious character wrap).
+_FIT_WIDTH_MARGIN = 0.5
 
 
 def _q(value: float) -> float:
@@ -139,9 +142,18 @@ class AnchorLayoutSolver(LayoutSolver):
         out: list[tuple[CompiledNode, Rect]] = []
         for child in order:
             rect = self._resolve_absolute(child, bounds, group.direction, sib_rects, measure)
-            sib_rects[child.id] = rect
+            # Siblings anchor to the *post-rotation* AABB of a rotated node (spec §4.2), so a
+            # node pinned to a 45°-rotated square's `bottom` sees the rotated extent (CR-14).
+            sib_rects[child.id] = self._aabb_for(child, rect)
             out.append((child, rect))
         return out
+
+    def _aabb_for(self, node: CompiledNode, rect: Rect) -> Rect:
+        """Return the axis-aligned bounding box a sibling sees: the paint AABB when rotated."""
+        deg = node.transform.rotate_deg
+        if not deg:
+            return rect
+        return self._paint_bounds(rect, deg, self._origin_abs(node, rect))
 
     def _topo_order(
         self, group: CompiledGroup, by_id: dict[str, CompiledNode]
@@ -220,37 +232,89 @@ class AnchorLayoutSolver(LayoutSolver):
                     )
                 )
 
-        sizes: list[tuple[float, float, bool]] = []  # (main, cross, main_is_fill)
+        # Each entry carries (main, cross, main_is_fill, main_spec, cross_spec) so the placement
+        # pass can clamp fill/stretch shares against the child's own min/max (CR-12).
+        sizes: list[tuple[float, float, bool, SizeSpec, SizeSpec]] = []
         for child in group.children:
             main_spec = child.constraints.width if horizontal else child.constraints.height
             cross_spec = child.constraints.height if horizontal else child.constraints.width
             main_is_fill = main_spec.mode == "fill"
-            cross = self._cross_size(child, cross_spec, cross_extent, stack, measure)
-            main = 0.0 if main_is_fill else self._stack_main_size(
-                child, main_spec, cross_spec, main_extent, cross, horizontal, measure
+            cross, main = self._stack_child_sizes(
+                child, main_spec, cross_spec, main_extent, cross_extent, stack,
+                horizontal, main_is_fill, measure,
             )
-            sizes.append((main, cross, main_is_fill))
+            sizes.append((main, cross, main_is_fill, main_spec, cross_spec))
 
         n = len(group.children)
         gaps_total = stack.gap_pt * max(0, n - 1)
-        fixed_main = sum(m for m, _, is_fill in sizes if not is_fill)
-        fill_count = sum(1 for _, _, is_fill in sizes if is_fill)
+        fixed_main = sum(m for m, _, is_fill, _, _ in sizes if not is_fill)
+        fill_count = sum(1 for _, _, is_fill, _, _ in sizes if is_fill)
         free = max(0.0, main_extent - fixed_main - gaps_total)
         fill_size = free / fill_count if fill_count else 0.0
         leftover = free if fill_count == 0 else 0.0
 
         cursor, gap = self._stack_start(stack.main_align, leftover, stack.gap_pt, n)
         out: list[tuple[CompiledNode, Rect]] = []
-        for child, (main, cross, is_fill) in zip(group.children, sizes, strict=True):
-            m = fill_size if is_fill else main
+        for child, (main, cross, is_fill, main_spec, cross_spec) in zip(
+            group.children, sizes, strict=True
+        ):
+            m = _clamp(fill_size, main_spec) if is_fill else main
             cross_pos, cross_len = self._cross_place(stack.cross_align, cross, cross_extent)
+            cross_len = _clamp(cross_len, cross_spec)
             if horizontal:
                 rect = _qrect(content.x + cursor, content.y + cross_pos, m, cross_len)
             else:
                 rect = _qrect(content.x + cross_pos, content.y + cursor, cross_len, m)
             out.append((child, rect))
             cursor += m + gap
+        if group.direction == "rtl":
+            # RTL mirrors the horizontal axis within the content box: for an hstack this flips
+            # packing order and main_align (first child sits at the right edge); for a vstack it
+            # flips cross-axis start/end. The vertical (reading) axis is never mirrored (DX-1).
+            out = [(child, _mirror_x(rect, content)) for child, rect in out]
         return out
+
+    def _stack_child_sizes(
+        self,
+        child: CompiledNode,
+        main_spec: SizeSpec,
+        cross_spec: SizeSpec,
+        main_extent: float,
+        cross_extent: float,
+        stack: StackSpec,
+        horizontal: bool,
+        main_is_fill: bool,
+        measure: MeasureFn,
+    ) -> tuple[float, float]:
+        """Return ``(cross, main)`` sizes for one stack child.
+
+        A cross-axis ``aspect`` derives from the concrete main size (CR-5); it is unresolvable
+        when the main axis is itself ``aspect`` or ``fill`` (no fixed extent to derive from).
+        """
+        if cross_spec.mode == "aspect":
+            if main_spec.mode == "aspect" or main_is_fill:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-LAY-055",
+                        f"Stack child {child.id!r} uses cross-axis 'aspect' but its main axis "
+                        f"has no concrete size to derive from",
+                        hint="Give the main axis a fixed/%/fit_content size so 'aspect' can "
+                        "derive the cross axis.",
+                        **_loc(child),
+                    )
+                )
+            main = self._stack_main_size(
+                child, main_spec, cross_spec, main_extent, 0.0, horizontal, measure
+            )
+            cross = _clamp(_aspect_value(cross_spec, main, child), cross_spec)
+            return cross, main
+        cross = self._cross_size(child, cross_spec, cross_extent, stack, measure)
+        if main_is_fill:
+            return cross, 0.0
+        main = self._stack_main_size(
+            child, main_spec, cross_spec, main_extent, cross, horizontal, measure
+        )
+        return cross, main
 
     @staticmethod
     def _stack_start(
@@ -333,22 +397,24 @@ class AnchorLayoutSolver(LayoutSolver):
                     **_loc(node),
                 )
             )
+        # Resolve and clamp the non-aspect axis first, so the aspect axis derives from the
+        # *clamped* other extent (CR-4) and then applies its own min/max clamp.
         w = (
             None
             if wspec.mode == "aspect"
-            else self._axis_size(node, wspec, parent.w, None, measure)
+            else _clamp(self._axis_size(node, wspec, parent.w, None, measure), wspec)
         )
         h = (
             None
             if hspec.mode == "aspect"
-            else self._axis_size(node, hspec, parent.h, w, measure)
+            else _clamp(self._axis_size(node, hspec, parent.h, w, measure), hspec)
         )
         if wspec.mode == "aspect":
-            w = _aspect_value(wspec, h, node)
+            w = _clamp(_aspect_value(wspec, h, node), wspec)
         if hspec.mode == "aspect":
-            h = _aspect_value(hspec, w, node)
+            h = _clamp(_aspect_value(hspec, w, node), hspec)
         assert w is not None and h is not None
-        return _clamp(w, wspec), _clamp(h, hspec)
+        return w, h
 
     def _axis_size(
         self,
@@ -368,7 +434,18 @@ class AnchorLayoutSolver(LayoutSolver):
             return 0.0
         # fit_content — text intrinsic (width when width is None, else height at that width).
         result = self._measure_text(node, width, None, measure)
-        return result.width_pt if width is None else result.height_pt
+        if width is None:
+            # Add a sub-point margin so 1/1024pt quantization can never round the box narrower
+            # than the measured longest line, which would make the painter character-wrap an
+            # otherwise-unbroken word (e.g. a fit_content wordmark).
+            return result.width_pt + _FIT_WIDTH_MARGIN
+        height = result.height_pt
+        # DX-7: a fit_content box that also sets max_lines caps its height at that many lines,
+        # otherwise the box grows to the full text and max_lines has nothing to clip.
+        max_lines = node.fit.max_lines if isinstance(node, CompiledText) else None
+        if max_lines is not None and result.line_count > max_lines and result.line_count > 0:
+            height = height * max_lines / result.line_count
+        return height
 
     def _resolve_pos(
         self,
@@ -490,17 +567,30 @@ class AnchorLayoutSolver(LayoutSolver):
             if node.fit.overflow == "clip":
                 kind, clip = "clipped", True
         if not result.converged:
-            warnings.append(
-                diagnostic(
-                    "ARC-LAY-051",
-                    f"Text node {node.id!r} did not converge under 'shrink_to_fit' "
-                    f"(still {result.height_pt:.1f}pt tall at min size in a "
-                    f"{bounds.h:.1f}pt box)",
-                    severity="warning",
-                    hint="Raise min_size, enlarge the box, or switch to truncate.",
-                    **_loc(node),
+            if node.fit.policy == "truncate":
+                warnings.append(
+                    diagnostic(
+                        "ARC-LAY-051",
+                        f"Text node {node.id!r} box is shorter than one line "
+                        f"({bounds.h:.1f}pt tall, one line is {result.height_pt:.1f}pt); "
+                        f"truncation left only the ellipsis",
+                        severity="warning",
+                        hint="Give the box at least one line's height, or reduce the font size.",
+                        **_loc(node),
+                    )
                 )
-            )
+            else:
+                warnings.append(
+                    diagnostic(
+                        "ARC-LAY-051",
+                        f"Text node {node.id!r} did not converge under 'shrink_to_fit' "
+                        f"(still {result.height_pt:.1f}pt tall at min size in a "
+                        f"{bounds.h:.1f}pt box)",
+                        severity="warning",
+                        hint="Raise min_size, enlarge the box, or switch to truncate.",
+                        **_loc(node),
+                    )
+                )
         resolved = ResolvedText(
             text=result.out_text or node.text,
             runs=out_runs,
@@ -628,6 +718,12 @@ def _loc(node: CompiledNode) -> dict[str, Any]:
     if src is None:
         return {}
     return {"file": src.file, "keypath": src.keypath, "line": src.line}
+
+
+def _mirror_x(rect: Rect, content: Rect) -> Rect:
+    """Reflect a rect horizontally within ``content`` (RTL stack mirroring, DX-1)."""
+    new_x = content.x + content.w - (rect.x - content.x) - rect.w
+    return _qrect(new_x, rect.y, rect.w, rect.h)
 
 
 def _logical(edge: str, direction: str) -> str:

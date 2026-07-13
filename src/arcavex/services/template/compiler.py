@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from arcavex.kernel.api import CompileResult
+from arcavex.kernel.api import CompileResult, ResolvedPatch, ResolvedResult
 from arcavex.kernel.diagnostics import (
     BUDGET_CODE,
     MISSING_FONT_CODE,
@@ -67,6 +67,7 @@ from arcavex.services.template.overlays import (
     PatchLog,
     apply_patches,
     merge_overlay,
+    read_path,
 )
 
 _PARENT_EDGES = {"top", "bottom", "left", "right", "center_x", "center_y"}
@@ -94,6 +95,21 @@ _VAR_PY_TYPES: dict[str, tuple[type, ...]] = {
 _LOCALE_DIRECTIONS = {"ltr", "rtl"}
 _LOCALE_DIGITS = {"en", "fa", "latn", "arab"}
 _LOCALE_KEYS = {"direction", "digits", "fonts", "data", "patch"}
+
+# Known field whitelists per sub-block (CR-2). An unknown key here is a located error rather
+# than a silently ignored typo, matching how the compiler treats unknown keys elsewhere.
+_STYLE_KEYS = frozenset({
+    "fill", "stroke", "stroke_width", "color", "corner_radius", "opacity",
+    "font", "font_size", "font_weight", "italic", "align", "direction",
+    "letter_spacing", "line_height",
+})
+_PARAGRAPH_KEYS = frozenset({"align", "direction"})
+_FIT_KEYS = frozenset({"policy", "min_size", "overflow", "max_lines"})
+_CONSTRAINT_KEYS = frozenset({"anchor", "size"})
+_SIZE_MAP_KEYS = frozenset({"value", "aspect", "min", "max"})
+_RUN_KEYS = frozenset({
+    "text", "font", "font_size", "font_weight", "italic", "color", "letter_spacing",
+})
 
 
 def _to_plain(obj: Any) -> Any:
@@ -233,6 +249,72 @@ class Compiler:
         except DiagnosticError as exc:
             return CompileResult(None, diags + list(exc.diagnostics), inferred)
 
+    def inspect_resolved(
+        self,
+        template: Path,
+        data: Path | None,
+        format_name: str | None,
+        locale: str | None,
+    ) -> ResolvedResult:
+        """Apply the format/locale patch layers and report each value's originating layer (CR-1).
+
+        Runs the same resolution prelude as :meth:`compile` (locale settings, format, then the
+        format and locale patches recorded in the :class:`PatchLog`) and reads back the final
+        value each ``set``/``insert`` produced from the patched AST. Never raises.
+        """
+        self._patch_log = PatchLog()
+        self._digits = None
+        self._default_direction = "ltr"
+        self._font_overrides = {}
+        diags: list[Diagnostic] = []
+        try:
+            source = load_template(template)
+            diags.extend(_collect_unsupported_sections(source))
+            diags.extend(self._validate_locales_shape(source))
+            if has_errors(diags):
+                return ResolvedResult(ok=False, diagnostics=diags)
+            loc_settings = self._resolve_locale(source, locale)
+            self._digits = loc_settings.get("digits")
+            self._default_direction = loc_settings.get("direction", "ltr")
+            _canvas, resolved_format = self._resolve_format(source, format_name, {})
+            root_raw = source.raw.get("root")
+            if not isinstance(root_raw, dict):
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-TPL-004",
+                        "Template is missing a 'root' node",
+                        file=str(source.template_path),
+                        hint="Add a 'root:' group node describing the scene.",
+                    )
+                )
+            self._apply_format_patch(source, resolved_format, root_raw)
+            self._apply_locale_patch(source, locale, loc_settings, root_raw)
+            # The last op touching a path is the one whose value survives; mark it effective.
+            last_for_path: dict[str, int] = {}
+            for i, rec in enumerate(self._patch_log.records):
+                last_for_path[rec.path] = i
+            patches = [
+                ResolvedPatch(
+                    layer=rec.layer,
+                    op=rec.op,
+                    path=rec.path,
+                    value=_to_plain(read_path(root_raw, rec.path)) if rec.op == "set" else None,
+                    effective=(last_for_path[rec.path] == i),
+                )
+                for i, rec in enumerate(self._patch_log.records)
+            ]
+            return ResolvedResult(
+                ok=True,
+                format_name=resolved_format,
+                locale=locale,
+                direction=self._default_direction,
+                digits=self._digits,
+                patches=patches,
+                diagnostics=diags,
+            )
+        except DiagnosticError as exc:
+            return ResolvedResult(ok=False, diagnostics=diags + list(exc.diagnostics))
+
     def resolve_paths(self, template: Path) -> tuple[Path, Path]:
         """Return ``(root_dir, template_yaml)`` for a template path (file or directory).
 
@@ -317,11 +399,11 @@ class Compiler:
             for key in overlay:
                 data_lines.setdefault(str(key), None)
 
-        # CR-5: an explicit null (YAML 'name:' with an empty value) is equivalent to omission.
-        # Dropping None-valued supplied keys lets the declaration loop bind None for an
-        # optional variable (no spurious type/enum error) while still reporting a required
-        # one as ARC-TPL-014 — the same result as leaving the line out entirely.
-        context = {k: v for k, v in context.items() if v is not None}
+        # CR-10 / ADR-0002: an explicit null in *any* data layer (base data or an overlay) is a
+        # value, never omission and never default-resurrection — so keys present with a null
+        # value are kept, and only genuine omission (an absent key) falls through to the
+        # default/optional-none path below. `provided` records the keys any data layer supplied.
+        provided = set(context)
 
         for name, decl in variables.items():
             decl = decl if isinstance(decl, dict) else {}
@@ -342,7 +424,26 @@ class Compiler:
                 continue
             required = bool(decl.get("required", False))
             has_default = "default" in decl
-            if name not in context:
+            supplied_null = name in provided and context.get(name) is None
+            if supplied_null:
+                # Explicit null binds null (a value). A required variable set to null is still
+                # an error; an optional one keeps None and skips type/enum checks.
+                if required:
+                    diags.append(
+                        diagnostic(
+                            "ARC-TPL-014",
+                            f"Variable {name!r} is required but was provided as null",
+                            file=str(data) if data is not None else str(var_file),
+                            keypath=name,
+                            line=data_lines.get(name),
+                            hint=(
+                                f"Give '{name}:' a non-null value, "
+                                "or mark the variable optional in the template."
+                            ),
+                        )
+                    )
+                context[name] = None
+            elif name not in provided:
                 if has_default:
                     default_val = _to_plain(decl["default"])
                     context[name] = self._check_variable_value(
@@ -363,6 +464,7 @@ class Compiler:
                             hint=(
                                 f"Add '{name}:' to your data file, "
                                 "or mark the variable optional in the template."
+                                + _overlay_hint(data)
                             ),
                         )
                     )
@@ -376,6 +478,8 @@ class Compiler:
                     name, decl, context[name], data, var_file, variables, diags,
                     data_lines, is_default=False,
                 )
+        # Non-declared keys supplied as explicit null stay in context as None (a value), so an
+        # expression may reference them; they never resurrect a declared default.
         return context
 
     def _check_variable_value(
@@ -773,8 +877,11 @@ class Compiler:
         keypath: str,
         diags: list[Diagnostic],
         id_suffix: str,
+        inherited_direction: str | None = None,
     ) -> CompiledNode:
         self._reject_unsupported_constructs(raw, template, keypath)
+        if inherited_direction is None:
+            inherited_direction = self._default_direction
 
         authored_id = raw.get("id")
         if not isinstance(authored_id, str) or not authored_id:
@@ -852,13 +959,28 @@ class Compiler:
                         hint="Provide 'children:' as a YAML list of nodes.",
                     )
                 )
+            # A group without an explicit direction inherits the nearest enclosing group's
+            # direction (the root default comes from the locale, else ltr) — CR-6/ADR-0002. The
+            # direction is resolved before children so it can be threaded into them.
+            direction = raw.get("direction", inherited_direction)
+            if direction not in {"ltr", "rtl"}:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-TPL-033",
+                        f"Group {node_id!r} has invalid direction {direction!r}",
+                        file=str(template),
+                        keypath=f"{keypath}.direction",
+                        hint="Use 'ltr' or 'rtl'.",
+                    )
+                )
+            stack_is_stack = raw.get("layout") in _STACK_LAYOUTS
             built: list[CompiledNode] = []
             for i, child in enumerate(children_raw):
                 try:
                     built.extend(
                         self._expand_child(
                             child, context, template, canvas, seen_ids, keypath, i, diags,
-                            id_suffix,
+                            id_suffix, direction, stack_is_stack,
                         )
                     )
                 except DiagnosticError as exc:
@@ -870,18 +992,6 @@ class Compiler:
                         continue
                     raise
             children = tuple(built)
-            # A group without an explicit direction inherits the locale's default (§4.1.4).
-            direction = raw.get("direction", self._default_direction)
-            if direction not in {"ltr", "rtl"}:
-                raise DiagnosticError(
-                    diagnostic(
-                        "ARC-TPL-033",
-                        f"Group {node_id!r} has invalid direction {direction!r}",
-                        file=str(template),
-                        keypath=f"{keypath}.direction",
-                        hint="Use 'ltr' or 'rtl'.",
-                    )
-                )
             stack = self._parse_stack(raw, canvas, template, node_id, keypath)
             return CompiledGroup(
                 **common,
@@ -966,6 +1076,8 @@ class Compiler:
         index: int,
         diags: list[Diagnostic],
         id_suffix: str,
+        inherited_direction: str,
+        parent_is_stack: bool,
     ) -> list[CompiledNode]:
         """Expand one authored child entry into zero or more compiled sibling nodes.
 
@@ -1004,14 +1116,19 @@ class Compiler:
             )
         if "repeat" in child:
             return self._expand_repeat(
-                child, context, template, canvas, seen_ids, kp, diags, id_suffix
+                child, context, template, canvas, seen_ids, kp, diags, id_suffix,
+                inherited_direction, parent_is_stack,
             )
         if "if" in child:
             return self._expand_if(
-                child, context, template, canvas, seen_ids, kp, diags, id_suffix
+                child, context, template, canvas, seen_ids, kp, diags, id_suffix,
+                inherited_direction,
             )
         return [
-            self._build_node(child, context, template, canvas, seen_ids, kp, diags, id_suffix)
+            self._build_node(
+                child, context, template, canvas, seen_ids, kp, diags, id_suffix,
+                inherited_direction,
+            )
         ]
 
     def _expand_if(
@@ -1024,6 +1141,7 @@ class Compiler:
         keypath: str,
         diags: list[Diagnostic],
         id_suffix: str,
+        inherited_direction: str,
     ) -> list[CompiledNode]:
         node_raw = self._construct_node(child, template, keypath)
         condition = self._eval_structural(
@@ -1033,7 +1151,7 @@ class Compiler:
             return [
                 self._build_node(
                     node_raw, context, template, canvas, seen_ids,
-                    f"{keypath}.node", diags, id_suffix,
+                    f"{keypath}.node", diags, id_suffix, inherited_direction,
                 )
             ]
         return []
@@ -1048,6 +1166,8 @@ class Compiler:
         keypath: str,
         diags: list[Diagnostic],
         id_suffix: str,
+        inherited_direction: str,
+        parent_is_stack: bool,
     ) -> list[CompiledNode]:
         node_raw = self._construct_node(child, template, keypath)
         as_name = child.get("as")
@@ -1140,10 +1260,13 @@ class Compiler:
             out.append(
                 self._build_node(
                     node_raw, item_ctx, template, canvas, seen_ids,
-                    f"{keypath}.node", diags, f"{id_suffix}[{key_str}]",
+                    f"{keypath}.node", diags, f"{id_suffix}[{key_str}]", inherited_direction,
                 )
             )
-        self._warn_on_overlap(out, template, keypath, node_line(child), diags)
+        # DX-2: a stack positions its own children, so identical-constraint siblings do not
+        # overlap there — only warn for repeats in an absolute group.
+        if not parent_is_stack:
+            self._warn_on_overlap(out, template, keypath, node_line(child), diags)
         return out
 
     def _warn_on_overlap(
@@ -1154,13 +1277,13 @@ class Compiler:
         line: int | None,
         diags: list[Diagnostic],
     ) -> None:
-        """Warn when a repeat expands >1 sibling to identical bounds (DX-1a).
+        """Warn when a repeat expands >1 sibling in an *absolute* group to identical bounds.
 
-        Constraint values are static in this build (no expressions inside constraints and no
-        stacks), so every expanded sibling shares the body's constraints and therefore resolves
-        to the same bounds — an overlap the author cannot see until they view the render. The
-        warning names the repeat and points at the Phase 2 remedy rather than letting the
-        flagship construct demo as a silent bug.
+        Repeated siblings that share fixed constraints (no per-item offset in their anchors)
+        resolve to the same bounds and overlap — an overlap the author cannot see until they
+        view the render. This does not fire inside a stack (the stack positions each child) and
+        is skipped when the anchors carry per-item ``{{ }}`` expressions that make each item's
+        bounds differ, so it flags only the genuine "all on top of each other" case (DX-2).
         """
         if len(nodes) <= 1:
             return
@@ -1180,9 +1303,9 @@ class Compiler:
                 keypath=f"{keypath}.node.constraints",
                 line=line,
                 hint=(
-                    "Constraint values are static in this build, so repeated siblings cannot "
-                    "self-offset; give each item a distinct anchor, or await layout stacks "
-                    "(Phase 2)."
+                    "Give each item a distinct anchor (e.g. a per-item offset like "
+                    "'top: parent.top+{{ loop.index * 90 }}pt'), or wrap the repeat in a "
+                    "'layout: vstack'/'hstack' group so the stack positions each child."
                 ),
             )
         )
@@ -1522,6 +1645,7 @@ class Compiler:
                     hint="Each run is a string or a {text, font, font_size, ...} mapping.",
                 )
             )
+        self._reject_unknown_keys(run_raw, _RUN_KEYS, "run", template, node_id, keypath)
         text = self._resolve_text(
             run_raw.get("text", ""), context, template, node_id, keypath,
             line_of(run_raw, "text"), localize=True,
@@ -1569,6 +1693,9 @@ class Compiler:
         p = raw.get("paragraph") or {}
         if not isinstance(p, dict):
             p = {}
+        self._reject_unknown_keys(
+            p, _PARAGRAPH_KEYS, "paragraph", template, node_id, f"{keypath}.paragraph"
+        )
         align = p.get("align", style.align)
         if align not in {"left", "right", "center", "start", "end"}:
             raise DiagnosticError(
@@ -1616,6 +1743,7 @@ class Compiler:
                     hint="Write 'fit: {policy: shrink_to_fit, min_size: 24pt}'.",
                 )
             )
+        self._reject_unknown_keys(f, _FIT_KEYS, "fit", template, node_id, f"{keypath}.fit")
         policy = f.get("policy", "wrap")
         if policy not in {"wrap", "shrink_to_fit", "truncate"}:
             raise DiagnosticError(
@@ -1756,6 +1884,9 @@ class Compiler:
                 width=SizeSpec(mode="fill"),
                 height=SizeSpec(mode="fill"),
             )
+        self._reject_unknown_keys(
+            c, _CONSTRAINT_KEYS, "constraints", template, node_id, f"{keypath}.constraints"
+        )
         anchors = self._parse_anchors(
             c.get("anchor") or {}, context, canvas.dpi, template, node_id, keypath, id_suffix
         )
@@ -1849,6 +1980,10 @@ class Compiler:
         min_pt: float | None = None
         max_pt: float | None = None
         if isinstance(value, dict):
+            self._reject_unknown_keys(
+                value, _SIZE_MAP_KEYS, f"size {axis!r}", template, node_id,
+                f"{keypath}.constraints.size.{axis}",
+            )
             if "min" in value:
                 min_pt = _dim(
                     value.get("min"), template, f"{keypath}.constraints.size.{axis}.min", line
@@ -1886,6 +2021,34 @@ class Compiler:
         )
         return _parse_size(resolved, dpi, template, node_id, keypath, axis, line)
 
+    def _reject_unknown_keys(
+        self,
+        mapping: dict[str, Any],
+        allowed: frozenset[str],
+        block: str,
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> None:
+        """Reject any key not in ``allowed`` with a located error listing the valid fields (CR-2).
+
+        This turns a misspelled field (``font_wieght``, ``kerning``) into an authoring error at
+        validation time rather than a silently ignored no-op.
+        """
+        for key in mapping:
+            if str(key) not in allowed:
+                valid = ", ".join(sorted(allowed))
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-TPL-051",
+                        f"Node {node_id!r} has unknown {block} field {str(key)!r}",
+                        file=str(template),
+                        keypath=f"{keypath}.{key}",
+                        line=line_of(mapping, str(key)),
+                        hint=f"Valid {block} fields are: {valid}.",
+                    )
+                )
+
     def _parse_style(
         self,
         raw: dict[str, Any],
@@ -1900,6 +2063,7 @@ class Compiler:
             return Style()
         dpi = canvas.dpi
         style_kp = f"{keypath}.style"
+        self._reject_unknown_keys(s, _STYLE_KEYS, "style", template, node_id, style_kp)
         fill = self._color(
             s.get("fill"), context, template, node_id, keypath, "fill", line_of(s, "fill")
         )
@@ -2135,9 +2299,17 @@ class Compiler:
             ) from exc
         if isinstance(value, str):
             return value
-        from arcavex.services.template.expressions import stringify
+        from arcavex.services.template.expressions import localize_digits, stringify
 
-        return stringify(value)
+        text = stringify(value)
+        # CR-8: an exact-match numeric expression ("{{ n }}") bypasses render_value's
+        # per-fragment digit mapping, so apply the active digit policy here too. This makes
+        # "{{ n }}" and "n = {{ n }}" agree under --locale fa.
+        if localize and self._digits and isinstance(value, (int, float)) and not isinstance(
+            value, bool
+        ):
+            text = localize_digits(text, self._digits)
+        return text
 
 
 # ------------------------------------------------------------------- module helpers
@@ -2202,6 +2374,27 @@ def _collect_unsupported_sections(source: TemplateSource) -> list[Diagnostic]:
             )
         )
     return out
+
+
+def _overlay_hint(data: Path | None) -> str:
+    """Return a hint suffix when the --data file looks like a locale overlay sidecar (DX-10).
+
+    A ``data.fa.yaml``-style name (a ``<base>.<locale>.<ext>`` sidecar) is a *partial* overlay
+    meant to ride on the base data file, so passing it directly to ``--data`` surfaces missing
+    base variables; the hint redirects the author to the base file plus ``--locale``.
+    """
+    if data is None:
+        return ""
+    suffixes = Path(data).suffixes  # e.g. ['.fa', '.yaml']
+    if len(suffixes) >= 2:
+        locale_tok = suffixes[-2].lstrip(".")
+        if 2 <= len(locale_tok) <= 8 and locale_tok.isalpha():
+            base = Path(data).name[: -len("".join(suffixes[-2:]))] + suffixes[-1]
+            return (
+                f" This file looks like a locale overlay ('{Path(data).name}'); pass the base "
+                f"data file ('{base}') with '--locale {locale_tok}' instead."
+            )
+    return ""
 
 
 def _did_you_mean(name: str, context: dict[str, Any]) -> str:
@@ -2396,6 +2589,13 @@ def _parse_size(
             return SizeSpec(mode="fill")
         if low in {"fit_content", "fit-content"}:
             return SizeSpec(mode="fit_content")
+        # `aspect(W:H)` string sugar — the spec §4.2 literal form — is equivalent to the
+        # canonical mapping `{aspect: 'W:H'}`; both are accepted (DX-5).
+        if low.startswith("aspect(") and low.endswith(")"):
+            aw, ah = _parse_aspect(
+                value.strip()[len("aspect("):-1], template, node_id, keypath, axis, line
+            )
+            return SizeSpec(mode="aspect", aspect_w=aw, aspect_h=ah)
         if low.endswith("%"):
             try:
                 return SizeSpec(mode="percent", percent=float(low[:-1]))

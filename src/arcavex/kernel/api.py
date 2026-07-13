@@ -51,6 +51,12 @@ _EXPORTER_BY_EXT: dict[str, str] = {
 RESPONSE_VERSION = 1
 
 
+def _output_name(stem: str, fmt: str, locale: str | None) -> str:
+    """Build the default output filename ``<stem>.<format>[.<locale>].png`` (§6.3 / DX-3)."""
+    locale_seg = f".{locale}" if locale else ""
+    return f"{stem}.{fmt}{locale_seg}.png"
+
+
 def _dedupe(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
     """Remove duplicate diagnostics while preserving first-seen order."""
     seen: set[tuple[object, ...]] = set()
@@ -83,6 +89,30 @@ class CompileResult:
     format_name: str | None = None
 
 
+@dataclass
+class ResolvedPatch:
+    """One applied patch operation plus the value it produced (for --resolved)."""
+
+    layer: str
+    op: str
+    path: str
+    value: Any = None
+    effective: bool = True
+
+
+@dataclass
+class ResolvedResult:
+    """The compiler's provenance view for ``template inspect --resolved`` (CR-1)."""
+
+    ok: bool
+    format_name: str | None = None
+    locale: str | None = None
+    direction: str | None = None
+    digits: str | None = None
+    patches: list[ResolvedPatch] = field(default_factory=list)
+    diagnostics: list[Diagnostic] = field(default_factory=list)
+
+
 class CompilerProtocol(Protocol):
     """The compiler dependency injected by bootstrap."""
 
@@ -95,6 +125,16 @@ class CompilerProtocol(Protocol):
         style: str | None,
     ) -> CompileResult:
         """Compile a template + data into a :class:`CompiledDocument`."""
+        ...
+
+    def inspect_resolved(
+        self,
+        template: Path,
+        data: Path | None,
+        format_name: str | None,
+        locale: str | None,
+    ) -> ResolvedResult:
+        """Report the final layered values and their originating layers (--resolved)."""
         ...
 
     def list_formats(self, template: Path) -> list[str]:
@@ -241,6 +281,38 @@ class TemplateInspectReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class ResolvedPatchInfo(BaseModel):
+    """One applied patch op and the value it produced, for --resolved output."""
+
+    model_config = ConfigDict(frozen=True)
+
+    layer: str
+    op: str
+    path: str
+    value: Any = None
+    effective: bool = True
+
+
+class TemplateResolvedReport(BaseModel):
+    """The result of ``arcavex template inspect --resolved`` (CR-1).
+
+    Reports the resolved format/locale settings and the ordered list of applied format/locale
+    patches with the final value each produced and its originating layer. The last op on a
+    given path is marked ``effective`` — that is where the final value came from.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    format: str | None = None
+    locale: str | None = None
+    direction: str | None = None
+    digits: str | None = None
+    patches: list[ResolvedPatchInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 class ScaffoldResult(BaseModel):
     """The result of ``arcavex template new``."""
 
@@ -326,6 +398,9 @@ class LayoutNodeReport(BaseModel):
     bounds_pt: tuple[float, float, float, float]
     bounds_px: tuple[float, float, float, float]
     paint_bounds_pt: tuple[float, float, float, float]
+    paint_bounds_px: tuple[float, float, float, float]
+    # The node's absolute affine transform as (a, b, c, d, e, f); identity for unrotated nodes.
+    absolute_transform: tuple[float, float, float, float, float, float]
     rotate_deg: float = 0.0
     overflow: OverflowReport | None = None
     anchors: list[AnchorDerivation] = Field(default_factory=list)
@@ -357,6 +432,9 @@ class LayoutReport(BaseModel):
     root: LayoutNodeReport | None = None
     overlaps: list[SiblingOverlap] = Field(default_factory=list)
     covered_fraction: float = 0.0
+    # Maximal full-width empty horizontal bands (uncovered canvas), largest first — the summary
+    # that surfaces e.g. an unfilled bottom slab (spec §6.1.1 free regions).
+    free_regions: list[tuple[float, float, float, float]] = Field(default_factory=list)
     inferred: dict[str, str] = Field(default_factory=dict)
     warnings: list[Diagnostic] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
@@ -488,7 +566,7 @@ class Facade:
         inferred_base: dict[str, str] = {}
         resolved_output = output
         if output is None:
-            default_output = self._default_output_path(template, format_name)
+            default_output = self._default_output_path(template, format_name, locale)
             if default_output is not None:
                 resolved_output = default_output
                 inferred_base["output"] = str(default_output)
@@ -519,6 +597,7 @@ class Facade:
         data: Path | None = None,
         format_name: str | None = None,
         output: Path | None = None,
+        locale: str | None = None,
     ) -> dict[str, str]:
         """Resolve the render-affecting inferences (output name, sole format) up front (RR1-3).
 
@@ -528,7 +607,7 @@ class Facade:
         inferred: dict[str, str] = {}
         try:
             if output is None:
-                default = self._default_output_path(template, format_name)
+                default = self._default_output_path(template, format_name, locale)
                 if default is not None:
                     inferred["output"] = str(default)
             if format_name is None:
@@ -555,12 +634,16 @@ class Facade:
             return root_dir.name
         return template_yaml.stem
 
-    def _default_output_path(self, template: Path, format_name: str | None) -> Path | None:
+    def _default_output_path(
+        self, template: Path, format_name: str | None, locale: str | None = None
+    ) -> Path | None:
         """Resolve the deterministic default output path, or ``None`` if the format is ambiguous.
 
-        The format follows the same sole-format inference the compiler uses, so the name is
-        available before rendering; when several formats exist and none was chosen the name is
-        genuinely unknown (ambiguity is a diagnostic, not a silent pick).
+        The name follows §6.3: ``<stem>.<format>[.<locale>].png``. The format follows the same
+        sole-format inference the compiler uses, so the name is available before rendering; when
+        several formats exist and none was chosen the name is genuinely unknown (ambiguity is a
+        diagnostic, not a silent pick). The locale segment is present only when a locale is
+        applied, so ``--locale fa`` never overwrites the ``en`` render (DX-3).
         """
         fmt = format_name
         if fmt is None:
@@ -568,7 +651,7 @@ class Facade:
             if len(formats) != 1:
                 return None
             fmt = formats[0]
-        return Path(f"{self._default_stem(template)}.{fmt}.png")
+        return Path(_output_name(self._default_stem(template), fmt, locale))
 
     def _render_file_inner(
         self,
@@ -594,7 +677,7 @@ class Facade:
             # Safety net for the ambiguous-format path (compile normally raises ARC-TPL-021
             # before here): name from the format the compiler actually resolved.
             fmt = compiled.format_name or "out"
-            output = Path(f"{self._default_stem(template)}.{fmt}.png")
+            output = Path(_output_name(self._default_stem(template), fmt, locale))
             inferred["output"] = str(output)
 
         exporter_name = _EXPORTER_BY_EXT.get(output.suffix.lower())
@@ -699,6 +782,7 @@ class Facade:
             root=root,
             overlaps=overlaps,
             covered_fraction=covered,
+            free_regions=_free_regions(layout),
             inferred=inferred,
             warnings=list(layout.warnings),
             diagnostics=diagnostics,
@@ -784,6 +868,35 @@ class Facade:
             return TemplateInspectReport(
                 ok=False, diagnostics=[internal_error("Inspect failed", detail=repr(exc))]
             )
+
+    def inspect_resolved(
+        self,
+        template: Path,
+        data: Path | None = None,
+        format_name: str | None = None,
+        locale: str | None = None,
+    ) -> TemplateResolvedReport:
+        """Report final layered values and their originating layers (--resolved). Never raises."""
+        try:
+            result = self._compiler.inspect_resolved(template, data, format_name, locale)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TemplateResolvedReport(
+                ok=False, diagnostics=[internal_error("Resolve inspect failed", detail=repr(exc))]
+            )
+        return TemplateResolvedReport(
+            ok=result.ok,
+            format=result.format_name,
+            locale=result.locale,
+            direction=result.direction,
+            digits=result.digits,
+            patches=[
+                ResolvedPatchInfo(
+                    layer=p.layer, op=p.op, path=p.path, value=p.value, effective=p.effective
+                )
+                for p in result.patches
+            ],
+            diagnostics=result.diagnostics,
+        )
 
     def split_template(self, template: Path) -> SplitResult:
         """Convert a one-file template into a split directory losslessly. Never raises."""
@@ -1007,12 +1120,15 @@ def _build_node_report(
             )
         _collect_overlaps(layout.children, overlaps)
 
+    t = layout.absolute_transform
     return LayoutNodeReport(
         id=layout.source_node_id,
         kind=layout.kind,
         bounds_pt=(b.x, b.y, b.w, b.h),
         bounds_px=(b.x * scale, b.y * scale, b.w * scale, b.h * scale),
         paint_bounds_pt=(pb.x, pb.y, pb.w, pb.h),
+        paint_bounds_px=(pb.x * scale, pb.y * scale, pb.w * scale, pb.h * scale),
+        absolute_transform=(t.a, t.b, t.c, t.d, t.e, t.f),
         rotate_deg=layout.rotate_deg,
         overflow=overflow,
         anchors=anchors,
@@ -1040,8 +1156,14 @@ def _derive_anchors(
         phys_key = _logical_edge(key, group_dir)
         axis = "horizontal" if phys_key in horizontal else "vertical"
         ref_edge = _logical_edge(anchor.edge, group_dir)
-        sign = "+" if anchor.offset_pt >= 0 else "-"
-        offset = f" {sign} {abs(anchor.offset_pt):g}pt" if anchor.offset_pt else ""
+        # A logical (start/end) reference edge takes its offset in reading order, which the
+        # solver flips to -offset under rtl; the printed expression must reflect that flipped
+        # math so the derivation string evaluates to the resolved value (CR-7).
+        display_offset = anchor.offset_pt
+        if anchor.edge in ("start", "end") and group_dir == "rtl":
+            display_offset = -display_offset
+        sign = "+" if display_offset >= 0 else "-"
+        offset = f" {sign} {abs(display_offset):g}pt" if display_offset else ""
         expression = f"{anchor.ref}.{ref_edge}{offset}"
         out.append(
             AnchorDerivation(
@@ -1056,13 +1178,33 @@ def _collect_overlaps(children: tuple[LayoutNode, ...], overlaps: list[SiblingOv
     visible = [c for c in children if c.visible]
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
-            rect = _intersection(visible[i].bounds, visible[j].bounds)
-            if rect is not None:
-                overlaps.append(
-                    SiblingOverlap(
-                        a=visible[i].source_node_id, b=visible[j].source_node_id, rect_pt=rect
-                    )
-                )
+            a, b = visible[i], visible[j]
+            # Rotated nodes contribute their post-transform AABB to overlap reporting (CR-14).
+            ra, rb = a.paint_bounds, b.paint_bounds
+            rect = _intersection(ra, rb)
+            if rect is None:
+                continue
+            # DX-8: a full-bleed backdrop or a parent-fill container trivially overlaps its
+            # neighbours; when one node fully contains the other the pair is suppressed as noise
+            # so the genuine partial collisions (the real bugs) rise to the top of the report.
+            if _contains(ra, rb) or _contains(rb, ra):
+                continue
+            overlaps.append(
+                SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect)
+            )
+
+
+def _contains(outer: object, inner: object) -> bool:
+    """Whether ``outer`` fully contains ``inner`` (small tolerance for quantization)."""
+    ox, oy, ow, oh = outer.x, outer.y, outer.w, outer.h  # type: ignore[attr-defined]
+    ix, iy, iw, ih = inner.x, inner.y, inner.w, inner.h  # type: ignore[attr-defined]
+    eps = 0.01
+    return bool(
+        ox - eps <= ix
+        and oy - eps <= iy
+        and ox + ow + eps >= ix + iw
+        and oy + oh + eps >= iy + ih
+    )
 
 
 def _intersection(a: object, b: object) -> tuple[float, float, float, float] | None:
@@ -1101,6 +1243,60 @@ def _covered_fraction(layout: LayoutDocument, cells: int = 64) -> float:
     mark(layout.root)
     covered = sum(row.count(True) for row in grid)
     return round(covered / (cells * cells), 4)
+
+
+def _free_regions(
+    layout: LayoutDocument, cells: int = 64, min_rows: int = 2
+) -> list[tuple[float, float, float, float]]:
+    """Return maximal full-width empty horizontal bands, largest first (spec §6.1.1).
+
+    Rows of the coarse coverage grid that are entirely uncovered are merged into vertical
+    bands; a band is reported when it spans at least ``min_rows`` rows (so trivial slivers are
+    dropped). This is the summary that makes an unfilled top/bottom slab obvious.
+    """
+    w, h = layout.canvas.width_pt, layout.canvas.height_pt
+    if w <= 0 or h <= 0:
+        return []
+    grid = [[False] * cells for _ in range(cells)]
+
+    def mark(node: LayoutNode) -> None:
+        if node.children:
+            for child in node.children:
+                mark(child)
+            return
+        if not node.visible:
+            return
+        b = node.bounds
+        cx0 = max(0, int(b.x / w * cells))
+        cx1 = min(cells, int((b.x + b.w) / w * cells) + 1)
+        cy0 = max(0, int(b.y / h * cells))
+        cy1 = min(cells, int((b.y + b.h) / h * cells) + 1)
+        for cy in range(cy0, cy1):
+            for cx in range(cx0, cx1):
+                grid[cy][cx] = True
+
+    mark(layout.root)
+    empty_rows = [cy for cy in range(cells) if not any(grid[cy])]
+    bands: list[tuple[int, int]] = []
+    run_start: int | None = None
+    prev = -2
+    for cy in empty_rows:
+        if run_start is None:
+            run_start = cy
+        elif cy != prev + 1:
+            bands.append((run_start, prev))
+            run_start = cy
+        prev = cy
+    if run_start is not None:
+        bands.append((run_start, prev))
+    row_h = h / cells
+    regions = [
+        (0.0, round(start * row_h, 2), round(w, 2), round((end - start + 1) * row_h, 2))
+        for start, end in bands
+        if (end - start + 1) >= min_rows
+    ]
+    regions.sort(key=lambda r: r[3], reverse=True)
+    return regions
 
 
 LayoutNodeReport.model_rebuild()

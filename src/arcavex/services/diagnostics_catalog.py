@@ -214,6 +214,15 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Correct the fit policy or overflow value; add 'min_size' for shrink_to_fit.",
         ),
         _e(
+            "ARC-TPL-051",
+            "Unknown field",
+            "A style, paragraph, fit, constraints, size, or run block contains a field name "
+            "the compiler does not recognize (often a typo such as 'font_wieght'). Unknown "
+            "fields are rejected rather than silently ignored, so a misspelled property cannot "
+            "quietly do nothing.",
+            "Fix the field name; the diagnostic lists the valid fields for that block.",
+        ),
+        _e(
             "ARC-TPL-052",
             "Stacks not supported yet",
             "Stack layouts (hstack/vstack) are not available in this build.",
@@ -404,14 +413,20 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-IR-011",
             "Invalid dimension",
-            "A dimension value could not be parsed.",
-            "Use a number with an optional unit: px, pt, mm, or %.",
+            "A dimension value could not be parsed. In a size axis, a bare value must be a "
+            "number with a unit (px/pt/mm), a percentage, or one of the size keywords 'fill', "
+            "'fit_content', and 'aspect(W:H)'.",
+            "Use a number with a unit (e.g. '40pt', '210mm', '1080px'), a percentage, or a "
+            "size keyword ('fill', 'fit_content', 'aspect(3:4)').",
         ),
         _e(
             "ARC-IR-012",
-            "Invalid percent size",
-            "A percentage size value is malformed.",
-            "Use a value like '62%'.",
+            "Invalid size value",
+            "A size mapping is malformed: a percentage that will not parse, an 'aspect' ratio "
+            "that is not 'W:H' with positive numbers, or a size mapping missing its 'value'/"
+            "'aspect' key.",
+            "Use a value like '62%', an aspect like {aspect: '3:4'} (or 'aspect(3:4)'), or give "
+            "the mapping a 'value:'.",
         ),
         _e(
             "ARC-IR-013",
@@ -459,14 +474,13 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-LAY-012",
             "Invalid anchor offset",
-            "An anchor offset could not be parsed into a fixed distance. The most common cause "
-            "is a '{{ … }}' expression inside a constraint (e.g. 'parent.left + {{ i*240 }}px'): "
-            "constraint values are static in this build — the evaluator does not run inside "
-            "anchors, sizes, or offsets, so the braces are read as literal text and fail to "
-            "parse. A malformed unit (missing number or unknown suffix) triggers it too.",
-            "Use a literal offset such as '+20px', '+20pt', or '-6mm'. Computed or per-item "
-            "offsets are not available until layout stacks arrive in Phase 2; until then give "
-            "each node a distinct literal anchor.",
+            "An anchor offset could not be parsed into a fixed distance, usually a malformed "
+            "unit (missing number or unknown suffix). '{{ }}' expressions ARE evaluated inside "
+            "constraint strings before the offset is parsed, so a leftover brace means a "
+            "malformed or nested expression rather than an unsupported feature.",
+            "Use an offset such as '+20px', '+20pt', or '-6mm'. Per-item offsets from "
+            "expressions work — e.g. 'top: parent.top+{{ loop.index * 90 }}pt' — as long as the "
+            "expression resolves to a numeric distance.",
         ),
         _e(
             "ARC-LAY-013",
@@ -483,13 +497,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-LAY-040",
             "Repeated siblings overlap",
-            "A 'repeat' expanded more than one sibling node, and because constraint values are "
-            "static in this build (no expressions inside constraints, no layout stacks yet) "
-            "every expanded sibling inherits the same anchors and size — so they resolve to "
-            "identical bounds and stack on top of one another. This is a warning, not an "
-            "error: the render still succeeds.",
-            "Give each repeated item a distinct literal anchor when the count is fixed, or wait "
-            "for layout stacks (Phase 2), which position repeated children automatically.",
+            "A 'repeat' expanded more than one sibling node in an *absolute* group, and every "
+            "expanded sibling carries the same fixed anchors and size — so they resolve to "
+            "identical bounds and stack on top of one another. This is a warning, not an error: "
+            "the render still succeeds. It does not fire inside a stack (the stack positions "
+            "each child) nor when the anchors carry per-item expressions that separate them.",
+            "Give each item a distinct anchor with a per-item offset (e.g. "
+            "'top: parent.top+{{ loop.index * 90 }}pt'), or wrap the repeat in a "
+            "'layout: vstack'/'hstack' group so the stack positions each child.",
         ),
         _e(
             "ARC-LAY-020",
@@ -513,7 +528,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-LAY-032",
             "Node missing a size",
             "A node has constraints but no complete size for one or both axes.",
-            "Add 'size: {w: ..., h: ...}' (fixed, %, fill, or fit_content).",
+            "Add 'size: {w: ..., h: ...}' — each of fixed (e.g. 100px), a %, 'fill', "
+            "'fit_content', or {aspect: 'W:H'}.",
         ),
         _e(
             "ARC-LAY-050",

@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ruamel.yaml.comments import TaggedScalar
+from ruamel.yaml.tag import Tag
+
 from arcavex.services.template.compiler import Compiler
 from arcavex.services.template.overlays import merge_overlay
+
+
+def _delete_marker() -> TaggedScalar:
+    """A YAML ``!delete`` tagged scalar, as the loader produces for ``key: !delete``."""
+    return TaggedScalar(value="", style=None, tag=Tag(suffix="!delete"))
 
 
 # ------------------------------------------------------------ overlay merge semantics
@@ -22,8 +30,15 @@ def test_scalar_replaces_and_list_replaces_whole() -> None:
 
 
 def test_delete_marker_removes_key() -> None:
+    # CR-17: only the explicit YAML tag `!delete` removes a key.
     base = {"keep": 1, "drop": 2}
-    assert merge_overlay(base, {"drop": "!delete"}) == {"keep": 1}
+    assert merge_overlay(base, {"drop": _delete_marker()}) == {"keep": 1}
+
+
+def test_plain_delete_string_is_a_value_not_deletion() -> None:
+    # CR-17: the plain string "!delete" is ordinary data, so it stays representable.
+    base = {"keep": 1, "note": "old"}
+    assert merge_overlay(base, {"note": "!delete"}) == {"keep": 1, "note": "!delete"}
 
 
 def test_null_is_a_value_not_deletion() -> None:

@@ -230,16 +230,31 @@ class SkiaBackend(RendererBackend):
         node is boxed correctly.
         """
         self._draw_safe_area(canvas, doc.canvas.width_pt, doc.canvas.height_pt)
-        self._draw_debug_node(canvas, doc.root)
+        # DX-9: labels are deconflicted against already-placed ones and clamped into the canvas,
+        # deterministically (document order), so dense regions do not overprint into a red smear
+        # and corner labels are not clipped off-canvas.
+        placed: list[tuple[float, float, float, float]] = []
+        self._draw_debug_node(
+            canvas, doc.root, doc.canvas.width_pt, doc.canvas.height_pt, placed
+        )
 
-    def _draw_debug_node(self, canvas: object, node: LayoutNode) -> None:
+    def _draw_debug_node(
+        self,
+        canvas: object,
+        node: LayoutNode,
+        canvas_w: float,
+        canvas_h: float,
+        placed: list[tuple[float, float, float, float]],
+    ) -> None:
         if node.visible:
             color = _DEBUG_COLORS.get(node.kind, (1.0, 1.0, 1.0, 1.0))
             box = node.paint_bounds
             paint = _stroke_paint(color, 1.0, 1.0)
             canvas.drawRect(_skrect(box), paint)  # type: ignore[attr-defined]
-            self._draw_debug_label(canvas, box.x + 1.5, box.y + _DEBUG_LABEL_PT + 1.0,
-                                   node.source_node_id, color)
+            lx, ly = _place_label(
+                box.x + 1.5, box.y + 1.0, node.source_node_id, canvas_w, canvas_h, placed
+            )
+            self._draw_debug_label(canvas, lx, ly, node.source_node_id, color)
             if isinstance(node.resolved_content, ResolvedText):
                 baseline_y = node.bounds.y + node.resolved_content.font_size_pt
                 line = _stroke_paint(color, 0.5, 1.0)
@@ -247,10 +262,10 @@ class SkiaBackend(RendererBackend):
                     node.bounds.x, baseline_y, node.bounds.right, baseline_y, line
                 )
         for child in node.children:
-            self._draw_debug_node(canvas, child)
+            self._draw_debug_node(canvas, child, canvas_w, canvas_h, placed)
 
     def _draw_debug_label(
-        self, canvas: object, x: float, y: float, label: str, color: tuple[float, ...]
+        self, canvas: object, x: float, y_top: float, label: str, color: tuple[float, ...]
     ) -> None:
         req = MeasureRequest(
             text=label,
@@ -260,7 +275,7 @@ class SkiaBackend(RendererBackend):
             color=(color[0], color[1], color[2], color[3]),
             max_width_pt=400.0,
         )
-        self._text.paint(canvas, req, x, y - _DEBUG_LABEL_PT, 400.0)
+        self._text.paint(canvas, req, x, y_top, 400.0)
 
     def _draw_safe_area(self, canvas: object, width_pt: float, height_pt: float) -> None:
         mx, my = width_pt * _SAFE_MARGIN_FRAC, height_pt * _SAFE_MARGIN_FRAC
@@ -268,6 +283,47 @@ class SkiaBackend(RendererBackend):
         canvas.drawRect(  # type: ignore[attr-defined]
             skia.Rect.MakeXYWH(mx, my, width_pt - 2 * mx, height_pt - 2 * my), paint
         )
+
+
+def _place_label(
+    x0: float,
+    y0: float,
+    label: str,
+    canvas_w: float,
+    canvas_h: float,
+    placed: list[tuple[float, float, float, float]],
+) -> tuple[float, float]:
+    """Return a clamped, deconflicted top-left for a debug label; record its rect (DX-9).
+
+    The label starts at ``(x0, y0)`` (its node's top-left), is clamped so the whole label stays
+    on-canvas, then stepped downward past any already-placed label until it finds a free row.
+    Placement is a pure function of document order, so it stays deterministic.
+    """
+    lw = min(400.0, 1.5 + len(label) * _DEBUG_LABEL_PT * 0.62)
+    lh = _DEBUG_LABEL_PT + 2.0
+    x = max(0.0, min(x0, canvas_w - lw))
+    y = max(0.0, min(y0, canvas_h - lh))
+    for _ in range(32):
+        if not any(_rects_overlap((x, y, lw, lh), p) for p in placed):
+            break
+        y += lh
+        if y + lh > canvas_h:
+            # Ran out of room downward: shift right and restart near the original row.
+            x = min(x + lw * 0.5, canvas_w - lw)
+            y = max(0.0, min(y0, canvas_h - lh))
+    placed.append((x, y, lw, lh))
+    return x, y
+
+
+def _rects_overlap(
+    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
+) -> bool:
+    return (
+        a[0] < b[0] + b[2]
+        and a[0] + a[2] > b[0]
+        and a[1] < b[1] + b[3]
+        and a[1] + a[3] > b[1]
+    )
 
 
 def _undecodable_image(asset_path: str, source: SourceRef | None) -> DiagnosticError:

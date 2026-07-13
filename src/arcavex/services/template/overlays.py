@@ -46,9 +46,11 @@ class PatchLog:
 
 # --------------------------------------------------------------------------- data overlay
 def is_delete(value: Any) -> bool:
-    """Whether an overlay value is the ``!delete`` marker (string or a ruamel tagged node)."""
-    if value == _DELETE:
-        return True
+    """Whether an overlay value is the ``!delete`` marker.
+
+    Only the explicit YAML tag ``!delete`` (e.g. ``key: !delete``) removes a key; the plain
+    string ``"!delete"`` is an ordinary data value, so it stays representable (CR-17).
+    """
     tag = getattr(getattr(value, "tag", None), "value", None)
     return tag == _DELETE
 
@@ -100,9 +102,11 @@ def apply_patches(
             raise _patch_error(template_file, kp, node_line(op), "each patch op must be a mapping")
         verbs = [v for v in ("set", "remove", "insert_before", "insert_after") if v in op]
         if len(verbs) != 1:
+            keys = ", ".join(repr(str(k)) for k in op) or "(none)"
             raise _patch_error(
                 template_file, kp, node_line(op),
-                "each patch op needs exactly one of set/remove/insert_before/insert_after",
+                f"each patch op needs exactly one of set/remove/insert_before/insert_after "
+                f"(got keys: {keys})",
             )
         verb = verbs[0]
         path = op[verb]
@@ -132,27 +136,37 @@ def _do_set(
     root: Any, node_id: str, segments: list[str], value: Any,
     file: Path, kp: str, line: int | None,
 ) -> None:
-    node, _parent, _idx = _locate(root, node_id, file, kp, line)
+    entry, _parent, _idx = _locate(root, node_id, file, kp, line)
     if not segments:
         raise _patch_error(file, kp, line, "set on a whole node needs a field path")
-    target = node
+    # Field edits address the node itself, seeing through a repeat/if wrapper (CR-11).
+    target = _node_of(entry)
     for seg in segments[:-1]:
         if not isinstance(target, dict) or seg not in target:
             raise _patch_error(file, kp, line, f"unknown patch path segment {seg!r}")
         target = target[seg]
     if not isinstance(target, dict):
         raise _patch_error(file, kp, line, "patch path does not address a mapping field")
+    # CR-3: 'set' modifies an existing field; a nonexistent final segment is an unknown path
+    # (spec §4.1.4), not a silently created key.
+    if segments[-1] not in target:
+        raise _patch_error(
+            file, kp, line,
+            f"unknown patch path field {segments[-1]!r} (set modifies existing fields)",
+        )
     target[segments[-1]] = value
 
 
 def _do_remove(
     root: Any, node_id: str, segments: list[str], file: Path, kp: str, line: int | None
 ) -> None:
-    node, parent, idx = _locate(root, node_id, file, kp, line)
+    entry, parent, idx = _locate(root, node_id, file, kp, line)
     if not segments:
+        if parent is None:
+            raise _patch_error(file, kp, line, "the root node cannot be removed")
         parent.pop(idx)
         return
-    target = node
+    target = _node_of(entry)
     for seg in segments[:-1]:
         if not isinstance(target, dict) or seg not in target:
             raise _patch_error(file, kp, line, f"unknown patch path segment {seg!r}")
@@ -167,14 +181,22 @@ def _do_insert(
 ) -> None:
     if not isinstance(new_node, dict):
         raise _patch_error(file, kp, line, f"{verb} needs a 'node' mapping to insert")
-    _node, parent, idx = _locate(root, node_id, file, kp, line)
+    _entry, parent, idx = _locate(root, node_id, file, kp, line)
+    if parent is None:
+        raise _patch_error(file, kp, line, "cannot insert a sibling of the root node")
     parent.insert(idx + 1 if verb == "insert_after" else idx, new_node)
 
 
 def _locate(
     root: Any, node_id: str, file: Path, kp: str, line: int | None
-) -> tuple[Any, list[Any], int]:
-    """Find a node by authored id; return (node, parent_children_list, index_in_parent)."""
+) -> tuple[Any, list[Any] | None, int]:
+    """Find a node by authored id; return (entry, parent_children_list, index_in_parent).
+
+    The root node is addressable (parent is ``None``, CR-11); every other node is found by a
+    depth-first scan of ``children``, seeing through repeat/if construct wrappers.
+    """
+    if isinstance(root, dict) and root.get("id") == node_id:
+        return root, None, -1
     found = _search(root, node_id)
     if found is None:
         raise _patch_error(file, kp, line, f"no node with id {node_id!r} to patch")
@@ -187,10 +209,40 @@ def _search(node: Any, node_id: str) -> tuple[Any, list[Any], int] | None:
         for i, child in enumerate(children):
             if isinstance(child, dict) and _child_id(child) == node_id:
                 return child, children, i
-            deeper = _search(child, node_id)
+            deeper = _search(_node_of(child), node_id)
             if deeper is not None:
                 return deeper
     return None
+
+
+def _node_of(entry: Any) -> Any:
+    """Return the addressable node mapping, unwrapping a repeat/if construct wrapper."""
+    if isinstance(entry, dict) and isinstance(entry.get("node"), dict) and (
+        "repeat" in entry or "if" in entry
+    ):
+        return entry["node"]
+    return entry
+
+
+def read_path(root: Any, path: str) -> Any:
+    """Return the value at a ``nodes.<id>[.<field>...]`` path in the (patched) AST, or None.
+
+    Used by ``template inspect --resolved`` to read the final value a patch produced. Missing
+    paths return ``None`` (a removed node/field), never raising.
+    """
+    if not path.startswith("nodes."):
+        return None
+    node_id, segments = _parse_path(path)
+    if isinstance(root, dict) and root.get("id") == node_id:
+        target: Any = root
+    else:
+        found = _search(root, node_id)
+        target = _node_of(found[0]) if found is not None else None
+    for seg in segments:
+        if not isinstance(target, dict) or seg not in target:
+            return None
+        target = target[seg]
+    return target
 
 
 def _child_id(child: Any) -> str | None:

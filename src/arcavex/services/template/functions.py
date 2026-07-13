@@ -20,8 +20,11 @@ from arcavex.kernel.contracts.types import Value
 from arcavex.kernel.ir.colors import Color
 
 # Persian (Extended Arabic-Indic) digits U+06F0..U+06F9, indexed by their ASCII digit value.
-_FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
-_SUPPORTED_LOCALES = ("en", "fa")
+_FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹"  # Persian, U+06F0..U+06F9
+_ARAB_DIGITS = "٠١٢٣٤٥٦٧٨٩"  # Arabic-Indic, U+0660..U+0669
+# 'en' and 'latn' are the Latin identity; 'fa'/'arab' substitute digit code points only.
+_DIGIT_SETS = {"fa": _FA_DIGITS, "arab": _ARAB_DIGITS}
+_SUPPORTED_LOCALES = ("en", "latn", "fa", "arab")
 
 
 def _stringify_scalar(value: Value) -> str:
@@ -125,11 +128,12 @@ def _locale_digits(args: list[Value]) -> Value:
     if locale not in _SUPPORTED_LOCALES:
         available = ", ".join(_SUPPORTED_LOCALES)
         raise ValueError(f"locale_digits() unknown locale {locale!r} (supported: {available})")
-    if locale == "en":
+    digits = _DIGIT_SETS.get(locale)
+    if digits is None:  # 'en' / 'latn' are Latin identity
         return text
-    # 'fa': map ASCII digits to Persian digits; decimal separators and percent signs pass
-    # through unchanged so "12.5%" -> "۱۲.۵%". Only digit code points are substituted.
-    return text.translate({ord("0") + i: _FA_DIGITS[i] for i in range(10)})
+    # Map ASCII digits to the locale set; decimal separators and percent signs pass through
+    # unchanged so "12.5%" -> "۱۲.۵%". Only digit code points are substituted.
+    return text.translate({ord("0") + i: digits[i] for i in range(10)})
 
 
 def _contrast_color(args: list[Value]) -> Value:
@@ -184,8 +188,8 @@ FUNCTION_SIGNATURES: dict[str, tuple[str, str]] = {
         "Round a number to an optional digit count (banker's rounding).",
     ),
     "locale_digits": (
-        "locale_digits(text, locale: 'en'|'fa') -> string",
-        "Map ASCII digits in text to a locale's digit set (fa -> ۰۱۲۳۴۵۶۷۸۹).",
+        "locale_digits(text, locale: 'en'|'latn'|'fa'|'arab') -> string",
+        "Map ASCII digits in text to a locale's digit set (fa -> ۰۱۲۳۴۵۶۷۸۹, arab -> ٠١٢٣٤٥٦٧٨٩).",
     ),
     "contrast_color": (
         "contrast_color(color: string) -> string",

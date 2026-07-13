@@ -127,8 +127,9 @@ def test_fit_content_text(tmp_path: Path) -> None:
     )
     layout = AnchorLayoutSolver().solve(doc, fake_measure)
     label = _find(layout.root, "label")
-    # font_size 20px -> 15pt; width = 4 * 15 * 0.5 = 30
-    assert label.bounds.w == 30.0
+    # font_size 20px -> 15pt; width = 4 * 15 * 0.5 = 30, plus the 0.5pt fit_content safety
+    # margin that keeps quantization from forcing a spurious character wrap.
+    assert label.bounds.w == 30.5
     assert round(label.bounds.h, 3) == round(15.0 * 1.2, 3)
 
 

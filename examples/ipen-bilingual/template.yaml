@@ -12,18 +12,66 @@ variables:
   day:      {type: number, required: true, doc: "Event day of month (localised digits)"}
   month:    {type: string, required: true, doc: "Event month name (localised)"}
   time:     {type: string, required: true, doc: "Event start time, e.g. 17:00"}
+  # Closing call-to-action shown in the story footer band; localised via the locale overlay.
+  cta:      {type: string, required: false, default: "Iranian Professionals Network",
+             doc: "Footer tagline (localised)"}
 
 formats:
   square:
     canvas: {width: 1080px, height: 1080px, dpi: 96}
   story:
     canvas: {width: 1080px, height: 1920px, dpi: 96}
+    # The tall story canvas gets a bigger hero and a bottom-anchored footer band so the frame
+    # reads as intentionally composed rather than top-weighted.
+    patch:
+      - set: nodes.hero.constraints.size.h
+        value: 46%
+      - insert_after: nodes.venue
+        node:
+          id: footer
+          type: group
+          constraints:
+            anchor: {start: parent.start+56pt, bottom: parent.bottom-70pt}
+            size: {w: 84%, h: 150pt}
+          children:
+            - id: footer-rule
+              type: shape
+              shape: rrect
+              style: {fill: "#e23b4e", corner_radius: 3pt}
+              constraints:
+                anchor: {start: parent.start, top: parent.top}
+                size: {w: 96pt, h: 6pt}
+            - id: footer-mark
+              type: text
+              text: "IPEN"
+              # Latin wordmark: a fit_content box anchored to the group start sits on the
+              # reading-start edge (right under rtl), so it aligns with the rest of the frame.
+              style: {font: [Inter, Vazirmatn], font_size: 60pt, font_weight: 900, color: "#ffffff"}
+              paragraph: {align: start, direction: ltr}
+              constraints:
+                anchor: {start: parent.start, top: footer-rule.bottom+18pt}
+                size: {w: fit_content, h: fit_content}
+            - id: footer-cta
+              type: text
+              text: "{{ cta }}"
+              style: {font: [Inter, Vazirmatn], font_size: 24pt, font_weight: 500, color: "#9aa6c4"}
+              paragraph: {align: start, direction: auto}
+              constraints:
+                anchor: {start: parent.start, top: footer-mark.bottom+10pt}
+                size: {w: fill, h: fit_content}
   a4:
     canvas: {width: 210mm, height: 297mm, dpi: 300}
-    # On the tall A4 sheet the hero band gets a little more room.
+    # The dense A4 sheet: give the hero more room, ease the display title down to a size that
+    # holds one line, and widen/shrink the venue so it stays on one line (matching the fa page).
     patch:
       - set: nodes.hero.constraints.size.h
         value: 38%
+      - set: nodes.title.style.font_size
+        value: 48pt
+      - set: nodes.venue.constraints.size.w
+        value: 92%
+      - set: nodes.venue.style.font_size
+        value: 22pt
 
 locales:
   en:
@@ -34,6 +82,10 @@ locales:
     # In Farsi context prefer the Persian text face for anything declared Inter.
     fonts:
       Inter: [Vazirmatn, Inter]
+    # A mirrored composition flips the accent tilt so it leans the same way as the rtl flow.
+    patch:
+      - set: nodes.accent-bar.transform.rotate
+        value: 4
 
 preview_data:
   title: "A Cup of Experience"
@@ -78,13 +130,14 @@ root:
     - id: title
       type: text
       text: "{{ title }}"
-      # A large display size that shrink_to_fit reduces (down to min_size) to fit two lines.
+      # A large display size; shrink_to_fit reduces it (down to min_size) so it never exceeds
+      # two lines, and the fit_content box hugs the result so the title rhythm stays even.
       style: {font: [Estedad, Inter], font_size: 72pt, font_weight: 900, color: "#ffffff"}
       paragraph: {align: start, direction: auto}
-      fit: {policy: shrink_to_fit, min_size: 30pt, max_lines: 2}
+      fit: {policy: shrink_to_fit, min_size: 40pt, max_lines: 2}
       constraints:
         anchor: {start: parent.start+56pt, top: accent-bar.bottom+18pt}
-        size: {w: 84%, h: 116pt}
+        size: {w: 84%, h: fit_content}
 
     - id: subtitle
       type: text
@@ -93,7 +146,7 @@ root:
       paragraph: {align: start, direction: auto}
       fit: {policy: wrap, overflow: clip, max_lines: 2}
       constraints:
-        anchor: {start: parent.start+56pt, top: title.bottom+16pt}
+        anchor: {start: parent.start+56pt, top: title.bottom+20pt}
         size: {w: 80%, h: fit_content}
 
     # Date/time box: a red-framed card whose two lines flow in a vstack; the day uses locale

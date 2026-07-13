@@ -47,6 +47,31 @@ app.add_typer(template_app, name="template")
 layout_app = typer.Typer(add_completion=False, help="Layout inspection commands.")
 app.add_typer(layout_app, name="layout")
 
+
+def _engine_version() -> str:
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version("arcavex")
+    except importlib.metadata.PackageNotFoundError:  # pragma: no cover - dev tree without wheel
+        return "0+unknown"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"arcavex {_engine_version()}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _root(
+    version: bool = typer.Option(
+        False, "--version", callback=_version_callback, is_eager=True,
+        help="Show the engine version and exit.",
+    ),
+) -> None:
+    """Arcavex rendering engine."""
+
 EXIT_OK = 0
 EXIT_VALIDATION = 1
 EXIT_USAGE = 2
@@ -174,7 +199,7 @@ def render(
     facade = _build_facade_or_exit(console, quiet)
     # RR1-3: announce the render-affecting inferences (output name, sole format) *before* the
     # pipeline runs, so a long A4 render shows the resolved output up front, not only after.
-    plan = facade.render_plan(template, data, format_name, output)
+    plan = facade.render_plan(template, data, format_name, output, locale)
     if not json_out:
         _report_inferences(console, plan, quiet)
     result = facade.render_file(
@@ -455,6 +480,16 @@ def template_check(
 @template_app.command("inspect")
 def template_inspect(
     template: Path = typer.Argument(..., help="Template file or directory."),
+    resolved: bool = typer.Option(
+        False, "--resolved",
+        help="Report final layered values and their originating layer (format/locale patches).",
+    ),
+    format_name: str | None = typer.Option(
+        None, "--format", "-f", help="Format name (with --resolved)."
+    ),
+    locale: str | None = typer.Option(
+        None, "--locale", "-l", help="Locale name (with --resolved)."
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
@@ -464,6 +499,11 @@ def template_inspect(
         _force_utf8_stdout()
     console = Console(no_color=no_color)
     facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    if resolved:
+        _template_inspect_resolved(
+            console, facade, template, format_name, locale, json_out, quiet
+        )
+        return
     report = facade.inspect_template(template)
     if json_out:
         _emit_json(report)
@@ -485,6 +525,39 @@ def template_inspect(
             console.print("[bold]functions[/bold]:")
             for fn in report.functions:
                 console.print(f"  {fn.signature}")
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+def _template_inspect_resolved(
+    console: Console,
+    facade: Facade,
+    template: Path,
+    format_name: str | None,
+    locale: str | None,
+    json_out: bool,
+    quiet: bool,
+) -> None:
+    """Render ``template inspect --resolved``: final values and their originating layer (CR-1)."""
+    report = facade.inspect_resolved(template, None, format_name, locale)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            console.print(
+                f"[bold]resolved[/bold] format={report.format} locale={report.locale or '-'} "
+                f"direction={report.direction} digits={report.digits or '-'}"
+            )
+            if not report.patches:
+                console.print("  [dim]no format/locale patches applied[/dim]")
+            for p in report.patches:
+                mark = "" if p.effective else " [dim](overridden)[/dim]"
+                value = "" if p.value is None else f" = {_esc(p.value)}"
+                console.print(
+                    f"  [cyan]{_esc(p.path)}[/cyan]{value} "
+                    f"[dim]<- {_esc(p.layer)} ({p.op})[/dim]{mark}"
+                )
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
 
@@ -556,6 +629,12 @@ def _print_layout_report(console: Console, report: LayoutReport) -> None:
                 f"({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f}, {r[3]:.1f})pt"
             )
     console.print(f"[bold]coverage[/bold]: {report.covered_fraction:.0%} of canvas")
+    if report.free_regions:
+        console.print("[bold]free regions[/bold] (empty horizontal bands):")
+        for r in report.free_regions:
+            console.print(
+                f"  ({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f}, {r[3]:.1f})pt"
+            )
     for warn in report.warnings:
         console.print(f"[yellow]WARN {warn.code}[/yellow] {_esc(warn.message)}")
 

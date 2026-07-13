@@ -43,8 +43,9 @@ A one-file template is a YAML mapping with these top-level sections:
 - `variables:` — declared inputs, e.g. `title: {type: string, required: true, default: ...,
   doc: ...}`. Types are `string`, `number`, `boolean`, `list`, `object`, `color`, `image`. A
   required variable with no value (and no default) is an error; a supplied value of the wrong
-  type is reported. Supplying an explicit `null` for an optional variable is the same as
-  omitting it.
+  type is reported. An explicit `null` in any data layer **binds null** — it is a value, not
+  omission: it does not fall back to the declared `default`, and for a required variable it is
+  still an error. Omitting a key entirely is what selects the default. (See ADR-0002.)
 - `formats:` — named canvases, e.g. `square: {canvas: {width: 1080px, height: 1080px,
   dpi: 96}}`.
 - `locales:` — per-locale `direction`/`digits`/`fonts`/`data`/`patch`, applied when the
@@ -132,14 +133,67 @@ for nested constructs, so the inner construct must live in a group's `children` 
 
 ### Constraints and anchors
 
-A node with a `constraints` block must give one horizontal anchor (`left` | `right` |
-`center_x`), one vertical anchor (`top` | `bottom` | `center_y`), and an explicit
-`size: {w: ..., h: ...}`. Sizes are `fixed` (`100px`), `%` (`62%`), `fill`, or `fit_content`
-(text only). Missing or duplicated position/size is a located `ARC-LAY` error.
+A node with a `constraints` block gives one horizontal anchor, one vertical anchor, and an
+explicit `size: {w: ..., h: ...}`. Missing or duplicated position/size is a located `ARC-LAY`
+error (unknown fields under `constraints`/`size` are rejected too, `ARC-TPL-051`).
 
-Anchors reference a parent edge with an optional **literal** offset: `parent.top`,
-`parent.left+48px`, `parent.center_y-70px`. Whitespace around the sign is tolerated
-(`parent.left + 48px`). `{{ }}` expressions are **not** evaluated inside constraints.
+**Anchors** pin one edge of this node to an edge of a reference, with an optional offset:
+
+```yaml
+constraints:
+  anchor:
+    top: title.bottom + 16pt      # a sibling edge: this node's top = title's bottom + 16pt
+    start: parent.start + 56pt     # a parent edge
+  size: {w: 84%, h: fit_content}
+```
+
+- **Reference** is `parent` or a **sibling id** in the same group. Sibling references resolve
+  regardless of declaration order (forward refs work); a cycle is a located `ARC-LAY-052`
+  naming the loop, and an unknown sibling is `ARC-LAY-053`. A rotated sibling contributes its
+  post-transform bounding box.
+- **Edges** are the six physical edges (`top`, `bottom`, `left`, `right`, `center_x`,
+  `center_y`) plus the **logical** `start`/`end`, which resolve through the enclosing group's
+  `direction` — in `ltr`, `start` = left and a `+` offset moves right; in `rtl`, `start` =
+  right and a `+` offset moves left (reading order). This is what lets one template mirror.
+- **Offsets** accept `{{ }}` expressions, evaluated *before* the offset is parsed, so per-item
+  offsets work: `top: "parent.top + {{ loop.index * 90 }}pt"`. (Whitespace around the sign is
+  fine.)
+
+Horizontal anchor keys are `left`/`right`/`center_x`/`start`/`end`; vertical are
+`top`/`bottom`/`center_y`.
+
+**Sizes** — each axis of `size` is one of:
+
+| Form | Meaning |
+|---|---|
+| `100px` / `40pt` / `20mm` | fixed |
+| `62%` | percent of the parent's extent |
+| `fill` | share the remaining space (equal split among `fill` siblings in a stack) |
+| `fit_content` | the text's intrinsic size (text nodes only, `ARC-LAY-020` otherwise) |
+| `{aspect: "3:4"}` or `aspect(3:4)` | derive this axis from the other (both spellings accepted) |
+
+Any axis also accepts a mapping with `min`/`max` clamps and an explicit `value`, e.g.
+`w: {value: 62%, min: 100px, max: 480px}` or `h: {aspect: "1:1", max: 240pt}`. Clamps apply in
+every mode (including `fill` and stack shares); `aspect` derives from the *clamped* other axis.
+`aspect` on both axes is `ARC-LAY-055`.
+
+**Stacks** — a `group` with `layout: hstack|vstack` flows its children along a main axis with
+`gap`, `padding`, `main_align` (`start`/`center`/`end`/`space_between`), and `cross_align`
+(`start`/`center`/`end`/`stretch`); stack children take their position from the stack and must
+not also declare an `anchor` (`ARC-LAY-054`). Under a resolved `rtl` direction an `hstack`
+mirrors: the first child sits at the right edge and `main_align: start` packs from the right; a
+`vstack`'s `cross_align` start/end mirror likewise. `wrap: true` is deferred (`ARC-LAY-056`).
+
+**Text fit** — a text node may set `fit: {policy, overflow, min_size, max_lines}`:
+
+- `policy`: `wrap` (default), `shrink_to_fit` (binary-search the largest size in
+  `[min_size, font_size]` that fits — combine with `fit_content` height + `max_lines` to hug
+  the shrunk result), or `truncate` (measured-prefix ellipsis, RTL-correct placement).
+- `overflow`: `clip` (default), `allow`, or `error` (`ARC-LAY-050`, exit 1).
+- `max_lines` caps the line count; with `h: fit_content` it also caps the box height.
+- Non-convergent shrink and sub-line-height truncation emit `ARC-LAY-051` warnings with the
+  measured numbers. `paragraph: {align, direction}` sets alignment (`start`/`end` follow the
+  base direction) and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).
 
 ### Units and colors
 
@@ -166,11 +220,48 @@ Registered functions (call as `fn(args)` or pipe as `x | fn`):
 | `min` | `min(*numbers \| list) -> number` |
 | `max` | `max(*numbers \| list) -> number` |
 | `round` | `round(value: number, ndigits: number = 0) -> number` |
-| `locale_digits` | `locale_digits(text, locale: 'en'\|'fa') -> string` |
+| `locale_digits` | `locale_digits(text, locale: 'en'\|'latn'\|'fa'\|'arab') -> string` |
 | `contrast_color` | `contrast_color(color: string) -> string` |
 
 `arcavex template inspect --json` lists these with their signatures so an AI author need not
 read source.
+
+### Locales, data layering, and patches
+
+`--locale L` applies the declared `locales.<L>` entry: `direction` (the root default and the
+inherited default for undirected groups), `digits` (`fa`/`arab` map interpolated **numeric**
+values and exact-match numeric expressions to Persian/Arabic-Indic digits; `en`/`latn` are the
+Latin identity — string values are never remapped, so a time like `"17:00"` is localized in
+data, not by the digit policy), `fonts` (family-substitution overrides), a `data` overlay, and
+a `patch`.
+
+**Effective data** is resolved in layers (later overrides earlier):
+
+1. template `preview_data` / variable defaults (only when no `--data`),
+2. template `locales.<L>.data` overlay (ships localized default strings),
+3. the user `--data` file,
+4. the user **sidecar** `data.<L>.yaml` next to the base data file (auto-applied for
+   `--locale L`, if present).
+
+So template data can localize defaults, user data always outranks template data, and the
+locale-specific sidecar outranks the base user data. Both overlay applications are reported as
+`inferred: data_overlay=…` inferences (shown even with `--json`; `--quiet` suppresses only the
+human line). Overlay merge is recursive for mappings, whole-replace for scalars/lists, `null`
+is a value, and the explicit YAML tag `!delete` (e.g. `key: !delete`) removes a key — the plain
+string `"!delete"` is ordinary data. Passing a `data.<L>.yaml` sidecar directly to `--data`
+(instead of the base file) is a common mistake; the missing-variable hint calls it out.
+
+**Patches** (`formats.<name>.patch` and `locales.<L>.patch`) apply ordered
+`set`/`remove`/`insert_before`/`insert_after` operations addressing authored node IDs
+(`nodes.<id>[.<field>…]`, `nodes.root` included; field edits see through `repeat`/`if`
+wrappers). `set` modifies an **existing** field — an unknown final path segment is a located
+error, never a silent new key. Resolution order is format patch → locale patch, before
+expressions.
+
+`arcavex template inspect --resolved [--format F] [--locale L]` reports the resolved
+direction/digits and each applied patch with the value it produced and its originating layer
+(the last op on a path is marked effective), so you can answer "where did this value come
+from?".
 
 ### Exit codes
 
@@ -192,8 +283,11 @@ read source.
 - **Wrapping stacks are deferred.** A stack with `wrap: true` reports `ARC-LAY-056` rather than
   faking multi-row flow; lay wrapped rows out with nested stacks for now.
 - **Text metrics are paragraph-level** (skia-python 144 exposes no per-line/per-glyph boxes),
-  so `max_lines` is approximated from measured height and inspection reports paragraph bounds
-  and baseline rather than per-glyph rectangles (ADR-0001).
+  so `max_lines` is approximated by dividing the measured paragraph height by a *measured*
+  single-line height (not an invented constant), exact for uniform text; inspection reports
+  paragraph bounds and baseline rather than per-glyph rectangles (ADR-0001).
+- **`line_height` is not yet honored** (the bundled text stack exposes no strut override), so
+  setting it is a located `ARC-TPL-053`; it is tracked in the ledger for a later phase.
 
 See the `examples/ipen-bilingual/` bilingual poster for locales, stacks, masks, sibling
 anchors, rotation, and fit policies in one template, and

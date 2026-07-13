@@ -112,7 +112,7 @@ class TextService:
         base_size = req.font_size_pt
         missing = tuple(self.missing_glyphs(runs))
         para = self._layout(runs, req, base_size)
-        w, h, lines = _metrics(para, base_size, req.line_height)
+        w, h, lines = self._metrics(para, runs, req, base_size)
         if self._fits(req, w, h, lines):
             result = _result(w, h, para, lines, base_size, "none")
         elif req.fit_policy == "shrink_to_fit":
@@ -132,7 +132,7 @@ class TextService:
         min_size = max(1.0, min(min_size, base_size))
         # If even the smallest allowed size overflows, report non-convergence at min size.
         para_min = self._layout(runs, req, min_size)
-        w, h, lines = _metrics(para_min, min_size, req.line_height)
+        w, h, lines = self._metrics(para_min, runs, req, min_size)
         if not self._fits(req, w, h, lines):
             return _result(w, h, para_min, lines, min_size, "overflowing", converged=False)
         lo, hi = min_size, base_size
@@ -142,7 +142,7 @@ class TextService:
         for _ in range(_MAX_FIT_ITERS):
             mid = (lo + hi) / 2.0
             para = self._layout(runs, req, mid)
-            mw, mh, ml = _metrics(para, mid, req.line_height)
+            mw, mh, ml = self._metrics(para, runs, req, mid)
             if self._fits(req, mw, mh, ml):
                 best, best_para, best_metrics = mid, para, (mw, mh, ml)
                 lo = mid
@@ -157,17 +157,31 @@ class TextService:
     def _truncate(
         self, req: MeasureRequest, runs: tuple[ResolvedRun, ...], base_size: float
     ) -> MeasureResult:
-        """Binary-search the longest text prefix that fits, then append an ellipsis."""
+        """Binary-search the longest text prefix that fits, then append an ellipsis.
+
+        Measurement uses the *lead run's* style — the style the solver actually paints the
+        truncated text in (CR-16) — so the measured prefix and the painted prefix agree, and
+        per-run styling is understood to collapse to the lead run on truncation. When even the
+        empty ``…`` does not fit (a box shorter than one line), the result is flagged
+        non-converged so the solver can emit a located diagnostic (CR-13).
+        """
+        lead = runs[0]
+        lead_size = lead.font_size_pt
         full = "".join(r.text for r in runs)
         normalized = _nfc(full)
+
+        def layout_candidate(text: str) -> skia.textlayout.Paragraph:
+            run = lead.model_copy(update={"text": text})
+            return self._layout((run,), req, lead_size)
+
         lo, hi = 0, len(normalized)
         best = ""
-        best_para = self._layout_text(normalized + _ELLIPSIS, req, base_size)
+        best_para = layout_candidate(normalized + _ELLIPSIS)
         for _ in range(_MAX_FIT_ITERS):
             mid = (lo + hi) // 2
             candidate = normalized[:mid].rstrip() + _ELLIPSIS
-            para = self._layout_text(candidate, req, base_size)
-            w, h, lines = _metrics(para, base_size, req.line_height)
+            para = layout_candidate(candidate)
+            w, h, lines = self._metrics(para, (lead,), req, lead_size)
             if self._fits(req, w, h, lines):
                 best, best_para = candidate, para
                 lo = mid + 1
@@ -175,9 +189,13 @@ class TextService:
                 hi = mid - 1
             if lo > hi:
                 break
-        w, h, lines = _metrics(best_para, base_size, req.line_height)
+        w, h, lines = self._metrics(best_para, (lead,), req, lead_size)
+        # A box shorter than one line fits no prefix at all: the ellipsis alone is left, which
+        # the solver reports rather than silently painting a lone "…".
+        degenerate = best == ""
         return _result(
-            w, h, best_para, lines, base_size, "truncated", out_text=best or _ELLIPSIS
+            w, h, best_para, lines, lead_size, "truncated",
+            out_text=best or _ELLIPSIS, converged=not degenerate,
         )
 
     def _fits(self, req: MeasureRequest, w: float, h: float, lines: int) -> bool:
@@ -232,6 +250,35 @@ class TextService:
         return False
 
     # ------------------------------------------------------------------ internals
+    def _metrics(
+        self,
+        para: skia.textlayout.Paragraph,
+        runs: tuple[ResolvedRun, ...],
+        req: MeasureRequest,
+        size: float,
+    ) -> tuple[float, float, int]:
+        """Return ``(width_pt, height_pt, line_count)`` for a laid-out paragraph.
+
+        The line count divides total height by a *measured* single-line height (the paragraph's
+        natural height at unbounded width) rather than an invented ``size * 1.2`` constant
+        (CR-19). The estimate is exact for uniform text and degrades gracefully only for text
+        carrying explicit line breaks, which none of the fit policies produce.
+        """
+        w = float(para.LongestLine)
+        h = float(para.Height)
+        per_line = self._unit_line_height(runs, req, size)
+        lines = max(1, round(h / per_line)) if h > 0 and per_line > 0 else 1
+        return w, h, lines
+
+    def _unit_line_height(
+        self, runs: tuple[ResolvedRun, ...], req: MeasureRequest, size: float
+    ) -> float:
+        """Measure one line's height for the given runs/size at unbounded width."""
+        probe = self._build(runs, req, size)
+        probe.layout(_UNBOUNDED_WIDTH)
+        h = float(probe.Height)
+        return h if h > 0 else size * 1.2
+
     def _runs_of(self, req: MeasureRequest) -> tuple[ResolvedRun, ...]:
         if req.runs:
             return req.runs
@@ -253,20 +300,6 @@ class TextService:
         para = self._build(runs, req, size)
         para.layout(req.max_width_pt if req.max_width_pt is not None else _UNBOUNDED_WIDTH)
         return para
-
-    def _layout_text(
-        self, text: str, req: MeasureRequest, size: float
-    ) -> skia.textlayout.Paragraph:
-        run = ResolvedRun(
-            text=text,
-            font_families=req.font_families or ("Inter",),
-            font_size_pt=size,
-            font_weight=req.font_weight,
-            italic=req.italic,
-            color=req.color,
-            letter_spacing_pt=req.letter_spacing_pt,
-        )
-        return self._layout((run,), req, size)
 
     def _build(
         self, runs: tuple[ResolvedRun, ...], req: MeasureRequest, size: float
@@ -319,16 +352,6 @@ class TextService:
 
 def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
-
-
-def _metrics(
-    para: skia.textlayout.Paragraph, size: float, line_height: float | None
-) -> tuple[float, float, int]:
-    w = float(para.LongestLine)
-    h = float(para.Height)
-    per_line = size * (line_height or 1.2)
-    lines = max(1, round(h / per_line)) if h > 0 and per_line > 0 else 1
-    return w, h, lines
 
 
 def _result(
