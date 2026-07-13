@@ -614,14 +614,22 @@ def evaluate_expression(
     return _Evaluator(context, table).eval(ast)
 
 
+_FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹"
+
+
 def render_value(
-    raw: str, context: dict[str, Value], functions: FunctionTable | None = None
+    raw: str,
+    context: dict[str, Value],
+    functions: FunctionTable | None = None,
+    digits: str | None = None,
 ) -> Value:
     """Resolve a scalar string that may contain ``{{ … }}`` expressions.
 
     If the string is exactly one expression, the native value type is preserved. Otherwise
     each embedded expression is evaluated and stringified into the surrounding text.
-    ``\\{{`` is an escaped literal ``{{``.
+    ``\\{{`` is an escaped literal ``{{``. When ``digits`` is ``'fa'``, a *numeric* interpolated
+    value has its ASCII digits mapped to Persian digits (spec §4.1.4); literal template text and
+    string values pass through unchanged.
     """
     if "{{" not in raw and "\\{{" not in raw:
         return raw
@@ -644,12 +652,20 @@ def render_value(
             if end == -1:
                 raise ExpressionError("unterminated '{{' expression")
             body = raw[i + 2 : end]
-            out.append(_stringify(evaluate_expression(body, context, table)))
+            value = evaluate_expression(body, context, table)
+            out.append(_localize_digits(_stringify(value), value, digits))
             i = end + 2
             continue
         out.append(raw[i])
         i += 1
     return "".join(out)
+
+
+def _localize_digits(text: str, value: Value, digits: str | None) -> str:
+    """Map ASCII digits to a locale set, only for numeric interpolated values."""
+    if digits == "fa" and isinstance(value, (int, float)) and not isinstance(value, bool):
+        return text.translate({ord("0") + i: _FA_DIGITS[i] for i in range(10)})
+    return text
 
 
 def _match_exact(raw: str) -> str | None:

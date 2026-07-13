@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from arcavex.kernel.diagnostics import has_errors
 from arcavex.kernel.ir.models import CompiledGroup, CompiledShape, CompiledText
 from arcavex.services.template.compiler import Compiler
 
@@ -218,11 +219,20 @@ def test_locales_malformed_shape_rejected(tmp_path: Path) -> None:
     assert any(d.code == "ARC-TPL-098" for d in result.diagnostics)
 
 
-def test_requesting_locale_still_deferred(tmp_path: Path) -> None:
-    """Applying a requested --locale remains a Phase 2 deferral (ARC-TPL-091)."""
+def test_requesting_declared_locale_applies(tmp_path: Path) -> None:
+    """Phase 2: a declared --locale is applied (no ARC-TPL-091 deferral) and compiles."""
     template = _nongoal_template(tmp_path, "locales:\n  fa: {direction: rtl}\n")
     result = Compiler().compile(template, None, "square", "fa", None)
-    assert any(d.code == "ARC-TPL-091" for d in result.diagnostics)
+    assert not has_errors(result.diagnostics), result.diagnostics
+    assert result.document is not None
+    assert result.document.root.direction == "rtl"
+
+
+def test_requesting_undeclared_locale_is_error(tmp_path: Path) -> None:
+    """A locale the template does not declare is a located error (ARC-TPL-100)."""
+    template = _nongoal_template(tmp_path, "locales:\n  fa: {direction: rtl}\n")
+    result = Compiler().compile(template, None, "square", "de", None)
+    assert any(d.code == "ARC-TPL-100" for d in result.diagnostics)
 
 
 def test_nongoal_styles_section_rejected(tmp_path: Path) -> None:
@@ -231,7 +241,8 @@ def test_nongoal_styles_section_rejected(tmp_path: Path) -> None:
     assert any(d.code == "ARC-TPL-093" for d in result.diagnostics)
 
 
-def test_nongoal_format_patch_rejected(tmp_path: Path) -> None:
+def test_format_patch_applies(tmp_path: Path) -> None:
+    """Phase 2: a per-format patch is applied to the authored AST (no ARC-TPL-095)."""
     template = _write(
         tmp_path,
         """
@@ -240,13 +251,26 @@ formats:
   square:
     canvas: {width: 100px, height: 100px, dpi: 96}
     patch:
-      - set: nodes.root.style.opacity
+      - set: nodes.box.style.opacity
         value: 0.5
-root: {type: group, id: root, children: []}
+root:
+  type: group
+  id: root
+  children:
+    - id: box
+      type: shape
+      shape: rect
+      style: {fill: "#ffffff", opacity: 1.0}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 50px, h: 50px}
 """,
     )
     result = Compiler().compile(template, None, "square", None, None)
-    assert any(d.code == "ARC-TPL-095" for d in result.diagnostics)
+    assert not has_errors(result.diagnostics), result.diagnostics
+    assert result.document is not None
+    box = result.document.root.children[0]
+    assert box.style.opacity == 0.5
 
 
 def test_missing_asset_located_compile_error(tmp_path: Path) -> None:

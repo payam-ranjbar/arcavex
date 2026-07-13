@@ -18,7 +18,11 @@ def fake_measure(req: MeasureRequest) -> MeasureResult:
     if req.max_width_pt is not None:
         width = min(width, req.max_width_pt)
     return MeasureResult(
-        width_pt=width, height_pt=req.font_size_pt * 1.2, baseline_pt=req.font_size_pt, line_count=1
+        width_pt=width,
+        height_pt=req.font_size_pt * 1.2,
+        baseline_pt=req.font_size_pt,
+        line_count=1,
+        resolved_size_pt=req.font_size_pt,
     )
 
 

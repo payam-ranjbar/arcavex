@@ -15,6 +15,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape as _rich_escape
 from rich.table import Table
 
 from arcavex.bootstrap import build_facade
@@ -23,6 +24,7 @@ from arcavex.kernel.api import (
     RESPONSE_VERSION,
     DoctorReport,
     Facade,
+    LayoutReport,
     PreviewResult,
 )
 from arcavex.kernel.diagnostics import (
@@ -33,9 +35,17 @@ from arcavex.kernel.diagnostics import (
     has_errors,
 )
 
+
+def _esc(value: object) -> str:
+    """Escape Rich markup so literal '[...]' text (e.g. '[repeat]') displays (RR1-2)."""
+    return _rich_escape(str(value))
+
+
 app = typer.Typer(add_completion=False, help="Arcavex rendering engine.")
 template_app = typer.Typer(add_completion=False, help="Template authoring commands.")
 app.add_typer(template_app, name="template")
+layout_app = typer.Typer(add_completion=False, help="Layout inspection commands.")
+app.add_typer(layout_app, name="layout")
 
 EXIT_OK = 0
 EXIT_VALIDATION = 1
@@ -128,10 +138,11 @@ def _print_diagnostics(console: Console, diagnostics: list[Diagnostic], quiet: b
             if parts:
                 location = " (" + ", ".join(parts) + ")"
         console.print(
-            f"[{color}]{diag.severity.upper()} {diag.code}[/{color}] {diag.message}{location}"
+            f"[{color}]{diag.severity.upper()} {diag.code}[/{color}] "
+            f"{_esc(diag.message)}{_esc(location)}"
         )
         if diag.hint:
-            console.print(f"  [dim]hint:[/dim] {diag.hint}")
+            console.print(f"  [dim]hint:[/dim] {_esc(diag.hint)}")
 
 
 @app.command()
@@ -149,7 +160,9 @@ def render(
         help="Output PNG path. Defaults to '<template-stem>.<format>.png' in the CWD.",
     ),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
-    debug: bool = typer.Option(False, "--debug", help="Enable debug overlays (reserved)."),
+    debug: bool = typer.Option(
+        False, "--debug", help="Overlay node bounds, ids, baselines, and the safe-area margin."
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
@@ -159,6 +172,11 @@ def render(
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
+    # RR1-3: announce the render-affecting inferences (output name, sole format) *before* the
+    # pipeline runs, so a long A4 render shows the resolved output up front, not only after.
+    plan = facade.render_plan(template, data, format_name, output)
+    if not json_out:
+        _report_inferences(console, plan, quiet)
     result = facade.render_file(
         template=template,
         data=data,
@@ -184,9 +202,10 @@ def render(
             )
         )
     else:
-        # RR-5 / §6.3: announce inferences (including the default output name) before the
-        # render confirmation line so the resolved output is shown up front.
-        _report_inferences(console, result.inferred, quiet)
+        # Any remaining inferences (data source, locale overlay) that were not knowable before
+        # the pipeline are reported now, without repeating what the plan already showed.
+        remaining = {k: v for k, v in result.inferred.items() if k not in plan}
+        _report_inferences(console, remaining, quiet)
         _print_diagnostics(console, result.diagnostics, quiet)
         if result.ok and not quiet:
             console.print(f"[green]Rendered[/green] {result.output_path}")
@@ -298,11 +317,10 @@ def preview(
     template: Path = typer.Argument(..., help="Template file or directory."),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
-    locale: str | None = typer.Option(
-        None, "--locale", "-l", help="Locale name (application is Phase 2)."
-    ),
+    locale: str | None = typer.Option(None, "--locale", "-l", help="Locale name."),
     watch: bool = typer.Option(False, "--watch", help="Re-render on every dependent-file save."),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
+    debug: bool = typer.Option(False, "--debug", help="Overlay node bounds, ids, and baselines."),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
@@ -313,9 +331,13 @@ def preview(
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
     if watch:
-        _run_preview_watch(facade, console, template, data, format_name, locale, dpi, quiet)
+        _run_preview_watch(
+            facade, console, template, data, format_name, locale, dpi, quiet, debug
+        )
         raise typer.Exit(EXIT_OK)  # Ctrl+C / stop exits cleanly
-    result = facade.render_preview(template, data, format_name, locale=locale, dpi=dpi)
+    result = facade.render_preview(
+        template, data, format_name, locale=locale, dpi=dpi, debug=debug
+    )
     if json_out:
         _emit_json(result)
     else:
@@ -332,6 +354,7 @@ def _run_preview_watch(
     locale: str | None,
     dpi: int | None,
     quiet: bool,
+    debug: bool = False,
 ) -> None:
     if not quiet:
         console.print("[dim]watching for changes… (Ctrl+C to stop)[/dim]")
@@ -346,7 +369,7 @@ def _run_preview_watch(
     try:
         run_watch(
             facade, template, data, format_name, dpi, on_result,
-            locale=locale, stop_event=stop_event,
+            locale=locale, debug=debug, stop_event=stop_event,
         )
     except KeyboardInterrupt:  # pragma: no cover - interactive only
         stop_event.set()
@@ -457,8 +480,8 @@ def template_inspect(
             console.print(f"[bold]formats[/bold]: {', '.join(f.name for f in report.formats)}")
             console.print("[bold]nodes[/bold]:")
             for node in report.nodes:
-                tag = "" if node.origin == "static" else f" [{node.origin}]"
-                console.print(f"  {node.id}: {node.type}{tag}")
+                tag = "" if node.origin == "static" else f" \\[{node.origin}]"
+                console.print(f"  {_esc(node.id)}: {_esc(node.type)}{tag}")
             console.print("[bold]functions[/bold]:")
             for fn in report.functions:
                 console.print(f"  {fn.signature}")
@@ -487,6 +510,78 @@ def template_split(
                 f"[green]Split[/green] {result.directory} into {', '.join(result.files)}"
             )
     raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@layout_app.command("inspect")
+def layout_inspect(
+    template: Path = typer.Argument(..., help="Template file or directory."),
+    data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
+    format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
+    locale: str | None = typer.Option(None, "--locale", "-l", help="Locale name."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Report resolved geometry: per-node bounds, anchors, overflow, and sibling overlaps."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.inspect_layout(template, data, format_name, locale)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            _print_layout_report(console, report)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+def _print_layout_report(console: Console, report: LayoutReport) -> None:
+    _report_inferences(console, report.inferred, quiet=False)
+    console.print(
+        f"[bold]canvas[/bold] {report.canvas_pt[0]:g}x{report.canvas_pt[1]:g}pt "
+        f"({report.canvas_px[0]}x{report.canvas_px[1]}px @ {report.dpi}dpi) "
+        f"format={report.format} locale={report.locale or '-'}"
+    )
+    if report.root is not None:
+        _print_layout_node(console, report.root, 0)
+    if report.overlaps:
+        console.print("[bold]overlaps[/bold]:")
+        for ov in report.overlaps:
+            r = ov.rect_pt
+            console.print(
+                f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at "
+                f"({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f}, {r[3]:.1f})pt"
+            )
+    console.print(f"[bold]coverage[/bold]: {report.covered_fraction:.0%} of canvas")
+    for warn in report.warnings:
+        console.print(f"[yellow]WARN {warn.code}[/yellow] {_esc(warn.message)}")
+
+
+def _print_layout_node(console: Console, node: object, depth: int) -> None:
+    n = node  # LayoutNodeReport
+    pad = "  " * depth
+    x, y, w, h = n.bounds_pt  # type: ignore[attr-defined]
+    console.print(
+        f"{pad}[cyan]{_esc(n.id)}[/cyan] [dim]{n.kind}[/dim] "  # type: ignore[attr-defined]
+        f"({x:.1f}, {y:.1f}, {w:.1f}, {h:.1f})pt"
+    )
+    for anchor in n.anchors:  # type: ignore[attr-defined]
+        console.print(
+            f"{pad}  [dim]{anchor.axis[0]}:[/dim] {anchor.edge} = "
+            f"{_esc(anchor.expression)} → {anchor.resolved_pt:.1f}pt"
+        )
+    if n.overflow is not None and n.overflow.kind != "none":  # type: ignore[attr-defined]
+        o = n.overflow  # type: ignore[attr-defined]
+        console.print(
+            f"{pad}  [yellow]overflow[/yellow]: {o.kind} "
+            f"(measured {o.measured_w_pt:.1f}x{o.measured_h_pt:.1f}pt "
+            f"in {o.box_w_pt:.1f}x{o.box_h_pt:.1f}pt)"
+        )
+    for child in n.children:  # type: ignore[attr-defined]
+        _print_layout_node(console, child, depth + 1)
 
 
 def main() -> None:

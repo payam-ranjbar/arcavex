@@ -13,6 +13,8 @@ from typing import Literal, Protocol, Union, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
+from arcavex.kernel.ir.models import ResolvedRun
+
 # Values that may pass through the expression evaluator and template functions.
 # Written with typing.Union rather than ``|`` because the recursive forward reference to
 # ``Value`` inside a runtime ``X | Y`` expression is not evaluable at module import time.
@@ -44,7 +46,16 @@ class DecodedAsset(Protocol):
 
 
 class MeasureRequest(BaseModel):
-    """A text measurement request passed to the measurement function."""
+    """A text measurement / fit request passed to the measurement function.
+
+    A simple request supplies ``text`` + ``font_families`` + ``font_size_pt`` (a single run is
+    synthesized). A rich request supplies ``runs`` (each a fully resolved run) and leaves
+    ``text`` as the concatenated plain string; when ``runs`` is non-empty it drives shaping.
+
+    Fit fields (``fit_policy``/``min_size_pt``/``max_lines`` plus ``max_width_pt`` and
+    ``max_height_pt``) let the text service run the ≤8-iteration fit loop (ADR-0001) and report
+    the outcome, so the layout solver calls the shaper once per node.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -56,11 +67,25 @@ class MeasureRequest(BaseModel):
     letter_spacing_pt: float = 0.0
     line_height: float | None = None
     direction: Literal["ltr", "rtl"] = "ltr"
+    align: Literal["left", "right", "center", "start", "end"] = "start"
+    language: str | None = None
+    color: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
     max_width_pt: float | None = None
+    max_height_pt: float | None = None
+    runs: tuple[ResolvedRun, ...] = ()
+    fit_policy: Literal["wrap", "shrink_to_fit", "truncate"] = "wrap"
+    min_size_pt: float | None = None
+    max_lines: int | None = None
 
 
 class MeasureResult(BaseModel):
-    """The result of measuring text: extents and baseline in points."""
+    """The result of measuring/fitting text: extents, baseline, and the fit outcome.
+
+    ``resolved_size_pt`` is the font size actually used (after ``shrink_to_fit``);
+    ``overflow_kind`` classifies the outcome; ``out_text`` carries a truncated string when the
+    ``truncate`` policy trimmed it; ``converged`` is ``False`` when the fit loop hit its
+    iteration cap without settling.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -68,6 +93,14 @@ class MeasureResult(BaseModel):
     height_pt: float
     baseline_pt: float
     line_count: int
+    resolved_size_pt: float = 0.0
+    overflow_kind: Literal[
+        "none", "clipped", "truncated", "shrunk", "overflowing"
+    ] = "none"
+    out_text: str | None = None
+    converged: bool = True
+    # (codepoint, families_tried) for glyphs no bundled font can render.
+    missing_glyphs: tuple[tuple[int, tuple[str, ...]], ...] = ()
 
 
 MeasureFn = Callable[[MeasureRequest], MeasureResult]

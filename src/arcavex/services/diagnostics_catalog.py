@@ -192,6 +192,28 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Use 'direction: ltr' or 'direction: rtl'.",
         ),
         _e(
+            "ARC-TPL-039",
+            "Invalid stack setting",
+            "A group's stack layout has an invalid value: 'layout' must be absolute/hstack/"
+            "vstack, 'main_align' must be start/center/end/space_between, and 'cross_align' "
+            "must be start/center/end/stretch.",
+            "Correct the flagged stack setting to one of its allowed values.",
+        ),
+        _e(
+            "ARC-TPL-040",
+            "Malformed text runs",
+            "A text node's 'runs' is not a list, or a run entry is neither a string nor a "
+            "{text, ...} mapping.",
+            "Write 'runs:' as a list of strings or mappings, each with a 'text' field.",
+        ),
+        _e(
+            "ARC-TPL-041",
+            "Invalid text fit policy",
+            "A text node's 'fit' block has an invalid value: 'policy' must be wrap/shrink_to_fit/"
+            "truncate and 'overflow' must be clip/allow/error.",
+            "Correct the fit policy or overflow value; add 'min_size' for shrink_to_fit.",
+        ),
+        _e(
             "ARC-TPL-052",
             "Stacks not supported yet",
             "Stack layouts (hstack/vstack) are not available in this build.",
@@ -251,10 +273,13 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "repeat and if on the same node",
             "A single child declares both a 'repeat' and an 'if'. Applying both to one entry "
             "is ambiguous — whether the condition gates each iteration or the whole loop — so "
-            "rather than silently pick one, the compiler asks you to nest them explicitly.",
-            "Nest the constructs: make the 'if' construct the repeat's 'node' (the condition "
-            "then gates each item), or put the 'repeat' construct inside the if's 'node' (the "
-            "condition gates the whole loop).",
+            "rather than silently pick one, the compiler asks you to nest them explicitly. A "
+            "construct's 'node' is built directly (it is not itself scanned for nested "
+            "constructs), so the inner construct must live inside a group's 'children' list.",
+            "Nest through a wrapper group: make the repeat's 'node' a group whose 'children' "
+            "list holds the 'if' construct (the condition gates each item), or make the if's "
+            "'node' a group whose 'children' list holds the 'repeat' construct (the condition "
+            "gates the whole loop).",
         ),
         _e(
             "ARC-TPL-062",
@@ -300,6 +325,25 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Locale application not supported yet",
             "Applying a requested locale (direction, digit policy, overlays) is Phase 2.",
             "Drop --locale for now; locale files are still parsed for shape.",
+        ),
+        _e(
+            "ARC-TPL-092",
+            "Invalid patch operation",
+            "A format or locale patch is malformed: an op is not a mapping, does not have "
+            "exactly one of set/remove/insert_before/insert_after, addresses a path that is not "
+            "'nodes.<id>[.<field>...]', targets a node id or field that does not exist, or an "
+            "insert has no 'node' body.",
+            "Fix the patch op: address an existing authored node id, use one verb per op, and "
+            "give inserts a 'node:' mapping.",
+        ),
+        _e(
+            "ARC-TPL-100",
+            "Undeclared locale",
+            "A locale was requested with --locale that the template does not declare, so its "
+            "direction, digits, fonts, data, and patch are unknown. Arcavex never silently "
+            "ignores a requested locale.",
+            "Declare the locale under 'locales:' in the template, or request one the template "
+            "already defines.",
         ),
         _e(
             "ARC-TPL-093",
@@ -394,6 +438,13 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Use #hex, rgb()/rgba(), or a named color.",
         ),
         _e(
+            "ARC-IR-040",
+            "Malformed mask declaration",
+            "A node's 'mask' is not a mapping, is missing its 'component' name, or its 'params' "
+            "is not a mapping.",
+            "Write 'mask: {component: diamond_grid, params: {cell: 90pt, gutter: 6pt}}'.",
+        ),
+        _e(
             "ARC-LAY-010",
             "Unknown anchor key",
             "A node uses an anchor key that is not a recognized edge.",
@@ -465,10 +516,76 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Add 'size: {w: ..., h: ...}' (fixed, %, fill, or fit_content).",
         ),
         _e(
+            "ARC-LAY-050",
+            "Text overflow configured as error",
+            "A text node still overflows its resolved box after its fit policy ran, and the "
+            "node's 'overflow' is set to 'error', so rendering fails rather than clipping or "
+            "spilling. The message reports the shaped extent and the box extent.",
+            "Enlarge the box, reduce the text or font size, lower min_size for shrink_to_fit, "
+            "or set overflow to 'clip' or 'allow'.",
+        ),
+        _e(
+            "ARC-LAY-051",
+            "Text fit did not converge",
+            "A 'shrink_to_fit' text node could not be made to fit even at its smallest allowed "
+            "size within the ≤ 8 measurement iterations, so it still overflows. This is a "
+            "warning: the text is clipped or allowed per the overflow policy and the render "
+            "still succeeds.",
+            "Raise min_size so a fitting size exists, enlarge the box, or switch the policy to "
+            "'truncate'.",
+        ),
+        _e(
+            "ARC-LAY-052",
+            "Sibling anchor cycle",
+            "Two or more sibling nodes anchor to each other in a loop, so no resolution order "
+            "exists. The message names the full cycle.",
+            "Break the loop so at least one node in it anchors to the parent or to a node "
+            "resolved before it.",
+        ),
+        _e(
+            "ARC-LAY-053",
+            "Unknown sibling anchor reference",
+            "A node's anchor references a sibling id that does not exist in the same group.",
+            "Anchor to an existing sibling id in the same group, or to 'parent'.",
+        ),
+        _e(
+            "ARC-LAY-054",
+            "Stack child has position anchors",
+            "A child of an hstack/vstack group declares position anchors, but a stack positions "
+            "its own children along the main axis, so anchors would contradict it.",
+            "Remove the 'anchor' block from the stack child; use gap, padding, and the stack's "
+            "alignment to position it. Size modes still apply.",
+        ),
+        _e(
+            "ARC-LAY-055",
+            "Invalid aspect size mode",
+            "A node declares the 'aspect' size mode on both axes, or on one axis while the other "
+            "axis cannot be resolved to a concrete value, so the derived dimension is undefined.",
+            "Give exactly one axis a concrete size (fixed, %, or fill); 'aspect' derives the "
+            "other axis from it.",
+        ),
+        _e(
+            "ARC-LAY-056",
+            "Wrapping stacks not supported yet",
+            "A stack group set 'wrap: true', but wrapping (flowing children onto multiple rows "
+            "or columns) is deferred in this build rather than faked.",
+            "Lay wrapped rows out explicitly with nested stacks for now, or drop 'wrap'.",
+        ),
+        _e(
             "ARC-RND-010",
             "Font family not bundled",
             "A text node requests a font family that is not in the bundled font database.",
             "Use one of the available families, or add the font under library-seed/fonts.",
+        ),
+        _e(
+            "ARC-RND-011",
+            "Missing glyph",
+            "A text run contains a code point that no bundled font can render, so it would "
+            "paint as a tofu box. Rendering is confined to bundled fonts for determinism, so "
+            "the shaper never falls back to a system font. This is a warning; the render "
+            "proceeds.",
+            "Add a font that covers the reported code points under library-seed/fonts, or "
+            "remove the unsupported characters from the text.",
         ),
         _e(
             "ARC-RND-900",
@@ -487,6 +604,21 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Effects not supported yet",
             "Effect declarations are not available in this build.",
             "Remove the 'effects'; effects arrive in Phase 3.",
+        ),
+        _e(
+            "ARC-FX-901",
+            "Unknown mask component",
+            "A node references a mask component name that is not registered.",
+            "Use a registered mask (e.g. rounded_rect, circle, diamond_grid), or add the mask "
+            "as an extension.",
+        ),
+        _e(
+            "ARC-FX-902",
+            "Invalid mask parameters",
+            "A mask's parameters failed validation against the mask component's parameter "
+            "schema (wrong name, type, or out-of-range value).",
+            "Check each parameter against the mask's documented schema; the message names the "
+            "first offending field.",
         ),
         _e(
             "ARC-AST-001",

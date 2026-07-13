@@ -1,24 +1,27 @@
-"""Skia renderer backend v0.
+"""Skia renderer backend.
 
 Renders a :class:`LayoutDocument` onto a raster surface sized in device pixels. The canvas
 is scaled by ``dpi/72`` so all drawing happens in point coordinates, keeping geometry and
 text measurement in the same unit. Traversal is document order with ``z`` already applied by
-the layout solver. Randomness, wall-clock, and system fonts are never consulted, so repeated
-renders are byte-identical.
+the layout solver. A node may rotate about its origin, clip its subtree to a mask path, and a
+text node may clip to its box; ``--debug`` overlays node bounds, ids, baselines, and the
+safe-area margin deterministically without touching the non-debug scene. Randomness,
+wall-clock, and system fonts are never consulted, so repeated renders are byte-identical.
 """
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import skia  # type: ignore[import-untyped]
 
-from arcavex.kernel.contracts.spi import RendererBackend
+from arcavex.kernel.contracts.spi import MaskGenerator, RendererBackend
 from arcavex.kernel.contracts.types import MeasureRequest, RenderOptions, Surface
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
 from arcavex.kernel.ir.models import (
     LayoutDocument,
     LayoutNode,
+    MaskSpec,
     ResolvedImage,
     ResolvedShape,
     ResolvedText,
@@ -27,15 +30,30 @@ from arcavex.kernel.ir.models import (
 from arcavex.kernel.ir.units import Rect
 from arcavex.services.text.service import TextService
 
+# Deterministic debug-overlay palette, indexed by node kind.
+_DEBUG_COLORS: dict[str, tuple[float, float, float, float]] = {
+    "group": (0.20, 0.60, 1.00, 1.0),
+    "text": (1.00, 0.30, 0.45, 1.0),
+    "image": (0.20, 0.85, 0.55, 1.0),
+    "shape": (1.00, 0.75, 0.20, 1.0),
+    "path": (0.75, 0.45, 1.00, 1.0),
+}
+_DEBUG_SAFE_AREA = (0.55, 0.55, 0.60, 1.0)
+_SAFE_MARGIN_FRAC = 0.05
+_DEBUG_LABEL_PT = 9.0
+
 
 class SkiaBackend(RendererBackend):
     """Renders laid-out documents to Skia raster surfaces."""
 
     name: ClassVar[str] = "skia"
 
-    def __init__(self, text_service: TextService) -> None:
-        """Bind the backend to the shared text service used for painting text."""
+    def __init__(
+        self, text_service: TextService, masks: dict[str, MaskGenerator] | None = None
+    ) -> None:
+        """Bind the backend to the shared text service and the mask-generator registry."""
         self._text = text_service
+        self._masks = masks or {}
 
     def render(self, doc: LayoutDocument, opts: RenderOptions) -> Surface:
         """Render ``doc`` and return the raster surface."""
@@ -48,6 +66,8 @@ class SkiaBackend(RendererBackend):
         canvas.save()
         canvas.scale(dpi / 72.0, dpi / 72.0)
         self._draw_node(canvas, doc.root)
+        if opts.debug:
+            self._draw_debug(canvas, doc)
         canvas.restore()
         return surface  # type: ignore[return-value]
 
@@ -55,6 +75,18 @@ class SkiaBackend(RendererBackend):
     def _draw_node(self, canvas: object, node: LayoutNode) -> None:
         if not _visible(node):
             return
+        saves = 0
+        if node.rotate_deg and node.rotate_origin is not None:
+            canvas.save()  # type: ignore[attr-defined]
+            canvas.rotate(node.rotate_deg, node.rotate_origin[0], node.rotate_origin[1])  # type: ignore[attr-defined]
+            saves += 1
+        if node.mask is not None:
+            path = self._mask_path(node.mask, node.bounds, node.source)
+            if path is not None:
+                canvas.save()  # type: ignore[attr-defined]
+                canvas.clipPath(path, skia.ClipOp.kIntersect, True)  # type: ignore[attr-defined]
+                saves += 1
+
         content = node.resolved_content
         if isinstance(content, ResolvedShape):
             self._draw_shape(canvas, node.bounds, content, node.opacity)
@@ -73,6 +105,32 @@ class SkiaBackend(RendererBackend):
                 self._draw_node(canvas, child)
             if did_clip:
                 canvas.restore()  # type: ignore[attr-defined]
+
+        for _ in range(saves):
+            canvas.restore()  # type: ignore[attr-defined]
+
+    def _mask_path(
+        self, mask: MaskSpec, bounds: Rect, source: SourceRef | None
+    ) -> object | None:
+        generator = self._masks.get(mask.component)
+        if generator is None:
+            # Compilation rejects unknown masks (ARC-FX-901); guard defensively for isolated use.
+            return None
+        try:
+            params = generator.param_schema(**mask.params)
+            return generator.build(params, bounds)
+        except Exception as exc:  # noqa: BLE001 - surface a located diagnostic, never a leak
+            kwargs: dict[str, Any] = {}
+            if source is not None:
+                kwargs = {"file": source.file, "keypath": source.keypath, "line": source.line}
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-FX-902",
+                    f"Mask {mask.component!r} failed to build: {exc}",
+                    hint="Check the mask parameters against its schema.",
+                    **kwargs,
+                )
+            ) from exc
 
     def _draw_shape(
         self, canvas: object, bounds: Rect, shape: ResolvedShape, opacity: float
@@ -107,17 +165,20 @@ class SkiaBackend(RendererBackend):
             letter_spacing_pt=text.letter_spacing_pt,
             line_height=text.line_height,
             direction=text.direction,
-            max_width_pt=bounds.w,
-        )
-        self._text.paint(
-            canvas,
-            req,
-            bounds.x,
-            bounds.y,
-            bounds.w,
-            color=text.color,
             align=text.align,
+            language=text.language,
+            color=text.color,
+            max_width_pt=bounds.w,
+            runs=text.runs,
         )
+        did_clip = False
+        if text.clip:
+            canvas.save()  # type: ignore[attr-defined]
+            canvas.clipRect(_skrect(bounds))  # type: ignore[attr-defined]
+            did_clip = True
+        self._text.paint(canvas, req, bounds.x, bounds.y, bounds.w)
+        if did_clip:
+            canvas.restore()  # type: ignore[attr-defined]
 
     def _draw_image(
         self,
@@ -130,9 +191,7 @@ class SkiaBackend(RendererBackend):
         # Missing assets are caught at compile time (ARC-AST-001) so validate reports them.
         # A file that exists but cannot be decoded still reaches here; skia raises
         # ValueError/RuntimeError rather than returning None, so guard the decode and
-        # surface a located asset diagnostic (exit 3) instead of an ARC-INT-999 leak. The
-        # node's source location is carried through so the diagnostic points at the node
-        # (RR-3).
+        # surface a located asset diagnostic (exit 3) instead of an ARC-INT-999 leak.
         try:
             image = skia.Image.open(image_spec.asset_path)
         except (ValueError, RuntimeError) as exc:
@@ -162,9 +221,57 @@ class SkiaBackend(RendererBackend):
         canvas.drawImageRect(image, target, sampling, paint)  # type: ignore[attr-defined]
         canvas.restore()  # type: ignore[attr-defined]
 
+    # ------------------------------------------------------------------ debug overlay
+    def _draw_debug(self, canvas: object, doc: LayoutDocument) -> None:
+        """Overlay node bounds, ids, text baselines, and the safe-area margin.
+
+        Drawn in point space after the scene, deterministically, so a non-debug render is
+        never altered. Bounds use their post-rotation AABB (``paint_bounds``) so a rotated
+        node is boxed correctly.
+        """
+        self._draw_safe_area(canvas, doc.canvas.width_pt, doc.canvas.height_pt)
+        self._draw_debug_node(canvas, doc.root)
+
+    def _draw_debug_node(self, canvas: object, node: LayoutNode) -> None:
+        if node.visible:
+            color = _DEBUG_COLORS.get(node.kind, (1.0, 1.0, 1.0, 1.0))
+            box = node.paint_bounds
+            paint = _stroke_paint(color, 1.0, 1.0)
+            canvas.drawRect(_skrect(box), paint)  # type: ignore[attr-defined]
+            self._draw_debug_label(canvas, box.x + 1.5, box.y + _DEBUG_LABEL_PT + 1.0,
+                                   node.source_node_id, color)
+            if isinstance(node.resolved_content, ResolvedText):
+                baseline_y = node.bounds.y + node.resolved_content.font_size_pt
+                line = _stroke_paint(color, 0.5, 1.0)
+                canvas.drawLine(  # type: ignore[attr-defined]
+                    node.bounds.x, baseline_y, node.bounds.right, baseline_y, line
+                )
+        for child in node.children:
+            self._draw_debug_node(canvas, child)
+
+    def _draw_debug_label(
+        self, canvas: object, x: float, y: float, label: str, color: tuple[float, ...]
+    ) -> None:
+        req = MeasureRequest(
+            text=label,
+            font_families=("Inter",),
+            font_size_pt=_DEBUG_LABEL_PT,
+            font_weight=600,
+            color=(color[0], color[1], color[2], color[3]),
+            max_width_pt=400.0,
+        )
+        self._text.paint(canvas, req, x, y - _DEBUG_LABEL_PT, 400.0)
+
+    def _draw_safe_area(self, canvas: object, width_pt: float, height_pt: float) -> None:
+        mx, my = width_pt * _SAFE_MARGIN_FRAC, height_pt * _SAFE_MARGIN_FRAC
+        paint = _stroke_paint(_DEBUG_SAFE_AREA, 0.75, 1.0)
+        canvas.drawRect(  # type: ignore[attr-defined]
+            skia.Rect.MakeXYWH(mx, my, width_pt - 2 * mx, height_pt - 2 * my), paint
+        )
+
 
 def _undecodable_image(asset_path: str, source: SourceRef | None) -> DiagnosticError:
-    kwargs: dict[str, str | int | None] = {}
+    kwargs: dict[str, Any] = {}
     if source is not None:
         kwargs = {"file": source.file, "keypath": source.keypath, "line": source.line}
     return DiagnosticError(
@@ -178,8 +285,6 @@ def _undecodable_image(asset_path: str, source: SourceRef | None) -> DiagnosticE
 
 
 def _visible(node: LayoutNode) -> bool:
-    # Explicit visibility state carried on the layout node wins; a fully transparent node
-    # is also skipped as a harmless optimization.
     return node.visible and node.opacity > 0.0
 
 
@@ -196,7 +301,7 @@ def _fill_paint(color: tuple[float, float, float, float], opacity: float) -> obj
 
 
 def _stroke_paint(
-    color: tuple[float, float, float, float], width_pt: float, opacity: float
+    color: tuple[float, ...], width_pt: float, opacity: float
 ) -> object:
     paint = skia.Paint()
     paint.setAntiAlias(True)

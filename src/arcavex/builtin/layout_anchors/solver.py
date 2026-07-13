@@ -1,254 +1,747 @@
-"""Anchor layout solver v0.
+"""Anchor + stack layout solver (spec §4.2).
 
-Resolves each node's geometry by absolute positioning inside its parent. A node's position
-comes from exactly one horizontal anchor (``left``/``right``/``center_x``) and one vertical
-anchor (``top``/``bottom``/``center_y``); its size comes from width/height size specs
-(``fixed``/``percent``/``fill``/``fit_content``). Under- or over-constrained nodes produce a
-located ``ARC-LAY`` diagnostic naming the node. The input compiled document is never mutated;
-a fresh :class:`LayoutDocument` is returned. Final geometry is normalized to 1/1024 pt to
-avoid floating-point drift.
+An understandable anchor *resolver*, not a general constraint solver. Each node resolves
+exactly one horizontal position, one vertical position, a width, and a height. Positions come
+from parent or named-sibling anchors (with logical ``start``/``end`` resolved through the
+enclosing group's direction), or from a stack (``hstack``/``vstack``) that flows its children.
+Sizes come from ``fixed``/``percent``/``fill``/``fit_content``/``aspect`` modes with optional
+``min``/``max`` clamps. Text fit policies run through the injected text-measurement function
+(the single shaper). Rotations contribute a post-transform AABB to paint bounds. The input
+:class:`CompiledDocument` is never mutated; a fresh :class:`LayoutDocument` is returned with
+final geometry normalized to 1/1024 pt. Non-fatal issues (missing glyphs, fit non-convergence)
+are collected as ``warnings`` on the document; contradictions raise located ``ARC-LAY`` errors.
 """
 
 from __future__ import annotations
 
+import math
+import unicodedata
 from collections.abc import Sequence
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from arcavex.kernel.contracts.spi import LayoutSolver
-from arcavex.kernel.contracts.types import MeasureFn, MeasureRequest
-from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
+from arcavex.kernel.contracts.types import MeasureFn, MeasureRequest, MeasureResult
+from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic
 from arcavex.kernel.ir.models import (
+    AnchorEdge,
     CompiledDocument,
     CompiledGroup,
     CompiledImage,
     CompiledNode,
     CompiledShape,
     CompiledText,
-    Constraints,
     LayoutDocument,
     LayoutNode,
-    ResolvedCanvas,
+    OverflowState,
     ResolvedContent,
     ResolvedImage,
+    ResolvedRun,
     ResolvedShape,
     ResolvedText,
+    SizeSpec,
+    StackSpec,
+    TextRun,
 )
 from arcavex.kernel.ir.units import Matrix3, Rect
 
 _QUANT = 1024.0
+_HORIZONTAL = ("left", "right", "center_x")
+_VERTICAL = ("top", "bottom", "center_y")
 
 
 def _q(value: float) -> float:
     return round(value * _QUANT) / _QUANT
 
 
+def _qrect(x: float, y: float, w: float, h: float) -> Rect:
+    return Rect(_q(x), _q(y), _q(max(0.0, w)), _q(max(0.0, h)))
+
+
 class AnchorLayoutSolver(LayoutSolver):
-    """Absolute anchor-based layout solver."""
+    """Absolute-anchor and stack layout solver."""
 
     name: ClassVar[str] = "anchors"
 
     def solve(self, doc: CompiledDocument, measure: MeasureFn) -> LayoutDocument:
         """Resolve geometry for every node into a new layout document."""
-        canvas_rect = Rect(0.0, 0.0, doc.canvas.width_pt, doc.canvas.height_pt)
-        root = self._solve_node(doc.root, canvas_rect, measure)
+        warnings: list[Diagnostic] = []
+        canvas = Rect(0.0, 0.0, doc.canvas.width_pt, doc.canvas.height_pt)
+        root = self._solve_node(doc.root, canvas, doc.root.direction, measure, warnings)
         return LayoutDocument(
-            canvas=ResolvedCanvas(
-                width_pt=doc.canvas.width_pt,
-                height_pt=doc.canvas.height_pt,
-                dpi=doc.canvas.dpi,
-            ),
+            canvas=_resolved_canvas(doc),
             seed=doc.seed,
             root=root,
+            warnings=tuple(warnings),
         )
 
-    # ------------------------------------------------------------------ internals
+    # ------------------------------------------------------------------ node solve
     def _solve_node(
-        self, node: CompiledNode, parent: Rect, measure: MeasureFn
+        self,
+        node: CompiledNode,
+        bounds: Rect,
+        inherited_dir: str,
+        measure: MeasureFn,
+        warnings: list[Diagnostic],
     ) -> LayoutNode:
-        width = self._resolve_width(node, parent, measure)
-        height = self._resolve_height(node, parent, width, measure)
-        x = self._resolve_x(node, parent, width)
-        y = self._resolve_y(node, parent, height)
+        rotate_deg = node.transform.rotate_deg
+        origin = self._origin_abs(node, bounds) if rotate_deg else None
 
-        tx, ty = node.transform.translate
-        bounds = Rect(_q(x + tx), _q(y + ty), _q(width), _q(height))
+        content, overflow = self._resolve_content(node, bounds, inherited_dir, measure, warnings)
 
         children: tuple[LayoutNode, ...] = ()
         clip = False
         if isinstance(node, CompiledGroup):
             clip = node.clip
-            ordered = sorted(enumerate(node.children), key=lambda pair: (pair[1].z, pair[0]))
-            children = tuple(self._solve_node(child, bounds, measure) for _, child in ordered)
+            child_dir = node.direction
+            child_rects = self._layout_children(node, bounds, measure, warnings)
+            children = tuple(
+                self._solve_node(child, rect, child_dir, measure, warnings)
+                for child, rect in child_rects
+            )
 
+        paint_bounds = self._paint_bounds(bounds, rotate_deg, origin)
         return LayoutNode(
             source_node_id=node.id,
             kind=node.type,
             bounds=bounds,
-            absolute_transform=Matrix3.identity(),
-            paint_bounds=bounds,
-            overflow="none",
+            absolute_transform=self._transform(rotate_deg, origin),
+            paint_bounds=paint_bounds,
+            overflow=overflow,
+            rotate_deg=rotate_deg,
+            rotate_origin=origin,
             opacity=node.style.opacity,
             visible=node.visible,
             clip=clip,
-            resolved_content=self._resolve_content(node),
+            mask=node.mask,
+            resolved_content=content,
             children=children,
             source=node.source,
         )
 
-    def _resolve_content(self, node: CompiledNode) -> ResolvedContent:
-        if isinstance(node, CompiledText):
-            return ResolvedText(
-                text=node.text,
-                font_families=node.style.font_families or ("Inter",),
-                font_size_pt=node.style.font_size_pt or 16.0,
-                font_weight=node.style.font_weight,
-                italic=node.style.italic,
-                color=node.style.text_color or (0.0, 0.0, 0.0, 1.0),
-                align=node.style.align,
-                direction=node.style.direction,
-                line_height=node.style.line_height,
-                letter_spacing_pt=node.style.letter_spacing_pt,
-            )
-        if isinstance(node, CompiledImage):
-            return ResolvedImage(asset_path=node.asset_path, fit=node.fit)
-        if isinstance(node, CompiledShape):
-            return ResolvedShape(
-                shape=node.shape,
-                fill=node.style.fill,
-                stroke=node.style.stroke,
-                stroke_width_pt=node.style.stroke_width_pt,
-                corner_radius_pt=node.style.corner_radius_pt,
-            )
-        return None
+    # ------------------------------------------------------------------ children
+    def _layout_children(
+        self, group: CompiledGroup, bounds: Rect, measure: MeasureFn, warnings: list[Diagnostic]
+    ) -> list[tuple[CompiledNode, Rect]]:
+        if group.stack.kind == "absolute":
+            rects = self._absolute_children(group, bounds, measure, warnings)
+        else:
+            rects = self._stack_children(group, bounds, measure, warnings)
+        # Draw order is document order broken by z (stable, matches Phase 0).
+        indexed = {c.id: i for i, c in enumerate(group.children)}
+        return sorted(rects, key=lambda pair: (pair[0].z, indexed[pair[0].id]))
 
-    def _resolve_width(self, node: CompiledNode, parent: Rect, measure: MeasureFn) -> float:
-        spec = node.constraints.width
-        if spec.mode == "fixed":
-            return float(spec.value_pt or 0.0)
-        if spec.mode == "percent":
-            return parent.w * float(spec.percent or 0.0) / 100.0
-        if spec.mode == "fill":
-            return parent.w
-        # fit_content
-        return self._measure_node(node, None, measure).width_pt
+    def _absolute_children(
+        self, group: CompiledGroup, bounds: Rect, measure: MeasureFn, warnings: list[Diagnostic]
+    ) -> list[tuple[CompiledNode, Rect]]:
+        by_id = {c.id: c for c in group.children}
+        order = self._topo_order(group, by_id)
+        sib_rects: dict[str, Rect] = {}
+        out: list[tuple[CompiledNode, Rect]] = []
+        for child in order:
+            rect = self._resolve_absolute(child, bounds, group.direction, sib_rects, measure)
+            sib_rects[child.id] = rect
+            out.append((child, rect))
+        return out
 
-    def _resolve_height(
-        self, node: CompiledNode, parent: Rect, width: float, measure: MeasureFn
-    ) -> float:
-        spec = node.constraints.height
-        if spec.mode == "fixed":
-            return float(spec.value_pt or 0.0)
-        if spec.mode == "percent":
-            return parent.h * float(spec.percent or 0.0) / 100.0
-        if spec.mode == "fill":
-            return parent.h
-        # fit_content
-        return self._measure_node(node, width, measure).height_pt
+    def _topo_order(
+        self, group: CompiledGroup, by_id: dict[str, CompiledNode]
+    ) -> list[CompiledNode]:
+        """Order children so every sibling anchor target resolves first; cycle -> ARC-LAY-052."""
+        deps: dict[str, list[str]] = {}
+        for child in group.children:
+            refs: list[str] = []
+            for anchor in child.constraints.anchors.values():
+                if anchor.ref != "parent":
+                    if anchor.ref not in by_id:
+                        raise DiagnosticError(
+                            diagnostic(
+                                "ARC-LAY-053",
+                                f"Node {child.id!r} anchors to unknown sibling {anchor.ref!r}",
+                                hint="Anchor to a sibling id in the same group, or to 'parent'.",
+                                **_loc(child),
+                            )
+                        )
+                    refs.append(anchor.ref)
+            deps[child.id] = refs
 
-    def _measure_node(  # noqa: ANN202
-        self, node: CompiledNode, width: float | None, measure: MeasureFn
-    ):
-        if not isinstance(node, CompiledText):
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-LAY-020",
-                    f"Node {node.id!r} uses 'fit_content' but is not a text node",
-                    hint="Only text nodes support fit_content in Phase 0.",
-                    **self._loc(node),
+        state: dict[str, int] = {}  # 0=unvisited,1=visiting,2=done
+        order: list[str] = []
+        stack_path: list[str] = []
+
+        def visit(node_id: str) -> None:
+            mark = state.get(node_id, 0)
+            if mark == 2:
+                return
+            if mark == 1:
+                cycle = stack_path[stack_path.index(node_id):] + [node_id]
+                child = by_id[node_id]
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-LAY-052",
+                        f"Sibling anchor cycle: {' -> '.join(cycle)}",
+                        hint="Break the loop so one node anchors to a node resolved before it.",
+                        **_loc(child),
+                    )
                 )
-            )
-        req = MeasureRequest(
-            text=node.text,
-            font_families=node.style.font_families or ("Inter",),
-            font_size_pt=node.style.font_size_pt or 16.0,
-            font_weight=node.style.font_weight,
-            italic=node.style.italic,
-            letter_spacing_pt=node.style.letter_spacing_pt,
-            line_height=node.style.line_height,
-            direction=node.style.direction,
-            max_width_pt=width,
+            state[node_id] = 1
+            stack_path.append(node_id)
+            for ref in deps[node_id]:
+                visit(ref)
+            stack_path.pop()
+            state[node_id] = 2
+            order.append(node_id)
+
+        for child in group.children:
+            visit(child.id)
+        return [by_id[i] for i in order]
+
+    def _stack_children(
+        self, group: CompiledGroup, bounds: Rect, measure: MeasureFn, warnings: list[Diagnostic]
+    ) -> list[tuple[CompiledNode, Rect]]:
+        stack = group.stack
+        content = Rect(
+            bounds.x + stack.pad_left_pt,
+            bounds.y + stack.pad_top_pt,
+            max(0.0, bounds.w - stack.pad_left_pt - stack.pad_right_pt),
+            max(0.0, bounds.h - stack.pad_top_pt - stack.pad_bottom_pt),
         )
-        return measure(req)
+        horizontal = stack.kind == "hstack"
+        main_extent = content.w if horizontal else content.h
+        cross_extent = content.h if horizontal else content.w
+
+        for child in group.children:
+            if child.constraints.anchors:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-LAY-054",
+                        f"Stack child {child.id!r} declares position anchors",
+                        hint="A stack positions its children; remove the 'anchor' block.",
+                        **_loc(child),
+                    )
+                )
+
+        sizes: list[tuple[float, float, bool]] = []  # (main, cross, main_is_fill)
+        for child in group.children:
+            main_spec = child.constraints.width if horizontal else child.constraints.height
+            cross_spec = child.constraints.height if horizontal else child.constraints.width
+            main_is_fill = main_spec.mode == "fill"
+            cross = self._cross_size(child, cross_spec, cross_extent, stack, measure)
+            main = 0.0 if main_is_fill else self._stack_main_size(
+                child, main_spec, cross_spec, main_extent, cross, horizontal, measure
+            )
+            sizes.append((main, cross, main_is_fill))
+
+        n = len(group.children)
+        gaps_total = stack.gap_pt * max(0, n - 1)
+        fixed_main = sum(m for m, _, is_fill in sizes if not is_fill)
+        fill_count = sum(1 for _, _, is_fill in sizes if is_fill)
+        free = max(0.0, main_extent - fixed_main - gaps_total)
+        fill_size = free / fill_count if fill_count else 0.0
+        leftover = free if fill_count == 0 else 0.0
+
+        cursor, gap = self._stack_start(stack.main_align, leftover, stack.gap_pt, n)
+        out: list[tuple[CompiledNode, Rect]] = []
+        for child, (main, cross, is_fill) in zip(group.children, sizes, strict=True):
+            m = fill_size if is_fill else main
+            cross_pos, cross_len = self._cross_place(stack.cross_align, cross, cross_extent)
+            if horizontal:
+                rect = _qrect(content.x + cursor, content.y + cross_pos, m, cross_len)
+            else:
+                rect = _qrect(content.x + cross_pos, content.y + cursor, cross_len, m)
+            out.append((child, rect))
+            cursor += m + gap
+        return out
 
     @staticmethod
-    def _loc(node: CompiledNode) -> dict[str, str | int | None]:
-        """Return located-diagnostic kwargs from a node's carried source (RR-3)."""
-        src = node.source
-        if src is None:
-            return {}
-        return {"file": src.file, "keypath": src.keypath, "line": src.line}
+    def _stack_start(
+        align: str, leftover: float, gap: float, n: int
+    ) -> tuple[float, float]:
+        """Return the starting main-axis offset and the effective inter-item gap."""
+        if align == "center":
+            return leftover / 2.0, gap
+        if align == "end":
+            return leftover, gap
+        if align == "space_between" and n > 1:
+            return 0.0, gap + leftover / (n - 1)
+        return 0.0, gap
 
-    def _resolve_x(self, node: CompiledNode, parent: Rect, width: float) -> float:
+    @staticmethod
+    def _cross_place(align: str, size: float, extent: float) -> tuple[float, float]:
+        if align == "stretch":
+            return 0.0, extent
+        if align == "center":
+            return max(0.0, (extent - size) / 2.0), size
+        if align == "end":
+            return max(0.0, extent - size), size
+        return 0.0, size
+
+    def _cross_size(
+        self,
+        child: CompiledNode,
+        spec: SizeSpec,
+        cross_extent: float,
+        stack: StackSpec,
+        measure: MeasureFn,
+    ) -> float:
+        if stack.cross_align == "stretch" or spec.mode == "fill":
+            return cross_extent
+        if spec.mode == "aspect":
+            # Cross derived from main needs main first; resolved in the main pass instead.
+            return 0.0
+        return _clamp(self._axis_size(child, spec, cross_extent, None, measure), spec)
+
+    def _stack_main_size(
+        self,
+        child: CompiledNode,
+        main_spec: SizeSpec,
+        cross_spec: SizeSpec,
+        main_extent: float,
+        cross: float,
+        horizontal: bool,
+        measure: MeasureFn,
+    ) -> float:
+        if main_spec.mode == "aspect":
+            other = cross
+            return _clamp(_aspect_value(main_spec, other, child), main_spec)
+        width = cross if not horizontal else None
+        return _clamp(self._axis_size(child, main_spec, main_extent, width, measure), main_spec)
+
+    # ------------------------------------------------------------------ absolute node
+    def _resolve_absolute(
+        self,
+        node: CompiledNode,
+        parent: Rect,
+        group_dir: str,
+        sib_rects: dict[str, Rect],
+        measure: MeasureFn,
+    ) -> Rect:
+        w, h = self._resolve_size(node, parent, measure)
+        x = self._resolve_pos(node, parent, group_dir, sib_rects, w, _HORIZONTAL, "horizontal")
+        y = self._resolve_pos(node, parent, group_dir, sib_rects, h, _VERTICAL, "vertical")
+        return _qrect(x, y, w, h)
+
+    def _resolve_size(
+        self, node: CompiledNode, parent: Rect, measure: MeasureFn
+    ) -> tuple[float, float]:
+        wspec, hspec = node.constraints.width, node.constraints.height
+        if wspec.mode == "aspect" and hspec.mode == "aspect":
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-LAY-055",
+                    f"Node {node.id!r} declares 'aspect' on both axes",
+                    hint="Give one axis a concrete size; 'aspect' derives the other.",
+                    **_loc(node),
+                )
+            )
+        w = (
+            None
+            if wspec.mode == "aspect"
+            else self._axis_size(node, wspec, parent.w, None, measure)
+        )
+        h = (
+            None
+            if hspec.mode == "aspect"
+            else self._axis_size(node, hspec, parent.h, w, measure)
+        )
+        if wspec.mode == "aspect":
+            w = _aspect_value(wspec, h, node)
+        if hspec.mode == "aspect":
+            h = _aspect_value(hspec, w, node)
+        assert w is not None and h is not None
+        return _clamp(w, wspec), _clamp(h, hspec)
+
+    def _axis_size(
+        self,
+        node: CompiledNode,
+        spec: SizeSpec,
+        basis: float,
+        width: float | None,
+        measure: MeasureFn,
+    ) -> float:
+        if spec.mode == "fixed":
+            return float(spec.value_pt or 0.0)
+        if spec.mode == "percent":
+            return basis * float(spec.percent or 0.0) / 100.0
+        if spec.mode == "fill":
+            return basis
+        if spec.mode == "aspect":  # resolved by caller
+            return 0.0
+        # fit_content — text intrinsic (width when width is None, else height at that width).
+        result = self._measure_text(node, width, None, measure)
+        return result.width_pt if width is None else result.height_pt
+
+    def _resolve_pos(
+        self,
+        node: CompiledNode,
+        parent: Rect,
+        group_dir: str,
+        sib_rects: dict[str, Rect],
+        size: float,
+        axis_keys: tuple[str, ...],
+        axis_name: str,
+    ) -> float:
         anchors = node.constraints.anchors
-        present = [k for k in ("left", "right", "center_x") if k in anchors]
-        self._require_single(node, present, "horizontal", node.constraints)
-        key = present[0]
-        anchor = anchors[key]
-        ref = self._parent_edge(anchor.edge, parent, node) + anchor.offset_pt
-        if key == "left":
-            return ref
-        if key == "right":
-            return ref - width
-        return ref - width / 2.0
+        present: list[tuple[str, AnchorEdge]] = []
+        for key, anchor in anchors.items():
+            phys = _logical(key, group_dir)
+            if phys in axis_keys:
+                present.append((phys, anchor))
+        self._require_single(node, [p for p, _ in present], axis_name)
+        phys_key, anchor = present[0]
+        ref_rect = parent if anchor.ref == "parent" else sib_rects[anchor.ref]
+        ref_edge = _logical(anchor.edge, group_dir)
+        # A logical (start/end) reference edge takes its offset in reading order: '+d' moves
+        # toward the end, which is +x in ltr but -x in rtl. Physical edges keep the raw offset.
+        offset = anchor.offset_pt
+        if anchor.edge in ("start", "end") and group_dir == "rtl":
+            offset = -offset
+        ref_pos = _edge_pos(ref_edge, ref_rect) + offset
+        if phys_key in ("left", "top"):
+            return ref_pos
+        if phys_key in ("right", "bottom"):
+            return ref_pos - size
+        return ref_pos - size / 2.0
 
-    def _resolve_y(self, node: CompiledNode, parent: Rect, height: float) -> float:
-        anchors = node.constraints.anchors
-        present = [k for k in ("top", "bottom", "center_y") if k in anchors]
-        self._require_single(node, present, "vertical", node.constraints)
-        key = present[0]
-        anchor = anchors[key]
-        ref = self._parent_edge(anchor.edge, parent, node) + anchor.offset_pt
-        if key == "top":
-            return ref
-        if key == "bottom":
-            return ref - height
-        return ref - height / 2.0
-
-    def _require_single(
-        self, node: CompiledNode, present: Sequence[str], axis: str, constraints: Constraints
-    ) -> None:
-        options = "left/right/center_x" if axis == "horizontal" else "top/bottom/center_y"
+    def _require_single(self, node: CompiledNode, present: Sequence[str], axis: str) -> None:
+        options = "left/right/start/end/center_x" if axis == "horizontal" else "top/bottom/center_y"
         if len(present) == 0:
             raise DiagnosticError(
                 diagnostic(
                     "ARC-LAY-030",
                     f"Node {node.id!r} is under-constrained on the {axis} axis",
                     hint=f"Add exactly one {axis} anchor ({options}).",
-                    **self._loc(node),
+                    **_loc(node),
                 )
             )
         if len(present) > 1:
-            joined = ", ".join(present)
             raise DiagnosticError(
                 diagnostic(
                     "ARC-LAY-031",
-                    f"Node {node.id!r} is over-constrained on the {axis} axis: {joined}",
+                    f"Node {node.id!r} is over-constrained on the {axis} axis: "
+                    f"{', '.join(present)}",
                     hint=f"Keep exactly one {axis} anchor; size comes from the size spec.",
-                    **self._loc(node),
+                    **_loc(node),
                 )
             )
 
-    def _parent_edge(self, edge: str, parent: Rect, node: CompiledNode) -> float:
-        if edge == "top":
-            return parent.y
-        if edge == "bottom":
-            return parent.bottom
-        if edge == "center_y":
-            return parent.center_y
-        if edge == "left":
-            return parent.x
-        if edge == "right":
-            return parent.right
-        if edge == "center_x":
-            return parent.center_x
-        # The compiler only emits the six physical parent edges; anything else (e.g. the
-        # logical start/end the model admits for future phases) is a real error, not silently
-        # resolved to the centre.
+    # ------------------------------------------------------------------ content
+    def _resolve_content(
+        self,
+        node: CompiledNode,
+        bounds: Rect,
+        inherited_dir: str,
+        measure: MeasureFn,
+        warnings: list[Diagnostic],
+    ) -> tuple[ResolvedContent, OverflowState]:
+        if isinstance(node, CompiledText):
+            return self._resolve_text(node, bounds, inherited_dir, measure, warnings)
+        if isinstance(node, CompiledImage):
+            return ResolvedImage(asset_path=node.asset_path, fit=node.fit), OverflowState()
+        if isinstance(node, CompiledShape):
+            return (
+                ResolvedShape(
+                    shape=node.shape,
+                    fill=node.style.fill,
+                    stroke=node.style.stroke,
+                    stroke_width_pt=node.style.stroke_width_pt,
+                    corner_radius_pt=node.style.corner_radius_pt,
+                ),
+                OverflowState(),
+            )
+        return None, OverflowState()
+
+    def _resolve_text(
+        self,
+        node: CompiledText,
+        bounds: Rect,
+        inherited_dir: str,
+        measure: MeasureFn,
+        warnings: list[Diagnostic],
+    ) -> tuple[ResolvedText, OverflowState]:
+        direction = _resolve_dir(node.paragraph.direction, node.text, inherited_dir)
+        base_size = node.style.font_size_pt or 16.0
+        runs = _base_runs(node, base_size)
+        bounded_height = node.constraints.height.mode != "fit_content"
+        req = self._text_request(
+            node, runs, base_size, direction,
+            max_width=bounds.w,
+            max_height=bounds.h if bounded_height else None,
+        )
+        result = measure(req)
+        for cp, families in result.missing_glyphs:
+            warnings.append(_missing_glyph_diag(node, cp, families))
+
+        scale = (result.resolved_size_pt or base_size) / base_size if base_size else 1.0
+        out_runs = _scale_runs(runs, scale, result.out_text)
+        kind = result.overflow_kind
+        clip = kind == "truncated"
+        if kind == "overflowing":
+            if node.fit.overflow == "error":
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-LAY-050",
+                        f"Text node {node.id!r} overflows its box "
+                        f"({result.width_pt:.1f}x{result.height_pt:.1f}pt into "
+                        f"{bounds.w:.1f}x{bounds.h:.1f}pt) and overflow is 'error'",
+                        hint="Enlarge the box, shrink the text, or set overflow to clip/allow.",
+                        **_loc(node),
+                    )
+                )
+            if node.fit.overflow == "clip":
+                kind, clip = "clipped", True
+        if not result.converged:
+            warnings.append(
+                diagnostic(
+                    "ARC-LAY-051",
+                    f"Text node {node.id!r} did not converge under 'shrink_to_fit' "
+                    f"(still {result.height_pt:.1f}pt tall at min size in a "
+                    f"{bounds.h:.1f}pt box)",
+                    severity="warning",
+                    hint="Raise min_size, enlarge the box, or switch to truncate.",
+                    **_loc(node),
+                )
+            )
+        resolved = ResolvedText(
+            text=result.out_text or node.text,
+            runs=out_runs,
+            font_families=out_runs[0].font_families if out_runs else ("Inter",),
+            font_size_pt=result.resolved_size_pt or base_size,
+            font_weight=node.style.font_weight,
+            italic=node.style.italic,
+            color=node.style.text_color or (0.0, 0.0, 0.0, 1.0),
+            align=node.paragraph.align,
+            direction=direction,
+            line_height=node.style.line_height,
+            letter_spacing_pt=node.style.letter_spacing_pt,
+            language=node.style.language,
+            clip=clip,
+        )
+        overflow = OverflowState(
+            kind=kind,  # type: ignore[arg-type]
+            measured_w_pt=_q(result.width_pt),
+            measured_h_pt=_q(result.height_pt),
+            box_w_pt=bounds.w,
+            box_h_pt=bounds.h,
+            resolved_size_pt=result.resolved_size_pt or base_size,
+        )
+        return resolved, overflow
+
+    def _measure_text(
+        self,
+        node: CompiledNode,
+        width: float | None,
+        height: float | None,
+        measure: MeasureFn,
+    ) -> MeasureResult:
+        if not isinstance(node, CompiledText):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-LAY-020",
+                    f"Node {node.id!r} uses 'fit_content' but is not a text node",
+                    hint="Only text nodes support fit_content; give images/groups a fixed size.",
+                    **_loc(node),
+                )
+            )
+        base_size = node.style.font_size_pt or 16.0
+        runs = _base_runs(node, base_size)
+        direction = _resolve_dir(node.paragraph.direction, node.text, "ltr")
+        req = self._text_request(node, runs, base_size, direction, width, height)
+        return measure(req)
+
+    def _text_request(
+        self,
+        node: CompiledText,
+        runs: tuple[ResolvedRun, ...],
+        base_size: float,
+        direction: str,
+        max_width: float | None,
+        max_height: float | None,
+    ) -> MeasureRequest:
+        return MeasureRequest(
+            text=node.text,
+            font_families=runs[0].font_families if runs else ("Inter",),
+            font_size_pt=base_size,
+            font_weight=node.style.font_weight,
+            italic=node.style.italic,
+            letter_spacing_pt=node.style.letter_spacing_pt,
+            line_height=node.style.line_height,
+            direction=direction,  # type: ignore[arg-type]
+            align=node.paragraph.align,
+            language=node.style.language,
+            color=node.style.text_color or (0.0, 0.0, 0.0, 1.0),
+            max_width_pt=max_width,
+            max_height_pt=max_height,
+            runs=runs,
+            fit_policy=node.fit.policy,
+            min_size_pt=node.fit.min_size_pt,
+            max_lines=node.fit.max_lines,
+        )
+
+    # ------------------------------------------------------------------ transforms
+    def _origin_abs(self, node: CompiledNode, bounds: Rect) -> tuple[float, float]:
+        origin = node.transform.origin
+        if origin is None:
+            return bounds.center_x, bounds.center_y
+        return bounds.x + bounds.w * origin[0], bounds.y + bounds.h * origin[1]
+
+    def _transform(self, deg: float, origin: tuple[float, float] | None) -> Matrix3:
+        if not deg or origin is None:
+            return Matrix3.identity()
+        rad = math.radians(deg)
+        cos, sin = math.cos(rad), math.sin(rad)
+        ox, oy = origin
+        return Matrix3(
+            a=cos, b=sin, c=-sin, d=cos,
+            e=ox - ox * cos + oy * sin,
+            f=oy - ox * sin - oy * cos,
+        )
+
+    def _paint_bounds(
+        self, bounds: Rect, deg: float, origin: tuple[float, float] | None
+    ) -> Rect:
+        if not deg or origin is None:
+            return bounds
+        matrix = self._transform(deg, origin)
+        corners = [
+            matrix.apply(bounds.x, bounds.y),
+            matrix.apply(bounds.right, bounds.y),
+            matrix.apply(bounds.right, bounds.bottom),
+            matrix.apply(bounds.x, bounds.bottom),
+        ]
+        xs = [c[0] for c in corners]
+        ys = [c[1] for c in corners]
+        return _qrect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
+
+# --------------------------------------------------------------------------- helpers
+def _resolved_canvas(doc: CompiledDocument):  # noqa: ANN202
+    from arcavex.kernel.ir.models import ResolvedCanvas
+
+    return ResolvedCanvas(
+        width_pt=doc.canvas.width_pt, height_pt=doc.canvas.height_pt, dpi=doc.canvas.dpi
+    )
+
+
+def _loc(node: CompiledNode) -> dict[str, Any]:
+    """Return located-diagnostic kwargs (file/keypath/line) from a node's carried source."""
+    src = node.source
+    if src is None:
+        return {}
+    return {"file": src.file, "keypath": src.keypath, "line": src.line}
+
+
+def _logical(edge: str, direction: str) -> str:
+    if edge == "start":
+        return "left" if direction == "ltr" else "right"
+    if edge == "end":
+        return "right" if direction == "ltr" else "left"
+    return edge
+
+
+def _edge_pos(edge: str, rect: Rect) -> float:
+    return {
+        "top": rect.y,
+        "bottom": rect.bottom,
+        "center_y": rect.center_y,
+        "left": rect.x,
+        "right": rect.right,
+        "center_x": rect.center_x,
+    }[edge]
+
+
+def _clamp(value: float, spec: SizeSpec) -> float:
+    if spec.min_pt is not None:
+        value = max(value, spec.min_pt)
+    if spec.max_pt is not None:
+        value = min(value, spec.max_pt)
+    return value
+
+
+def _aspect_value(spec: SizeSpec, other: float | None, node: CompiledNode) -> float:
+    if other is None:
         raise DiagnosticError(
             diagnostic(
-                "ARC-LAY-014",
-                f"Unsupported anchor edge {edge!r}",
-                hint="Phase 0 supports top, bottom, left, right, center_x, and center_y.",
-                **self._loc(node),
+                "ARC-LAY-055",
+                f"Node {node.id!r} uses 'aspect' but the other axis is not resolvable",
+                hint="Give the other axis a concrete size (fixed/%/fill) for aspect to derive.",
+                **_loc(node),
             )
         )
+    ratio = (spec.aspect_w or 1.0) / (spec.aspect_h or 1.0)
+    return other * ratio
+
+
+def _base_runs(node: CompiledText, base_size: float) -> tuple[ResolvedRun, ...]:
+    style = node.style
+    families = style.font_families or ("Inter",)
+    color = style.text_color or (0.0, 0.0, 0.0, 1.0)
+    source: Sequence[TextRun]
+    if node.runs:
+        source = node.runs
+    else:
+        source = (TextRun(text=node.text),)
+    out: list[ResolvedRun] = []
+    for run in source:
+        out.append(
+            ResolvedRun(
+                text=run.text,
+                font_families=run.font_families or families,
+                font_size_pt=run.font_size_pt or base_size,
+                font_weight=run.font_weight if run.font_weight is not None else style.font_weight,
+                italic=run.italic if run.italic is not None else style.italic,
+                color=run.color or color,
+                letter_spacing_pt=(
+                    run.letter_spacing_pt
+                    if run.letter_spacing_pt is not None
+                    else style.letter_spacing_pt
+                ),
+            )
+        )
+    return tuple(out)
+
+
+def _scale_runs(
+    runs: tuple[ResolvedRun, ...], scale: float, out_text: str | None
+) -> tuple[ResolvedRun, ...]:
+    if out_text is not None:
+        # Truncation collapses to a single run carrying the trimmed text in the lead style.
+        lead = runs[0]
+        return (
+            lead.model_copy(
+                update={"text": out_text, "font_size_pt": lead.font_size_pt * scale}
+            ),
+        )
+    if scale == 1.0:
+        return runs
+    return tuple(r.model_copy(update={"font_size_pt": r.font_size_pt * scale}) for r in runs)
+
+
+def _resolve_dir(paragraph_dir: str, text: str, group_dir: str) -> str:
+    if paragraph_dir in ("ltr", "rtl"):
+        return paragraph_dir
+    strong = _first_strong_dir(text)
+    return strong if strong is not None else group_dir
+
+
+def _first_strong_dir(text: str) -> str | None:
+    for ch in text:
+        bidi = unicodedata.bidirectional(ch)
+        if bidi in ("R", "AL"):
+            return "rtl"
+        if bidi == "L":
+            return "ltr"
+    return None
+
+
+def _missing_glyph_diag(
+    node: CompiledText, codepoint: int, families: tuple[str, ...]
+) -> Diagnostic:
+    chain = ", ".join(families) if families else "(node default)"
+    return diagnostic(
+        "ARC-RND-011",
+        f"Text node {node.id!r} has no glyph for U+{codepoint:04X} "
+        f"({unicodedata.name(chr(codepoint), 'unknown')}) in any bundled font",
+        severity="warning",
+        hint=f"Add a font covering it under library-seed/fonts. Tried: {chain}, then fallback.",
+        **_loc(node),
+    )

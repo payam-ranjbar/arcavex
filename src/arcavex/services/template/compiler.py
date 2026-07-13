@@ -10,8 +10,11 @@ are rejected with located "not supported" diagnostics rather than silently ignor
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel
 
 from arcavex.kernel.api import CompileResult
 from arcavex.kernel.diagnostics import (
@@ -34,9 +37,14 @@ from arcavex.kernel.ir.models import (
     CompiledShape,
     CompiledText,
     Constraints,
+    FitSpec,
+    MaskSpec,
+    ParagraphSpec,
     SizeSpec,
     SourceRef,
+    StackSpec,
     Style,
+    TextRun,
     Transform,
 )
 from arcavex.kernel.ir.units import Dim
@@ -55,10 +63,21 @@ from arcavex.services.template.loader import (
     load_yaml,
     node_line,
 )
+from arcavex.services.template.overlays import (
+    PatchLog,
+    apply_patches,
+    merge_overlay,
+)
 
 _PARENT_EDGES = {"top", "bottom", "left", "right", "center_x", "center_y"}
+_LOGICAL_EDGES = {"start", "end"}
+# Anchor keys (which edge of *this* node is pinned) and reference edges may both be logical.
+_ANCHOR_KEYS = _PARENT_EDGES | _LOGICAL_EDGES
+_EDGE_NAMES = _PARENT_EDGES | _LOGICAL_EDGES
 _NODE_TYPES = {"group", "text", "image", "shape", "path"}
-_STACK_TYPES = {"hstack", "vstack"}
+_STACK_LAYOUTS = {"hstack", "vstack"}
+_MAIN_ALIGNS = {"start", "center", "end", "space_between"}
+_CROSS_ALIGNS = {"start", "center", "end", "stretch"}
 # Image extensions we let skia decode in Phase 0 (checked only for a friendlier error).
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 # Declared variable ``type`` -> the Python types an authored value may take.
@@ -101,6 +120,8 @@ class Compiler:
         self,
         available_fonts: frozenset[str] | None = None,
         functions: FunctionTable | None = None,
+        masks: frozenset[str] | None = None,
+        mask_schema: Callable[[str], type[BaseModel] | None] | None = None,
     ) -> None:
         """Create a compiler.
 
@@ -112,9 +133,19 @@ class Compiler:
             functions: The template-function resolution table, wired from the registry by
                 :mod:`arcavex.bootstrap`. When ``None`` the evaluator falls back to the
                 built-in functions (isolated unit tests).
+            masks: Registered mask-component names. When supplied, a node referencing an
+                unknown mask fails compilation. ``None`` disables the check (unit tests).
+            mask_schema: Resolves a mask name to its pydantic param schema for validation.
         """
         self._available_fonts = available_fonts
         self._functions = functions
+        self._masks = masks
+        self._mask_schema = mask_schema
+        # Per-compile state, (re)initialized at the top of ``compile``.
+        self._patch_log: PatchLog = PatchLog()
+        self._digits: str | None = None
+        self._default_direction: str = "ltr"
+        self._font_overrides: dict[str, tuple[str, ...]] = {}
 
     def compile(
         self,
@@ -127,16 +158,14 @@ class Compiler:
         """Compile a template. Returns a document (on success) plus diagnostics."""
         diags: list[Diagnostic] = []
         inferred: dict[str, str] = {}
+        self._patch_log = PatchLog()
+        self._digits = None
+        self._default_direction = "ltr"
+        self._font_overrides = {}
         try:
             if style is not None:
                 return _reject_unsupported(
                     "ARC-TPL-090", "style packs", Path(template), "styles are Phase 3"
-                )
-            if locale is not None:
-                # Locale files are parsed for shape in Phase 1, but applying a requested
-                # locale (direction/digit policy/overlays) is Phase 2.
-                return _reject_unsupported(
-                    "ARC-TPL-091", "locales", Path(template), "locale application is Phase 2"
                 )
 
             source = load_template(template)
@@ -150,9 +179,12 @@ class Compiler:
             if has_errors(diags):
                 return CompileResult(None, diags, inferred)
 
-            context = self._build_context(source, data, diags, inferred)
-            if has_errors(diags):
-                return CompileResult(None, diags, inferred)
+            # Resolve the requested locale's settings (§4.1.4): direction default, digit policy,
+            # font overrides, data overlay, and patch. An undeclared locale is an error.
+            loc_settings = self._resolve_locale(source, locale)
+            self._digits = loc_settings.get("digits")
+            self._default_direction = loc_settings.get("direction", "ltr")
+            self._font_overrides = self._font_override_map(loc_settings.get("fonts"))
 
             canvas, resolved_format = self._resolve_format(source, format_name, inferred)
             seed = _int_field(
@@ -169,6 +201,16 @@ class Compiler:
                         hint="Add a 'root:' group node describing the scene.",
                     )
                 )
+
+            # Structural overrides address authored node IDs and run before expressions
+            # (§4.1.5): style -> format patch -> locale patch. Applied to the node AST in place.
+            self._apply_format_patch(source, resolved_format, root_raw)
+            self._apply_locale_patch(source, locale, loc_settings, root_raw)
+
+            overlays = self._locale_data_overlays(source, data, locale, loc_settings, inferred)
+            context = self._build_context(source, data, diags, inferred, overlays)
+            if has_errors(diags):
+                return CompileResult(None, diags, inferred)
 
             seen_ids: set[str] = set()
             root = self._build_node(
@@ -219,6 +261,7 @@ class Compiler:
         data: Path | None,
         diags: list[Diagnostic],
         inferred: dict[str, str],
+        overlays: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         raw = source.raw
         var_file = source.file_for("variables")
@@ -266,6 +309,13 @@ class Compiler:
             if isinstance(preview, dict) and preview:
                 context.update(preview)
                 inferred["data"] = "preview_data"
+
+        # Locale data overlays (inline locale 'data:' then a sibling data-file variant) merge
+        # over the base data under the §4.1.4 semantics before variable resolution.
+        for overlay in overlays or []:
+            context = merge_overlay(context, overlay)
+            for key in overlay:
+                data_lines.setdefault(str(key), None)
 
         # CR-5: an explicit null (YAML 'name:' with an empty value) is equivalent to omission.
         # Dropping None-valued supplied keys lets the declaration loop bind None for an
@@ -529,6 +579,100 @@ class Compiler:
             )
         return out
 
+    # -------------------------------------------------------------- locales & patches
+    def _resolve_locale(
+        self, source: TemplateSource, locale: str | None
+    ) -> dict[str, Any]:
+        """Return the requested locale's settings, or ``{}`` when no locale is requested.
+
+        A requested locale the template does not declare is an error (Arcavex never silently
+        ignores a locale, spec §6.3).
+        """
+        if locale is None:
+            return {}
+        locales = source.raw.get("locales")
+        loc_file = source.file_for("locales")
+        if not isinstance(locales, dict) or locale not in locales:
+            available = ", ".join(sorted(locales)) if isinstance(locales, dict) else "(none)"
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-100",
+                    f"Template does not declare locale {locale!r}",
+                    file=str(loc_file),
+                    keypath="locales",
+                    line=node_line(locales) if isinstance(locales, dict) else None,
+                    hint=f"Declare it under 'locales:', or use one of: {available}.",
+                )
+            )
+        settings = locales.get(locale) or {}
+        return _to_plain(settings) if isinstance(settings, dict) else {}
+
+    @staticmethod
+    def _font_override_map(fonts: Any) -> dict[str, tuple[str, ...]]:
+        """Build a family/role -> replacement-stack map from a locale ``fonts`` mapping."""
+        out: dict[str, tuple[str, ...]] = {}
+        if not isinstance(fonts, dict):
+            return out
+        for key, stack in fonts.items():
+            if isinstance(stack, str):
+                out[str(key)] = (stack,)
+            elif isinstance(stack, list):
+                out[str(key)] = tuple(str(f) for f in stack)
+        return out
+
+    def _apply_format_patch(
+        self, source: TemplateSource, format_name: str, root_raw: dict[str, Any]
+    ) -> None:
+        formats = source.raw.get("formats")
+        if not isinstance(formats, dict):
+            return
+        spec = formats.get(format_name)
+        patch = spec.get("patch") if isinstance(spec, dict) else None
+        if isinstance(patch, list) and patch:
+            apply_patches(
+                root_raw, patch, f"format:{format_name}", source.file_for("formats"),
+                f"formats.{format_name}.patch", self._patch_log,
+            )
+
+    def _apply_locale_patch(
+        self,
+        source: TemplateSource,
+        locale: str | None,
+        loc_settings: dict[str, Any],
+        root_raw: dict[str, Any],
+    ) -> None:
+        patch = loc_settings.get("patch")
+        if locale is not None and isinstance(patch, list) and patch:
+            apply_patches(
+                root_raw, patch, f"locale:{locale}", source.file_for("locales"),
+                f"locales.{locale}.patch", self._patch_log,
+            )
+
+    def _locale_data_overlays(
+        self,
+        source: TemplateSource,
+        data: Path | None,
+        locale: str | None,
+        loc_settings: dict[str, Any],
+        inferred: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        """Collect data overlays for the locale: inline ``data:`` then a sibling data file."""
+        overlays: list[dict[str, Any]] = []
+        inline = loc_settings.get("data")
+        if isinstance(inline, dict) and inline:
+            overlays.append(_to_plain(inline))
+        # A sibling data-file variant (base.<locale>.yaml) is applied when it exists, and the
+        # inference is reported (§4.1.4 / §6.3).
+        if data is not None and locale is not None:
+            sibling = data.with_suffix("")
+            candidate = sibling.parent / f"{sibling.name}.{locale}{data.suffix}"
+            if candidate.is_file():
+                loaded = _to_plain(load_yaml(candidate))
+                if isinstance(loaded, dict):
+                    overlays.append(loaded)
+                    inferred["data_overlay"] = candidate.name
+        return overlays
+
     # ---------------------------------------------------------------------- formats
     def _resolve_format(
         self,
@@ -661,17 +805,6 @@ class Compiler:
         seen_ids.add(node_id)
 
         node_type = raw.get("type")
-        if node_type in _STACK_TYPES:
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-TPL-052",
-                    f"Stack node type {node_type!r} is not supported in this build",
-                    file=str(template),
-                    keypath=f"{keypath}.type",
-                    line=line_of(raw, "type"),
-                    hint="Stacks arrive in Phase 2; use anchor constraints for now.",
-                )
-            )
         if node_type not in _NODE_TYPES:
             raise DiagnosticError(
                 diagnostic(
@@ -685,7 +818,9 @@ class Compiler:
             )
 
         transform = self._parse_transform(raw, template, node_id, keypath)
-        constraints = self._parse_constraints(raw, canvas, template, node_id, keypath)
+        constraints = self._parse_constraints(
+            raw, context, canvas, template, node_id, keypath, id_suffix
+        )
         style = self._parse_style(raw, context, canvas, template, node_id, keypath)
         visible = bool(raw.get("visible", True))
         z = int(raw.get("z", 0))
@@ -695,6 +830,7 @@ class Compiler:
             "transform": transform,
             "constraints": constraints,
             "style": style,
+            "mask": self._parse_mask(raw, template, node_id, keypath),
             "visible": visible,
             "z": z,
             # Carry the authoring location so layout/render-time diagnostics can locate the
@@ -734,7 +870,8 @@ class Compiler:
                         continue
                     raise
             children = tuple(built)
-            direction = raw.get("direction", "ltr")
+            # A group without an explicit direction inherits the locale's default (§4.1.4).
+            direction = raw.get("direction", self._default_direction)
             if direction not in {"ltr", "rtl"}:
                 raise DiagnosticError(
                     diagnostic(
@@ -745,17 +882,16 @@ class Compiler:
                         hint="Use 'ltr' or 'rtl'.",
                     )
                 )
+            stack = self._parse_stack(raw, canvas, template, node_id, keypath)
             return CompiledGroup(
                 **common,
                 direction=direction,
                 clip=bool(raw.get("clip", False)),
+                stack=stack,
                 children=children,
             )
         if node_type == "text":
-            text = self._resolve_text(
-                raw.get("text", ""), context, template, node_id, keypath, line_of(raw, "text")
-            )
-            return CompiledText(**common, text=text)
+            return self._build_text(common, raw, context, canvas, template, node_id, keypath)
         if node_type == "image":
             asset = raw.get("asset")
             if not isinstance(asset, str) or not asset:
@@ -859,8 +995,10 @@ class Compiler:
                     keypath=kp,
                     line=node_line(child),
                     hint=(
-                        "Nest them: make the 'if' construct the repeat's 'node', or put the "
-                        "'repeat' construct inside the if's 'node'."
+                        "Nest them through a wrapper group: make the repeat's 'node' a group "
+                        "whose 'children' list holds the 'if' construct (the condition then "
+                        "gates each item), or make the if's 'node' a group whose 'children' "
+                        "list holds the 'repeat' construct (the condition gates the whole loop)."
                     ),
                 )
             )
@@ -1121,18 +1259,6 @@ class Compiler:
     def _reject_unsupported_constructs(
         self, raw: dict[str, Any], template: Path, keypath: str
     ) -> None:
-        layout = raw.get("layout")
-        if layout in {"hstack", "vstack"}:
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-TPL-052",
-                    f"Stack layout {layout!r} is not supported in this build",
-                    file=str(template),
-                    keypath=f"{keypath}.layout",
-                    line=line_of(raw, "layout"),
-                    hint="Stacks arrive in Phase 2; use anchor constraints for now.",
-                )
-            )
         if raw.get("effects"):
             raise DiagnosticError(
                 diagnostic(
@@ -1144,17 +1270,393 @@ class Compiler:
                     hint="Effects arrive in Phase 3.",
                 )
             )
-        if raw.get("mask"):
+
+    def _parse_mask(
+        self, raw: dict[str, Any], template: Path, node_id: str, keypath: str
+    ) -> MaskSpec | None:
+        """Parse a mask declaration; the mask component's params are validated at render time
+        by the registered generator's schema (spec §3.2)."""
+        mask = raw.get("mask")
+        if mask is None:
+            return None
+        if not isinstance(mask, dict):
             raise DiagnosticError(
                 diagnostic(
-                    "ARC-RND-900",
-                    "Masks are not supported in this build",
+                    "ARC-IR-040",
+                    f"Node {node_id!r} 'mask' must be a mapping",
                     file=str(template),
                     keypath=f"{keypath}.mask",
                     line=line_of(raw, "mask"),
-                    hint="Masks arrive in Phase 2.",
+                    hint="Write 'mask: {component: diamond_grid, params: {...}}'.",
                 )
             )
+        component = mask.get("component")
+        if not isinstance(component, str) or not component:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-IR-040",
+                    f"Node {node_id!r} 'mask' needs a 'component' name",
+                    file=str(template),
+                    keypath=f"{keypath}.mask.component",
+                    line=line_of(mask, "component"),
+                    hint="Set 'component:' to a registered mask (e.g. rounded_rect, diamond_grid).",
+                )
+            )
+        if self._masks is not None and component not in self._masks:
+            available = ", ".join(sorted(self._masks)) or "(none)"
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-FX-901",
+                    f"Node {node_id!r} references unknown mask component {component!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.mask.component",
+                    line=line_of(mask, "component"),
+                    hint=f"Registered masks: {available}.",
+                )
+            )
+        params = mask.get("params") or {}
+        if not isinstance(params, dict):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-IR-040",
+                    f"Node {node_id!r} 'mask.params' must be a mapping",
+                    file=str(template),
+                    keypath=f"{keypath}.mask.params",
+                    line=line_of(mask, "params"),
+                    hint="Write 'params: {cell: 90pt, gutter: 6pt}'.",
+                )
+            )
+        validated = self._validate_mask_params(
+            component, _to_plain(params), template, node_id, keypath, line_of(mask, "params")
+        )
+        return MaskSpec(component=component, params=validated)
+
+    def _validate_mask_params(
+        self,
+        component: str,
+        params: dict[str, Any],
+        template: Path,
+        node_id: str,
+        keypath: str,
+        line: int | None,
+    ) -> dict[str, Any]:
+        """Validate mask params against the generator's pydantic schema (ARC-FX-902)."""
+        if self._mask_schema is None:
+            return params
+        schema = self._mask_schema(component)
+        if schema is None:
+            return params
+        try:
+            model = schema(**params)
+        except Exception as exc:  # noqa: BLE001 - pydantic ValidationError -> located diagnostic
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-FX-902",
+                    f"Node {node_id!r} mask {component!r} has invalid params: {_first_error(exc)}",
+                    file=str(template),
+                    keypath=f"{keypath}.mask.params",
+                    line=line,
+                    hint="Check each parameter's name, type, and range for this mask.",
+                )
+            ) from exc
+        return model.model_dump(mode="json")
+
+    # --------------------------------------------------------------------- stacks
+    def _parse_stack(
+        self, raw: dict[str, Any], canvas: CanvasSpec, template: Path, node_id: str, keypath: str
+    ) -> StackSpec:
+        layout = raw.get("layout", "absolute")
+        if layout in (None, "absolute"):
+            return StackSpec()
+        if layout not in _STACK_LAYOUTS:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-039",
+                    f"Group {node_id!r} has invalid layout {layout!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.layout",
+                    line=line_of(raw, "layout"),
+                    hint="Use 'absolute', 'hstack', or 'vstack'.",
+                )
+            )
+        dpi = canvas.dpi
+        gap = 0.0
+        if "gap" in raw:
+            gap = _dim(raw.get("gap"), template, f"{keypath}.gap", line_of(raw, "gap")).to_pt(dpi)
+        pt, pr, pb, pl = self._parse_padding(raw.get("padding"), dpi, template, node_id, keypath)
+        main_align = raw.get("main_align", "start")
+        if main_align not in _MAIN_ALIGNS:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-039",
+                    f"Group {node_id!r} has invalid main_align {main_align!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.main_align",
+                    line=line_of(raw, "main_align"),
+                    hint=f"Use one of: {', '.join(sorted(_MAIN_ALIGNS))}.",
+                )
+            )
+        cross_align = raw.get("cross_align", "start")
+        if cross_align not in _CROSS_ALIGNS:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-039",
+                    f"Group {node_id!r} has invalid cross_align {cross_align!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.cross_align",
+                    line=line_of(raw, "cross_align"),
+                    hint=f"Use one of: {', '.join(sorted(_CROSS_ALIGNS))}.",
+                )
+            )
+        if bool(raw.get("wrap", False)):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-LAY-056",
+                    f"Group {node_id!r} sets 'wrap: true', which is not supported in this build",
+                    file=str(template),
+                    keypath=f"{keypath}.wrap",
+                    line=line_of(raw, "wrap"),
+                    hint="Wrapping stacks are deferred; lay out wrapped rows explicitly for now.",
+                )
+            )
+        return StackSpec(
+            kind=layout,
+            gap_pt=gap,
+            pad_top_pt=pt,
+            pad_right_pt=pr,
+            pad_bottom_pt=pb,
+            pad_left_pt=pl,
+            main_align=main_align,
+            cross_align=cross_align,
+        )
+
+    def _parse_padding(
+        self, value: Any, dpi: int, template: Path, node_id: str, keypath: str
+    ) -> tuple[float, float, float, float]:
+        if value is None:
+            return 0.0, 0.0, 0.0, 0.0
+        kp = f"{keypath}.padding"
+        if isinstance(value, dict):
+            return (
+                _dim(value.get("top", 0), template, f"{kp}.top").to_pt(dpi),
+                _dim(value.get("right", 0), template, f"{kp}.right").to_pt(dpi),
+                _dim(value.get("bottom", 0), template, f"{kp}.bottom").to_pt(dpi),
+                _dim(value.get("left", 0), template, f"{kp}.left").to_pt(dpi),
+            )
+        if isinstance(value, list) and len(value) == 4:
+            sides = [_dim(v, template, f"{kp}[{i}]").to_pt(dpi) for i, v in enumerate(value)]
+            return sides[0], sides[1], sides[2], sides[3]
+        p = _dim(value, template, kp).to_pt(dpi)
+        return p, p, p, p
+
+    # ----------------------------------------------------------------------- text
+    def _build_text(
+        self,
+        common: dict[str, Any],
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        canvas: CanvasSpec,
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> CompiledText:
+        style: Style = common["style"]
+        runs_raw = raw.get("runs")
+        if runs_raw is not None:
+            if not isinstance(runs_raw, list):
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-TPL-040",
+                        f"Text node {node_id!r} 'runs' must be a list",
+                        file=str(template),
+                        keypath=f"{keypath}.runs",
+                        line=line_of(raw, "runs"),
+                        hint="Write 'runs:' as a list of strings or {text, ...} mappings.",
+                    )
+                )
+            runs: list[TextRun] = []
+            parts: list[str] = []
+            for i, run_raw in enumerate(runs_raw):
+                run = self._parse_run(
+                    run_raw, context, style, canvas, template, node_id, f"{keypath}.runs[{i}]"
+                )
+                runs.append(run)
+                parts.append(run.text)
+            text = "".join(parts)
+            runs_tuple = tuple(runs)
+        else:
+            text = self._resolve_text(
+                raw.get("text", ""), context, template, node_id, keypath, line_of(raw, "text"),
+                localize=True,
+            )
+            runs_tuple = (TextRun(text=text),)
+        paragraph = self._parse_paragraph(raw, style, template, node_id, keypath)
+        fit = self._parse_fit(raw, canvas, template, node_id, keypath)
+        return CompiledText(
+            **common, text=text, runs=runs_tuple, paragraph=paragraph, fit=fit
+        )
+
+    def _parse_run(
+        self,
+        run_raw: Any,
+        context: dict[str, Any],
+        style: Style,
+        canvas: CanvasSpec,
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> TextRun:
+        if isinstance(run_raw, str):
+            return TextRun(
+                text=self._resolve_text(
+                    run_raw, context, template, node_id, keypath, None, localize=True
+                )
+            )
+        if not isinstance(run_raw, dict):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-040",
+                    f"Text node {node_id!r} run at {keypath} must be a string or mapping",
+                    file=str(template),
+                    keypath=keypath,
+                    hint="Each run is a string or a {text, font, font_size, ...} mapping.",
+                )
+            )
+        text = self._resolve_text(
+            run_raw.get("text", ""), context, template, node_id, keypath,
+            line_of(run_raw, "text"), localize=True,
+        )
+        font = run_raw.get("font")
+        if isinstance(font, str):
+            families: tuple[str, ...] = (font,)
+        elif isinstance(font, list):
+            families = tuple(str(f) for f in font)
+        else:
+            families = ()
+        families = self._override_fonts(families)
+        self._check_fonts(families, template, node_id, keypath, line_of(run_raw, "font"))
+        font_size = run_raw.get("font_size")
+        size_pt = (
+            _dim(font_size, template, f"{keypath}.font_size", line_of(run_raw, "font_size")).to_pt(
+                canvas.dpi
+            )
+            if font_size is not None
+            else None
+        )
+        color = self._color(
+            run_raw.get("color"), context, template, node_id, keypath, "color",
+            line_of(run_raw, "color"),
+        )
+        weight = run_raw.get("font_weight")
+        letter_spacing = run_raw.get("letter_spacing")
+        return TextRun(
+            text=text,
+            font_families=families,
+            font_size_pt=size_pt,
+            font_weight=int(weight) if weight is not None else None,
+            italic=bool(run_raw["italic"]) if "italic" in run_raw else None,
+            color=color,
+            letter_spacing_pt=(
+                _dim(letter_spacing, template, f"{keypath}.letter_spacing").to_pt(canvas.dpi)
+                if letter_spacing is not None
+                else None
+            ),
+        )
+
+    def _parse_paragraph(
+        self, raw: dict[str, Any], style: Style, template: Path, node_id: str, keypath: str
+    ) -> ParagraphSpec:
+        p = raw.get("paragraph") or {}
+        if not isinstance(p, dict):
+            p = {}
+        align = p.get("align", style.align)
+        if align not in {"left", "right", "center", "start", "end"}:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-037",
+                    f"Node {node_id!r} has invalid paragraph align {align!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.paragraph.align",
+                    line=line_of(p, "align"),
+                    hint="Use left, right, center, start, or end.",
+                )
+            )
+        direction = p.get("direction")
+        if direction is None:
+            style_raw = raw.get("style")
+            style_dir = style_raw.get("direction") if isinstance(style_raw, dict) else None
+            direction = style_dir if style_dir in {"ltr", "rtl"} else "auto"
+        if direction not in {"ltr", "rtl", "auto"}:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-038",
+                    f"Node {node_id!r} has invalid paragraph direction {direction!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.paragraph.direction",
+                    line=line_of(p, "direction"),
+                    hint="Use 'ltr', 'rtl', or 'auto'.",
+                )
+            )
+        return ParagraphSpec(align=align, direction=direction)
+
+    def _parse_fit(
+        self, raw: dict[str, Any], canvas: CanvasSpec, template: Path, node_id: str, keypath: str
+    ) -> FitSpec:
+        f = raw.get("fit")
+        if f is None:
+            return FitSpec()
+        if not isinstance(f, dict):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-041",
+                    f"Text node {node_id!r} 'fit' must be a mapping",
+                    file=str(template),
+                    keypath=f"{keypath}.fit",
+                    line=line_of(raw, "fit"),
+                    hint="Write 'fit: {policy: shrink_to_fit, min_size: 24pt}'.",
+                )
+            )
+        policy = f.get("policy", "wrap")
+        if policy not in {"wrap", "shrink_to_fit", "truncate"}:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-041",
+                    f"Text node {node_id!r} has invalid fit policy {policy!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.fit.policy",
+                    line=line_of(f, "policy"),
+                    hint="Use 'wrap', 'shrink_to_fit', or 'truncate'.",
+                )
+            )
+        overflow = f.get("overflow", "clip")
+        if overflow not in {"clip", "allow", "error"}:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-041",
+                    f"Text node {node_id!r} has invalid overflow {overflow!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.fit.overflow",
+                    line=line_of(f, "overflow"),
+                    hint="Use 'clip', 'allow', or 'error'.",
+                )
+            )
+        min_size = f.get("min_size")
+        min_pt = (
+            _dim(min_size, template, f"{keypath}.fit.min_size", line_of(f, "min_size")).to_pt(
+                canvas.dpi
+            )
+            if min_size is not None
+            else None
+        )
+        max_lines = f.get("max_lines")
+        max_lines_int = (
+            _int_field(max_lines, template, f"{keypath}.fit.max_lines", line_of(f, "max_lines"))
+            if max_lines is not None
+            else None
+        )
+        return FitSpec(
+            policy=policy, min_size_pt=min_pt, overflow=overflow, max_lines=max_lines_int
+        )
 
     def _parse_transform(
         self, raw: dict[str, Any], template: Path, node_id: str, keypath: str
@@ -1176,17 +1678,19 @@ class Compiler:
             )
         else:
             scale_pair = (1.0, 1.0)
-        if rotate != 0.0 or scale_pair != (1.0, 1.0):
+        if scale_pair != (1.0, 1.0):
+            # Rotation is supported (Phase 2); scaling still is not.
             raise DiagnosticError(
                 diagnostic(
                     "ARC-RND-901",
-                    f"Rotation/scale transforms are not supported yet on {node_id!r}",
+                    f"Scale transforms are not supported yet on {node_id!r}",
                     file=str(template),
-                    keypath=f"{keypath}.transform",
+                    keypath=f"{keypath}.transform.scale",
                     line=line_of(raw, "transform"),
-                    hint="Only translation is supported in Phase 0.",
+                    hint="Only translation and rotation are supported.",
                 )
             )
+        origin = self._parse_origin(t, template, keypath, t_line)
         translate = t.get("translate", [0.0, 0.0])
         if isinstance(translate, list) and len(translate) == 2:
             tr = (
@@ -1195,20 +1699,55 @@ class Compiler:
             )
         else:
             tr = (0.0, 0.0)
-        return Transform(translate=tr)
+        return Transform(translate=tr, rotate_deg=rotate, origin=origin)
+
+    def _parse_origin(
+        self, t: dict[str, Any], template: Path, keypath: str, line: int | None
+    ) -> tuple[float, float] | None:
+        """Parse a transform origin as a relative (0..1, 0..1) pair; default (centre) is None."""
+        origin = t.get("origin")
+        if origin is None:
+            return None
+        if isinstance(origin, list) and len(origin) == 2:
+            return (
+                _float_field(origin[0], template, f"{keypath}.transform.origin[0]", line),
+                _float_field(origin[1], template, f"{keypath}.transform.origin[1]", line),
+            )
+        named = {
+            "center": (0.5, 0.5),
+            "top_left": (0.0, 0.0),
+            "top_right": (1.0, 0.0),
+            "bottom_left": (0.0, 1.0),
+            "bottom_right": (1.0, 1.0),
+        }
+        if isinstance(origin, str) and origin in named:
+            return named[origin]
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-014",
+                f"Invalid transform origin {origin!r} at {keypath}.transform.origin",
+                file=str(template),
+                keypath=f"{keypath}.transform.origin",
+                line=line,
+                hint="Use [x, y] in 0..1, or a name like 'center' or 'top_left'.",
+            )
+        )
 
     def _parse_constraints(
         self,
         raw: dict[str, Any],
+        context: dict[str, Any],
         canvas: CanvasSpec,
         template: Path,
         node_id: str,
         keypath: str,
+        id_suffix: str,
     ) -> Constraints:
         c = raw.get("constraints")
         if not isinstance(c, dict):
             # No constraints at all: fill the parent, anchored top-left. This is the
-            # convenience default for the root group and full-bleed backgrounds.
+            # convenience default for the root group, full-bleed backgrounds, and stack
+            # children (whose position comes from the stack).
             return Constraints(
                 anchors={
                     "top": AnchorEdge(edge="top"),
@@ -1217,7 +1756,9 @@ class Compiler:
                 width=SizeSpec(mode="fill"),
                 height=SizeSpec(mode="fill"),
             )
-        anchors = self._parse_anchors(c.get("anchor") or {}, canvas.dpi, template, node_id, keypath)
+        anchors = self._parse_anchors(
+            c.get("anchor") or {}, context, canvas.dpi, template, node_id, keypath, id_suffix
+        )
         # A present-but-incomplete constraints block is under-constrained, not silently
         # filled: each axis needs an explicit size (spec §4.2).
         size = c.get("size")
@@ -1230,29 +1771,33 @@ class Compiler:
                     file=str(template),
                     keypath=f"{keypath}.constraints.size",
                     line=size_line,
-                    hint="Add 'size: {w: ..., h: ...}' (each of fixed/%/fill/fit_content).",
+                    hint="Add 'size: {w: ..., h: ...}' (each of fixed/%/fill/fit_content/aspect).",
                 )
             )
-        width = _parse_size_required(
-            size.get("w"), canvas.dpi, template, node_id, keypath, "w", size_line
+        width = self._parse_size_axis(
+            size.get("w"), context, canvas.dpi, template, node_id, keypath, "w", size_line,
+            required=True,
         )
-        height = _parse_size_required(
-            size.get("h"), canvas.dpi, template, node_id, keypath, "h", size_line
+        height = self._parse_size_axis(
+            size.get("h"), context, canvas.dpi, template, node_id, keypath, "h", size_line,
+            required=True,
         )
         return Constraints(anchors=anchors, width=width, height=height)
 
     def _parse_anchors(
         self,
         anchor_raw: dict[str, Any],
+        context: dict[str, Any],
         dpi: int,
         template: Path,
         node_id: str,
         keypath: str,
+        id_suffix: str,
     ) -> dict[str, AnchorEdge]:
         anchors: dict[str, AnchorEdge] = {}
         for key, value in anchor_raw.items():
             key_line = line_of(anchor_raw, key)
-            if key not in _PARENT_EDGES:
+            if key not in _ANCHOR_KEYS:
                 raise DiagnosticError(
                     diagnostic(
                         "ARC-LAY-010",
@@ -1260,13 +1805,86 @@ class Compiler:
                         file=str(template),
                         keypath=f"{keypath}.constraints.anchor.{key}",
                         line=key_line,
-                        hint=f"Anchor keys are: {', '.join(sorted(_PARENT_EDGES))}.",
+                        hint=f"Anchor keys are: {', '.join(sorted(_ANCHOR_KEYS))}.",
                     )
                 )
+            resolved = self._resolve_text(
+                str(value), context, template, node_id,
+                f"{keypath}.constraints.anchor.{key}", key_line,
+            )
             anchors[key] = _parse_anchor_value(
-                str(value), dpi, template, node_id, keypath, key, key_line
+                resolved, dpi, template, node_id, keypath, key, key_line, id_suffix
             )
         return anchors
+
+    def _parse_size_axis(
+        self,
+        value: Any,
+        context: dict[str, Any],
+        dpi: int,
+        template: Path,
+        node_id: str,
+        keypath: str,
+        axis: str,
+        line: int | None,
+        *,
+        required: bool,
+    ) -> SizeSpec:
+        """Parse one axis size: a scalar (fixed/%/fill/fit_content) or a mapping with aspect/
+        min/max. Expressions inside scalar strings are evaluated first (§12.5)."""
+        if value is None:
+            if required:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-LAY-032",
+                        f"Node {node_id!r} is under-constrained: no {axis!r} size given",
+                        file=str(template),
+                        keypath=f"{keypath}.constraints.size.{axis}",
+                        line=line,
+                        hint="Give this axis fixed (e.g. 100px), a %, 'fill', 'fit_content', "
+                        "or {aspect: 'W:H'}.",
+                    )
+                )
+            return SizeSpec(mode="fill")
+        min_pt: float | None = None
+        max_pt: float | None = None
+        if isinstance(value, dict):
+            if "min" in value:
+                min_pt = _dim(
+                    value.get("min"), template, f"{keypath}.constraints.size.{axis}.min", line
+                ).to_pt(dpi)
+            if "max" in value:
+                max_pt = _dim(
+                    value.get("max"), template, f"{keypath}.constraints.size.{axis}.max", line
+                ).to_pt(dpi)
+            if "aspect" in value:
+                aw, ah = _parse_aspect(
+                    value.get("aspect"), template, node_id, keypath, axis, line
+                )
+                return SizeSpec(
+                    mode="aspect", aspect_w=aw, aspect_h=ah, min_pt=min_pt, max_pt=max_pt
+                )
+            base = value.get("value")
+            if base is None:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-IR-012",
+                        f"Node {node_id!r} size {axis!r} mapping needs 'value' or 'aspect'",
+                        file=str(template),
+                        keypath=f"{keypath}.constraints.size.{axis}",
+                        line=line,
+                        hint="Write {value: 62%, min: 100px} or {aspect: '3:4'}.",
+                    )
+                )
+            resolved = self._resolve_text(
+                str(base), context, template, node_id, f"{keypath}.constraints.size.{axis}", line
+            )
+            spec = _parse_size(resolved, dpi, template, node_id, keypath, axis, line)
+            return spec.model_copy(update={"min_pt": min_pt, "max_pt": max_pt})
+        resolved = self._resolve_text(
+            str(value), context, template, node_id, f"{keypath}.constraints.size.{axis}", line
+        )
+        return _parse_size(resolved, dpi, template, node_id, keypath, axis, line)
 
     def _parse_style(
         self,
@@ -1312,6 +1930,7 @@ class Compiler:
             families = tuple(str(f) for f in font)
         else:
             families = ()
+        families = self._override_fonts(families)
         self._check_fonts(families, template, node_id, style_kp, line_of(s, "font"))
         font_size = s.get("font_size")
         font_size_pt = (
@@ -1387,6 +2006,19 @@ class Compiler:
             ),
         )
 
+    def _override_fonts(self, families: tuple[str, ...]) -> tuple[str, ...]:
+        """Substitute any family the active locale overrides (spec §4.1.4 font overrides).
+
+        A locale ``fonts: {Inter: [Vazirmatn, Inter]}`` swaps requested Inter for a
+        Persian-capable stack while leaving other families untouched.
+        """
+        if not self._font_overrides:
+            return families
+        out: list[str] = []
+        for family in families:
+            out.extend(self._font_overrides.get(family, (family,)))
+        return tuple(out)
+
     def _check_fonts(
         self,
         families: tuple[str, ...],
@@ -1453,11 +2085,16 @@ class Compiler:
         node_id: str,
         keypath: str,
         line: int | None = None,
+        *,
+        localize: bool = False,
     ) -> str:
+        # The locale digit policy applies only to *displayed* text (localize=True), never to
+        # constraint/color/asset strings — mapping '40pt' to Persian digits would break parsing.
         if not isinstance(raw, str):
             return str(raw)
         try:
-            value = render_value(raw, context, self._functions)
+            digits = self._digits if localize else None
+            value = render_value(raw, context, self._functions, digits)
         except MissingVariableError as exc:
             raise DiagnosticError(
                 diagnostic(
@@ -1564,21 +2201,6 @@ def _collect_unsupported_sections(source: TemplateSource) -> list[Diagnostic]:
                 hint="Style packs arrive in Phase 3.",
             )
         )
-    formats = raw.get("formats")
-    if isinstance(formats, dict):
-        for fmt_name, spec in formats.items():
-            if isinstance(spec, dict) and "patch" in spec:
-                out.append(
-                    diagnostic(
-                        "ARC-TPL-095",
-                        f"Per-format 'patch' on format {fmt_name!r} is not supported "
-                        "in this build",
-                        file=str(source.file_for("formats")),
-                        keypath=f"formats.{fmt_name}.patch",
-                        line=line_of(spec, "patch"),
-                        hint="Format patch operations arrive in Phase 2.",
-                    )
-                )
     return out
 
 
@@ -1697,22 +2319,69 @@ def _dim(value: Any, template: Path, keypath: str, line: int | None = None) -> D
         ) from exc
 
 
-def _parse_size_required(
-    value: Any, dpi: int, template: Path, node_id: str, keypath: str, axis: str, line: int | None
-) -> SizeSpec:
-    """Parse a size for one axis; a missing value is an under-constraint, not a fill."""
-    if value is None:
+def _parse_aspect(
+    value: Any, template: Path, node_id: str, keypath: str, axis: str, line: int | None
+) -> tuple[float, float]:
+    """Parse an aspect ratio ``'W:H'`` (or ``[W, H]``) into ``(this_axis, other_axis)``."""
+    pair: tuple[Any, Any] | None = None
+    if isinstance(value, str) and ":" in value:
+        left, _, right = value.partition(":")
+        pair = (left.strip(), right.strip())
+    elif isinstance(value, list) and len(value) == 2:
+        pair = (value[0], value[1])
+    if pair is None:
         raise DiagnosticError(
             diagnostic(
-                "ARC-LAY-032",
-                f"Node {node_id!r} is under-constrained: no {axis!r} size given",
+                "ARC-IR-012",
+                f"Node {node_id!r} has invalid aspect {value!r} on axis {axis!r}",
                 file=str(template),
-                keypath=f"{keypath}.constraints.size.{axis}",
+                keypath=f"{keypath}.constraints.size.{axis}.aspect",
                 line=line,
-                hint="Give this axis a size: fixed (e.g. 100px), a %, 'fill', or 'fit_content'.",
+                hint="Write aspect as 'W:H', e.g. '3:4'.",
             )
         )
-    return _parse_size(value, dpi, template, node_id, keypath, axis, line)
+    try:
+        w, h = float(pair[0]), float(pair[1])
+    except (TypeError, ValueError) as exc:
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-012",
+                f"Node {node_id!r} has non-numeric aspect {value!r} on axis {axis!r}",
+                file=str(template),
+                keypath=f"{keypath}.constraints.size.{axis}.aspect",
+                line=line,
+                hint="Both parts of an aspect ratio must be numbers, e.g. '16:9'.",
+            )
+        ) from exc
+    if w <= 0 or h <= 0:
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-012",
+                f"Node {node_id!r} aspect {value!r} must be positive on both parts",
+                file=str(template),
+                keypath=f"{keypath}.constraints.size.{axis}.aspect",
+                line=line,
+                hint="Use positive numbers, e.g. '3:4'.",
+            )
+        )
+    # The axis carrying 'aspect' is this-axis; the ratio maps this:other, so for the h axis
+    # 'aspect: 3:4' means h = w * 4/3 — flip so aspect_w/aspect_h is always this/other.
+    return (w, h) if axis == "w" else (h, w)
+
+
+def _first_error(exc: Exception) -> str:
+    """Return a short message from a pydantic ValidationError (or any exception)."""
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        try:
+            items = errors()
+        except Exception:  # noqa: BLE001
+            items = []
+        if items:
+            first = items[0]
+            loc = ".".join(str(p) for p in first.get("loc", ()))
+            return f"{loc}: {first.get('msg', 'invalid')}" if loc else str(first.get("msg"))
+    return str(exc)
 
 
 def _parse_size(
@@ -1747,29 +2416,35 @@ def _parse_size(
 
 def _parse_anchor_value(
     value: str, dpi: int, template: Path, node_id: str, keypath: str, key: str,
-    line: int | None = None,
+    line: int | None, id_suffix: str,
 ) -> AnchorEdge:
+    """Parse ``<ref>.<edge>[±offset]`` where ``ref`` is ``parent`` or a sibling id.
+
+    ``{{ }}`` expressions in the value are already evaluated by the caller. Logical ``start``/
+    ``end`` edges are kept as-is and resolved by the layout solver via the group direction.
+    Sibling refs are suffixed with the current repeat key so they resolve to the expanded id.
+    """
     text = value.strip()
-    if not text.startswith("parent."):
+    dot = text.find(".")
+    if dot <= 0:
         raise DiagnosticError(
             diagnostic(
                 "ARC-LAY-011",
-                f"Node {node_id!r} anchor {key!r} must reference a parent edge",
+                f"Node {node_id!r} anchor {key!r} must reference an edge like 'parent.top'",
                 file=str(template),
                 keypath=f"{keypath}.constraints.anchor.{key}",
                 line=line,
-                hint="Write anchors like 'parent.top' or 'parent.left+20pt'.",
+                hint="Write anchors like 'parent.top', 'parent.left+20pt', or 'title.bottom+8pt'.",
             )
         )
-    rest = text[len("parent.") :]
+    ref = text[:dot]
+    rest = text[dot + 1 :]
     offset_pt = 0.0
     edge = rest
     for sign_char in ("+", "-"):
         idx = rest.find(sign_char)
         if idx > 0:
             edge = rest[:idx].strip()
-            # Tolerate whitespace around the sign and value ('parent.left + 40px'); the
-            # offset grammar should not be stricter than the expression grammar (DX).
             offset_raw = "".join(rest[idx:].split())
             try:
                 offset_pt = Dim.parse(offset_raw).to_pt(dpi)
@@ -1782,9 +2457,9 @@ def _parse_anchor_value(
                         keypath=f"{keypath}.constraints.anchor.{key}",
                         line=line,
                         hint=(
-                            "Constraint values are static in this build: '{{ }}' expressions "
-                            "are not evaluated inside anchors or offsets. Offsets look like "
-                            "'+20px', '+20pt', or '-6mm'."
+                            "An unevaluated '{{ }}' expression cannot appear here (expressions "
+                            "are resolved before offset parsing). Offsets look like '+20px', "
+                            "'+20pt', or '-6mm'."
                             if "{{" in offset_raw
                             else "Offsets look like '+20px', '+20pt', or '-6mm'."
                         ),
@@ -1792,15 +2467,18 @@ def _parse_anchor_value(
                 ) from exc
             break
     edge = edge.strip()
-    if edge not in _PARENT_EDGES:
+    if edge not in _EDGE_NAMES:
         raise DiagnosticError(
             diagnostic(
                 "ARC-LAY-013",
-                f"Node {node_id!r} anchor {key!r} references unknown parent edge {edge!r}",
+                f"Node {node_id!r} anchor {key!r} references unknown edge {edge!r}",
                 file=str(template),
                 keypath=f"{keypath}.constraints.anchor.{key}",
                 line=line,
-                hint=f"Parent edges are: {', '.join(sorted(_PARENT_EDGES))}.",
+                hint=f"Edges are: {', '.join(sorted(_EDGE_NAMES))}.",
             )
         )
-    return AnchorEdge(edge=edge, offset_pt=offset_pt)  # type: ignore[arg-type]
+    # A sibling ref inside a repeat expansion carries the same key suffix so it resolves to the
+    # expanded sibling id (e.g. 'title' -> 'title[ann]'); 'parent' is never suffixed.
+    resolved_ref = "parent" if ref == "parent" else f"{ref}{id_suffix}"
+    return AnchorEdge(ref=resolved_ref, edge=edge, offset_pt=offset_pt)  # type: ignore[arg-type]

@@ -150,8 +150,10 @@ root:
     assert "overlap" in warn.message.lower()
 
 
-# ------------------------------------------------------------ DX-1b: LAY-012 expression hint
-def test_expression_in_constraint_hint(tmp_path: Path) -> None:
+# -------------------------------------------------- Phase 2: expressions in constraint values
+def test_expression_in_constraint_is_evaluated(tmp_path: Path) -> None:
+    """Phase 2 (DX-1 follow-up): a '{{ }}' expression inside a constraint value is evaluated
+    before the anchor is parsed, so it no longer trips ARC-LAY-012."""
     template = _write(
         tmp_path,
         """
@@ -164,15 +166,18 @@ root:
     - id: t
       type: text
       text: "hi"
-      style: {font_size: 12px, color: white}
+      style: {font: Inter, font_size: 12px, color: white}
       constraints:
-        anchor: {top: parent.top, left: "parent.left + {{ 40 }}px"}
+        anchor: {top: parent.top, left: "parent.left + {{ 30 + 10 }}px"}
         size: {w: fill, h: fit_content}
 """,
     )
     result = Compiler().compile(template, None, "square", None, None)
-    diag = next(d for d in result.diagnostics if d.code == "ARC-LAY-012")
-    assert diag.hint is not None and "expression" in diag.hint.lower()
+    assert not any(d.code == "ARC-LAY-012" for d in result.diagnostics), result.diagnostics
+    assert result.document is not None
+    node = result.document.root.children[0]
+    # 40px @ 96 dpi -> 30pt offset baked into the resolved parent-left anchor.
+    assert node.constraints.anchors["left"].offset_pt == 30.0
 
 
 # ------------------------------------------------------------- DX-4: aggregate TPL-014

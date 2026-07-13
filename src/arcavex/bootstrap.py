@@ -9,11 +9,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from arcavex.builtin.backend_skia import SkiaBackend
 from arcavex.builtin.export_raster import PngExporter
 from arcavex.builtin.layout_anchors import AnchorLayoutSolver
+from arcavex.builtin.masks_core import builtin_masks
 from arcavex.builtin.template_fns import builtin_template_functions
 from arcavex.kernel.api import Facade
+from arcavex.kernel.contracts.spi import MaskGenerator
 from arcavex.kernel.registry import Registries
 from arcavex.services.authoring import AuthoringService
 from arcavex.services.doctor import run_doctor
@@ -24,14 +28,21 @@ from arcavex.services.text import TextService
 
 
 def build_registries(text_service: TextService) -> Registries:
-    """Create registries and register all Phase 0 built-in components."""
+    """Create registries and register all built-in components."""
     registries = Registries()
+    for mask in builtin_masks():
+        registries.masks.register(mask.name, mask)
     registries.layouts.register("anchors", AnchorLayoutSolver())
-    registries.backends.register("skia", SkiaBackend(text_service))
+    registries.backends.register("skia", SkiaBackend(text_service, _mask_map(registries)))
     registries.exporters.register("png", PngExporter())
     for fn in builtin_template_functions():
         registries.template_fns.register(fn.name, fn)
     return registries
+
+
+def _mask_map(registries: Registries) -> dict[str, MaskGenerator]:
+    """Materialize the mask registry as a name -> generator dict for the backend."""
+    return {name: registries.masks.get(name) for name in registries.masks.names()}
 
 
 def build_function_table(registries: Registries) -> FunctionTable:
@@ -62,9 +73,16 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
     """
     text_service = TextService(font_dirs)
     registries = build_registries(text_service)
+    mask_names = frozenset(registries.masks.names())
+
+    def mask_schema(name: str) -> type[BaseModel] | None:
+        return registries.masks.get(name).param_schema if registries.masks.has(name) else None
+
     compiler = Compiler(
         available_fonts=frozenset(text_service.families),
         functions=build_function_table(registries),
+        masks=mask_names,
+        mask_schema=mask_schema,
     )
     authoring = AuthoringService(compiler, registries.template_fns.names())
     return Facade(

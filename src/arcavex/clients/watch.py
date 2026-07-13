@@ -64,6 +64,7 @@ def run_watch(
     on_result: Callable[[PreviewResult], None],
     *,
     locale: str | None = None,
+    debug: bool = False,
     stop_event: threading.Event | None = None,
     max_iterations: int | None = None,
 ) -> None:
@@ -90,7 +91,8 @@ def run_watch(
 
     def render(changed: str | None) -> PreviewResult:
         return facade.render_preview(
-            template, data, format_name, locale=locale, dpi=dpi, changed_file=changed
+            template, data, format_name, locale=locale, dpi=dpi, changed_file=changed,
+            debug=debug,
         )
 
     asset_dirs = [

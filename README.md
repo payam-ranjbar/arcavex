@@ -29,9 +29,11 @@ when no `--data` is passed and `preview_data` exists, Arcavex infers the value a
 | `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, temp dir, paths) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
-Every command supports `--json`, `--no-color`, and `--quiet`. `--locale` is accepted now but
-locale *application* is Phase 2, so requesting one currently reports the located
-"not supported yet" diagnostic (`ARC-TPL-091`) rather than a usage error.
+Every command supports `--json`, `--no-color`, and `--quiet`. `--locale L` applies a declared
+locale (direction, digit policy, font overrides, data overlay, and patch); requesting a locale
+the template does not declare is a located error (`ARC-TPL-100`). `arcavex layout inspect
+TEMPLATE [--data D] [--format F] [--locale L] [--json]` reports resolved geometry, and
+`render`/`preview --debug` overlays node bounds, ids, baselines, and the safe-area margin.
 
 ## Template anatomy
 
@@ -45,8 +47,9 @@ A one-file template is a YAML mapping with these top-level sections:
   omitting it.
 - `formats:` — named canvases, e.g. `square: {canvas: {width: 1080px, height: 1080px,
   dpi: 96}}`.
-- `locales:` — per-locale `direction`/`digits`/`fonts`/`data`/`patch`. Parsed and
-  shape-validated now; **application is Phase 2** (see Known limitations).
+- `locales:` — per-locale `direction`/`digits`/`fonts`/`data`/`patch`, applied when the
+  locale is requested with `--locale`. A `formats.<name>.patch` (and a locale `patch`) apply
+  path-addressed `set`/`remove`/`insert_before`/`insert_after` operations to the node tree.
 - `preview_data:` — values used **only** when no `--data` file is supplied (a preview
   fallback). Supplied data is never back-filled from `preview_data`.
 - `root:` — the node tree (a `group`).
@@ -72,9 +75,11 @@ a precedence puzzle. `arcavex template split` performs the conversion.
 
 Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`, `shape`
 (`rect` | `rrect` | `circle`), `path`. Common fields: `visible: true|false` (a hidden node and
-its subtree are not rendered), `z` (draw order within siblings), `style`, `constraints`.
-`hstack`/`vstack` (layout stacks), effects, and masks are later phases and are rejected with a
-"not supported in this build" diagnostic rather than silently ignored.
+its subtree are not rendered), `z` (draw order within siblings), `style`, `constraints`,
+`transform` (translation + `rotate`), and `mask` (`{component, params}` — built-ins:
+`rounded_rect`, `circle`, `diamond_grid`). A `group` may set `layout: hstack|vstack` with
+`gap`/`padding`/`main_align`/`cross_align` to flow its children. Effects and style packs are
+later phases and are rejected with a "not supported in this build" diagnostic.
 
 ### Structural constructs
 
@@ -103,12 +108,27 @@ children:
 Inside a `repeat`, `loop.index` (0-based), `loop.first`, and `loop.last` are available. The
 `key:` is mandatory and must be unique per item; an index-derived key (`key: "{{ loop.index }}"`)
 is allowed but warns, because reordering the data then changes node IDs. The iteration cap is
-1000. Declaring both `repeat` and `if` on one child is an error — nest them instead.
+1000. Declaring both `repeat` and `if` on one child is an error (`ARC-TPL-061`); nest them
+through a **wrapper group** — a construct's `node` is built directly and is not itself scanned
+for nested constructs, so the inner construct must live in a group's `children` list:
 
-> Note: because constraint values are static in this build (no expressions inside anchors/
-> sizes, and no layout stacks yet), repeated siblings all inherit the same anchors and overlap.
-> `repeat` compiles and warns (`ARC-LAY-040`); laying repeated nodes out visually needs the
-> Phase 2 stacks. `if:` is fully usable today, as the scaffold demonstrates.
+```yaml
+- repeat: "{{ guests }}"
+  as: guest
+  key: "{{ guest.id }}"
+  node:                       # the repeated node is a group…
+    type: group
+    id: guest-row
+    layout: vstack
+    children:
+      - if: "{{ guest.featured }}"   # …whose children hold the 'if' construct
+        node: {id: star, type: text, text: "★", ...}
+```
+
+> Repeated siblings now lay out for real: put them in a `layout: hstack`/`vstack` group, or give
+> each a distinct anchor computed from `loop.index` (expressions are evaluated inside constraint
+> values, e.g. `top: "parent.top + {{ loop.index * 90 }}pt"`). A repeat whose siblings still
+> resolve to identical bounds warns with `ARC-LAY-040`.
 
 ### Constraints and anchors
 
@@ -165,14 +185,16 @@ read source.
 
 ## Known limitations (this build)
 
-- **Repeated siblings overlap.** `repeat` produces N nodes with identical (static) constraints,
-  so they render on top of one another. Use distinct literal anchors for a fixed count, or wait
-  for layout stacks (Phase 2). A warning (`ARC-LAY-040`) is emitted.
-- **Constraints are static.** `{{ }}` expressions are not evaluated inside anchors, offsets, or
-  sizes.
-- **Locale application is Phase 2.** `locales:` files are parsed and value-checked, and
-  `--locale` is accepted, but direction/digit/overlay application is not wired yet.
-- Layout stacks (`hstack`/`vstack`), format `patch`, style packs, effects, and masks are later
-  phases and are rejected with located diagnostics.
+- **Effects and style packs are Phase 3**, and are rejected with located diagnostics
+  (`ARC-FX-900`, `ARC-TPL-093/094`).
+- **`fit_content` is text-only.** Sizing an image or group to its intrinsic content is not yet
+  available (`ARC-LAY-020`); give those nodes an explicit size or an `aspect` ratio.
+- **Wrapping stacks are deferred.** A stack with `wrap: true` reports `ARC-LAY-056` rather than
+  faking multi-row flow; lay wrapped rows out with nested stacks for now.
+- **Text metrics are paragraph-level** (skia-python 144 exposes no per-line/per-glyph boxes),
+  so `max_lines` is approximated from measured height and inspection reports paragraph bounds
+  and baseline rather than per-glyph rectangles (ADR-0001).
 
-See `arcavex-technical-design-spec-v1.1.md` for the full specification.
+See the `examples/ipen-bilingual/` bilingual poster for locales, stacks, masks, sibling
+anchors, rotation, and fit policies in one template, and
+`arcavex-technical-design-spec-v1.1.md` for the full specification.

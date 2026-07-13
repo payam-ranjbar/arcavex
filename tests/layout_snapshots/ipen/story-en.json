@@ -1,0 +1,167 @@
+{
+  "format": "story",
+  "locale": "en",
+  "canvas_pt": [
+    810.0,
+    1440.0
+  ],
+  "root": {
+    "id": "root",
+    "kind": "group",
+    "bounds_pt": [
+      0.0,
+      0.0,
+      810.0,
+      1440.0
+    ],
+    "rotate_deg": 0.0,
+    "overflow": "none",
+    "children": [
+      {
+        "id": "background",
+        "kind": "shape",
+        "bounds_pt": [
+          0.0,
+          0.0,
+          810.0,
+          1440.0
+        ],
+        "rotate_deg": 0.0,
+        "overflow": "none",
+        "children": []
+      },
+      {
+        "id": "hero",
+        "kind": "image",
+        "bounds_pt": [
+          0.0,
+          0.0,
+          810.0,
+          604.8
+        ],
+        "rotate_deg": 0.0,
+        "overflow": "none",
+        "children": []
+      },
+      {
+        "id": "accent-bar",
+        "kind": "shape",
+        "bounds_pt": [
+          56.0,
+          630.8,
+          150.0,
+          12.0
+        ],
+        "rotate_deg": -4.0,
+        "overflow": "none",
+        "children": []
+      },
+      {
+        "id": "title",
+        "kind": "text",
+        "bounds_pt": [
+          56.0,
+          660.8,
+          680.4,
+          116.0
+        ],
+        "rotate_deg": 0.0,
+        "overflow": "none",
+        "children": []
+      },
+      {
+        "id": "subtitle",
+        "kind": "text",
+        "bounds_pt": [
+          56.0,
+          792.8,
+          648.0,
+          66.0
+        ],
+        "rotate_deg": 0.0,
+        "overflow": "none",
+        "children": []
+      },
+      {
+        "id": "datebox",
+        "kind": "group",
+        "bounds_pt": [
+          56.0,
+          884.8,
+          280.0,
+          108.0
+        ],
+        "rotate_deg": 0.0,
+        "overflow": "none",
+        "children": [
+          {
+            "id": "date-frame",
+            "kind": "shape",
+            "bounds_pt": [
+              56.0,
+              884.8,
+              280.0,
+              108.0
+            ],
+            "rotate_deg": 0.0,
+            "overflow": "none",
+            "children": []
+          },
+          {
+            "id": "date-lines",
+            "kind": "group",
+            "bounds_pt": [
+              56.0,
+              884.8,
+              280.0,
+              108.0
+            ],
+            "rotate_deg": 0.0,
+            "overflow": "none",
+            "children": [
+              {
+                "id": "date-day",
+                "kind": "text",
+                "bounds_pt": [
+                  72.0,
+                  900.8,
+                  248.0,
+                  53.0
+                ],
+                "rotate_deg": 0.0,
+                "overflow": "none",
+                "children": []
+              },
+              {
+                "id": "date-time",
+                "kind": "text",
+                "bounds_pt": [
+                  72.0,
+                  957.8,
+                  248.0,
+                  31.0
+                ],
+                "rotate_deg": 0.0,
+                "overflow": "none",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "venue",
+        "kind": "text",
+        "bounds_pt": [
+          56.0,
+          1014.8,
+          664.2,
+          29.0
+        ],
+        "rotate_deg": 0.0,
+        "overflow": "none",
+        "children": []
+      }
+    ]
+  }
+}

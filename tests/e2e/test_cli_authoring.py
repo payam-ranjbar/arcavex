@@ -103,15 +103,15 @@ def test_template_check_ok() -> None:
 
 
 # ----------------------------------------------------------------- locale (CR-2)
-def test_render_locale_flag_parses_and_defers() -> None:
-    """CR-2: --locale is a real option; requesting one yields the located Phase-2 diagnostic."""
+def test_render_undeclared_locale_is_error() -> None:
+    """--locale is applied now; hello-poster declares no locales, so 'fa' is ARC-TPL-100."""
     proc = _run(
         ["render", str(_HELLO), "--format", "square", "--locale", "fa", "--json"]
     )
-    assert proc.returncode == 1  # ARC-TPL-091 is a validation-class error, not a usage error
+    assert proc.returncode == 1  # a validation-class error, not a usage error
     payload = json.loads(proc.stdout)
     assert payload["ok"] is False
-    assert any(d["code"] == "ARC-TPL-091" for d in payload["diagnostics"])
+    assert any(d["code"] == "ARC-TPL-100" for d in payload["diagnostics"])
 
 
 def test_preview_locale_flag_parses() -> None:
@@ -129,7 +129,7 @@ def test_preview_locale_flag_parses() -> None:
     )
     assert proc.returncode != 2  # not a usage error
     payload = json.loads(proc.stdout)
-    assert any(d["code"] == "ARC-TPL-091" for d in payload["diagnostics"])
+    assert any(d["code"] == "ARC-TPL-100" for d in payload["diagnostics"])
 
 
 # ------------------------------------------------------------------------ doctor paths

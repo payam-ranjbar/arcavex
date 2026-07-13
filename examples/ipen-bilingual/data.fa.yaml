@@ -1,0 +1,7 @@
+# Farsi overlay, merged over data.yaml when --locale fa is used (mapping merge: only these
+# keys are replaced; day/time keep their numeric values and are shown with Persian digits).
+title: "یک فنجان تجربه"
+subtitle: "دورهمی و انتقال تجربه ایرانیان فعال در صنعت و آموزش"
+venue: "هانتر استیودنت کامانز — فضای هم‌اندیشی"
+month: "ژوئن"
+time: "۱۷:۰۰"

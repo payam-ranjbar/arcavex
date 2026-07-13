@@ -38,6 +38,8 @@ from arcavex.kernel.ir.models import (
     CompiledGroup,
     CompiledImage,
     CompiledNode,
+    LayoutDocument,
+    LayoutNode,
 )
 from arcavex.kernel.registry import Registries
 
@@ -290,6 +292,76 @@ class PreviewResult(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+# --------------------------------------------------------------------- layout inspection
+class AnchorDerivation(BaseModel):
+    """How one axis position of a node was derived from its anchor."""
+
+    model_config = ConfigDict(frozen=True)
+
+    axis: Literal["horizontal", "vertical"]
+    edge: str  # the pinned edge of this node (physical, after logical resolution)
+    expression: str  # e.g. "title.bottom + 16pt"
+    resolved_pt: float
+
+
+class OverflowReport(BaseModel):
+    """A node's text-overflow outcome, echoed for inspection."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    measured_w_pt: float
+    measured_h_pt: float
+    box_w_pt: float
+    box_h_pt: float
+
+
+class LayoutNodeReport(BaseModel):
+    """Resolved geometry and derivation for one node."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    kind: str
+    bounds_pt: tuple[float, float, float, float]
+    bounds_px: tuple[float, float, float, float]
+    paint_bounds_pt: tuple[float, float, float, float]
+    rotate_deg: float = 0.0
+    overflow: OverflowReport | None = None
+    anchors: list[AnchorDerivation] = Field(default_factory=list)
+    children: list[LayoutNodeReport] = Field(default_factory=list)
+
+
+class SiblingOverlap(BaseModel):
+    """Two sibling nodes whose resolved bounds intersect."""
+
+    model_config = ConfigDict(frozen=True)
+
+    a: str
+    b: str
+    rect_pt: tuple[float, float, float, float]
+
+
+class LayoutReport(BaseModel):
+    """The result of ``arcavex layout inspect`` (versioned JSON)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    format: str | None = None
+    locale: str | None = None
+    canvas_pt: tuple[float, float] = (0.0, 0.0)
+    canvas_px: tuple[int, int] = (0, 0)
+    dpi: int = 0
+    root: LayoutNodeReport | None = None
+    overlaps: list[SiblingOverlap] = Field(default_factory=list)
+    covered_fraction: float = 0.0
+    inferred: dict[str, str] = Field(default_factory=dict)
+    warnings: list[Diagnostic] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 class AuthoringProtocol(Protocol):
     """Template authoring operations injected by bootstrap (scaffold/inspect/split)."""
 
@@ -441,6 +513,32 @@ class Facade:
                 inferred=dict(inferred_base),
             )
 
+    def render_plan(
+        self,
+        template: Path,
+        data: Path | None = None,
+        format_name: str | None = None,
+        output: Path | None = None,
+    ) -> dict[str, str]:
+        """Resolve the render-affecting inferences (output name, sole format) up front (RR1-3).
+
+        These are cheap to compute without compiling, so a client can announce them before a
+        long render begins rather than only after it finishes. Never raises.
+        """
+        inferred: dict[str, str] = {}
+        try:
+            if output is None:
+                default = self._default_output_path(template, format_name)
+                if default is not None:
+                    inferred["output"] = str(default)
+            if format_name is None:
+                formats = self._compiler.list_formats(template)
+                if len(formats) == 1:
+                    inferred["format"] = formats[0]
+        except Exception:  # noqa: BLE001 - a best-effort plan must never fail the render
+            return inferred
+        return inferred
+
     # ------------------------------------------------------------------ internals
     def _default_stem(self, template: Path) -> str:
         """Return the default output stem for a template path (directory name or file stem).
@@ -516,6 +614,7 @@ class Facade:
 
         solver = self._registries.layouts.get(self._default_layout)
         layout = solver.solve(compiled.document, self._measure)
+        diagnostics.extend(layout.warnings)
 
         backend = self._registries.backends.get(self._default_backend)
         surface = backend.render(layout, RenderOptions(dpi=dpi, debug=debug))
@@ -535,10 +634,75 @@ class Facade:
     def _try_layout(self, document: CompiledDocument) -> list[Diagnostic]:
         try:
             solver = self._registries.layouts.get(self._default_layout)
-            solver.solve(document, self._measure)
-            return []
+            layout = solver.solve(document, self._measure)
+            # Layout raises warnings (missing glyphs, fit non-convergence) that validate
+            # should surface alongside compile diagnostics.
+            return list(layout.warnings)
         except DiagnosticError as exc:
             return list(exc.diagnostics)
+
+    # ------------------------------------------------------------------ layout inspect
+    def inspect_layout(
+        self,
+        template: Path,
+        data: Path | None = None,
+        format_name: str | None = None,
+        locale: str | None = None,
+        style: str | None = None,
+    ) -> LayoutReport:
+        """Compile and lay out a template and report resolved geometry. Never raises.
+
+        Reports per-node resolved bounds (points and device pixels), paint bounds, rotation,
+        text-overflow state, the anchor derivation for each axis, sibling overlaps, and a
+        coverage summary (spec §6.1.1).
+        """
+        try:
+            return self._inspect_layout_inner(template, data, format_name, locale, style)
+        except DiagnosticError as exc:
+            return LayoutReport(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return LayoutReport(
+                ok=False, diagnostics=[internal_error("Layout inspect failed", detail=repr(exc))]
+            )
+
+    def _inspect_layout_inner(
+        self,
+        template: Path,
+        data: Path | None,
+        format_name: str | None,
+        locale: str | None,
+        style: str | None,
+    ) -> LayoutReport:
+        compiled = self._compiler.compile(template, data, format_name, locale, style)
+        diagnostics = list(compiled.diagnostics)
+        inferred = dict(compiled.inferred)
+        if compiled.document is None or has_errors(diagnostics):
+            return LayoutReport(
+                ok=False, format=format_name, locale=locale, inferred=inferred,
+                diagnostics=diagnostics,
+            )
+        solver = self._registries.layouts.get(self._default_layout)
+        layout = solver.solve(compiled.document, self._measure)
+        dpi = compiled.document.canvas.dpi
+        overlaps: list[SiblingOverlap] = []
+        root = _build_node_report(
+            compiled.document.root, layout.root, compiled.document.root.direction, dpi, overlaps
+        )
+        covered = _covered_fraction(layout)
+        return LayoutReport(
+            ok=True,
+            format=compiled.format_name or format_name,
+            locale=locale,
+            canvas_pt=(compiled.document.canvas.width_pt, compiled.document.canvas.height_pt),
+            canvas_px=(compiled.document.canvas.width_px, compiled.document.canvas.height_px),
+            dpi=dpi,
+            root=root,
+            overlaps=overlaps,
+            covered_fraction=covered,
+            inferred=inferred,
+            warnings=list(layout.warnings),
+            diagnostics=diagnostics,
+        )
 
     # ------------------------------------------------------------------ authoring
     def doctor(self) -> DoctorReport:
@@ -661,16 +825,17 @@ class Facade:
         style: str | None = None,
         dpi: int | None = None,
         changed_file: str | None = None,
+        debug: bool = False,
     ) -> PreviewResult:
         """Render to the stable preview path atomically, with compile/render timings.
 
         Never raises and never creates a recorded run. On failure the previous preview file is
         left untouched (the atomic temp+replace only runs on success), so a viewer keeps the
-        last good image (spec §6.3).
+        last good image (spec §6.3). With ``debug`` the preview carries the layout overlay.
         """
         try:
             return self._render_preview_inner(
-                template, data, format_name, locale, style, dpi, changed_file
+                template, data, format_name, locale, style, dpi, changed_file, debug
             )
         except DiagnosticError as exc:
             return PreviewResult(
@@ -693,6 +858,7 @@ class Facade:
         style: str | None,
         dpi: int | None,
         changed_file: str | None,
+        debug: bool = False,
     ) -> PreviewResult:
         compile_start = time.perf_counter()
         compiled = self._compiler.compile(template, data, format_name, locale, style)
@@ -714,8 +880,9 @@ class Facade:
         render_start = time.perf_counter()
         solver = self._registries.layouts.get(self._default_layout)
         layout = solver.solve(compiled.document, self._measure)
+        diagnostics.extend(layout.warnings)
         backend = self._registries.backends.get(self._default_backend)
-        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=False))
+        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=debug))
         exporter = self._registries.exporters.get("png")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic write: export to a unique temp file in the same directory, then os.replace so
@@ -786,3 +953,154 @@ class Facade:
 
 def _unwired(what: str) -> Diagnostic:
     return internal_error(f"{what} service is not wired")
+
+
+# --------------------------------------------------------------- layout report builders
+def _logical_edge(edge: str, direction: str) -> str:
+    if edge == "start":
+        return "left" if direction == "ltr" else "right"
+    if edge == "end":
+        return "right" if direction == "ltr" else "left"
+    return edge
+
+
+def _edge_value(edge: str, node: LayoutNode) -> float:
+    b = node.bounds
+    return {
+        "top": b.y, "bottom": b.bottom, "center_y": b.center_y,
+        "left": b.x, "right": b.right, "center_x": b.center_x,
+    }[edge]
+
+
+def _build_node_report(
+    compiled: CompiledNode,
+    layout: LayoutNode,
+    group_dir: str,
+    dpi: int,
+    overlaps: list[SiblingOverlap],
+    parent_stack: str | None = None,
+) -> LayoutNodeReport:
+    b = layout.bounds
+    pb = layout.paint_bounds
+    scale = dpi / 72.0
+    overflow = None
+    if layout.overflow.kind != "none" or layout.overflow.measured_h_pt > 0.0:
+        overflow = OverflowReport(
+            kind=layout.overflow.kind,
+            measured_w_pt=layout.overflow.measured_w_pt,
+            measured_h_pt=layout.overflow.measured_h_pt,
+            box_w_pt=layout.overflow.box_w_pt,
+            box_h_pt=layout.overflow.box_h_pt,
+        )
+    anchors = _derive_anchors(compiled, layout, group_dir, parent_stack)
+
+    children_reports: list[LayoutNodeReport] = []
+    if isinstance(compiled, CompiledGroup):
+        by_id = {c.source_node_id: c for c in layout.children}
+        stack_kind = compiled.stack.kind if compiled.stack.kind != "absolute" else None
+        for child in compiled.children:
+            lchild = by_id.get(child.id)
+            if lchild is None:
+                continue
+            children_reports.append(
+                _build_node_report(child, lchild, compiled.direction, dpi, overlaps, stack_kind)
+            )
+        _collect_overlaps(layout.children, overlaps)
+
+    return LayoutNodeReport(
+        id=layout.source_node_id,
+        kind=layout.kind,
+        bounds_pt=(b.x, b.y, b.w, b.h),
+        bounds_px=(b.x * scale, b.y * scale, b.w * scale, b.h * scale),
+        paint_bounds_pt=(pb.x, pb.y, pb.w, pb.h),
+        rotate_deg=layout.rotate_deg,
+        overflow=overflow,
+        anchors=anchors,
+        children=children_reports,
+    )
+
+
+def _derive_anchors(
+    compiled: CompiledNode, layout: LayoutNode, group_dir: str, parent_stack: str | None
+) -> list[AnchorDerivation]:
+    if parent_stack is not None and not compiled.constraints.anchors:
+        return [
+            AnchorDerivation(
+                axis="horizontal", edge="—",
+                expression=f"positioned by {parent_stack}", resolved_pt=layout.bounds.x,
+            ),
+            AnchorDerivation(
+                axis="vertical", edge="—",
+                expression=f"positioned by {parent_stack}", resolved_pt=layout.bounds.y,
+            ),
+        ]
+    out: list[AnchorDerivation] = []
+    horizontal = {"left", "right", "center_x"}
+    for key, anchor in compiled.constraints.anchors.items():
+        phys_key = _logical_edge(key, group_dir)
+        axis = "horizontal" if phys_key in horizontal else "vertical"
+        ref_edge = _logical_edge(anchor.edge, group_dir)
+        sign = "+" if anchor.offset_pt >= 0 else "-"
+        offset = f" {sign} {abs(anchor.offset_pt):g}pt" if anchor.offset_pt else ""
+        expression = f"{anchor.ref}.{ref_edge}{offset}"
+        out.append(
+            AnchorDerivation(
+                axis=axis, edge=phys_key, expression=expression,
+                resolved_pt=_edge_value(phys_key, layout),
+            )
+        )
+    return out
+
+
+def _collect_overlaps(children: tuple[LayoutNode, ...], overlaps: list[SiblingOverlap]) -> None:
+    visible = [c for c in children if c.visible]
+    for i in range(len(visible)):
+        for j in range(i + 1, len(visible)):
+            rect = _intersection(visible[i].bounds, visible[j].bounds)
+            if rect is not None:
+                overlaps.append(
+                    SiblingOverlap(
+                        a=visible[i].source_node_id, b=visible[j].source_node_id, rect_pt=rect
+                    )
+                )
+
+
+def _intersection(a: object, b: object) -> tuple[float, float, float, float] | None:
+    ax, ay, aw, ah = a.x, a.y, a.w, a.h  # type: ignore[attr-defined]
+    bx, by, bw, bh = b.x, b.y, b.w, b.h  # type: ignore[attr-defined]
+    x0, y0 = max(ax, bx), max(ay, by)
+    x1, y1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    if x1 - x0 > 0.01 and y1 - y0 > 0.01:
+        return (x0, y0, x1 - x0, y1 - y0)
+    return None
+
+
+def _covered_fraction(layout: LayoutDocument, cells: int = 64) -> float:
+    """Approximate the fraction of the canvas covered by any leaf node (coarse grid)."""
+    w, h = layout.canvas.width_pt, layout.canvas.height_pt
+    if w <= 0 or h <= 0:
+        return 0.0
+    grid = [[False] * cells for _ in range(cells)]
+
+    def mark(node: LayoutNode) -> None:
+        if node.children:
+            for child in node.children:
+                mark(child)
+            return
+        if not node.visible:
+            return
+        b = node.bounds
+        cx0 = max(0, int(b.x / w * cells))
+        cx1 = min(cells, int((b.x + b.w) / w * cells) + 1)
+        cy0 = max(0, int(b.y / h * cells))
+        cy1 = min(cells, int((b.y + b.h) / h * cells) + 1)
+        for cy in range(cy0, cy1):
+            for cx in range(cx0, cx1):
+                grid[cy][cx] = True
+
+    mark(layout.root)
+    covered = sum(row.count(True) for row in grid)
+    return round(covered / (cells * cells), 4)
+
+
+LayoutNodeReport.model_rebuild()

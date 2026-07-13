@@ -13,6 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from arcavex.kernel.diagnostics import Diagnostic
 from arcavex.kernel.ir.units import Matrix3, Rect
 
 RGBA = tuple[float, float, float, float]
@@ -54,41 +55,82 @@ class Transform(BaseModel):
         )
 
 
+EdgeName = Literal[
+    "top", "bottom", "left", "right", "start", "end", "center_x", "center_y"
+]
+
+
 class AnchorEdge(BaseModel):
     """A resolved anchor: one edge of this node pinned to a reference edge.
 
-    In Phase 0 the only reference is ``parent``. ``offset_pt`` is added after resolving the
-    reference edge position.
+    ``ref`` is ``"parent"`` or the resolved id of a sibling node. ``edge`` may be a physical
+    edge or a logical ``start``/``end`` that the solver resolves through the enclosing group's
+    direction. ``offset_pt`` is added after resolving the reference edge position.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    ref: Literal["parent"] = "parent"
-    edge: Literal[
-        "top", "bottom", "left", "right", "start", "end", "center_x", "center_y"
-    ]
+    ref: str = "parent"
+    edge: EdgeName
     offset_pt: float = 0.0
 
 
-SizeMode = Literal["fixed", "percent", "fill", "fit_content"]
+SizeMode = Literal["fixed", "percent", "fill", "fit_content", "aspect"]
 
 
 class SizeSpec(BaseModel):
-    """A resolved size along one axis."""
+    """A resolved size along one axis.
+
+    ``min_pt``/``max_pt`` clamp the resolved value on any mode. ``aspect`` derives this axis
+    from the other axis using ``aspect_w``/``aspect_h`` (this-axis : other-axis ratio).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     mode: SizeMode
     value_pt: float | None = None  # for ``fixed``
     percent: float | None = None  # for ``percent`` (0..100)
+    aspect_w: float | None = None  # for ``aspect``: numerator (this axis)
+    aspect_h: float | None = None  # for ``aspect``: denominator (other axis)
+    min_pt: float | None = None
+    max_pt: float | None = None
+
+
+StackLayout = Literal["absolute", "hstack", "vstack"]
+MainAlign = Literal["start", "center", "end", "space_between"]
+CrossAlign = Literal["start", "center", "end", "stretch"]
+
+
+class StackSpec(BaseModel):
+    """A group's stack layout: main-axis flow, gaps, padding, and alignment.
+
+    ``kind == "absolute"`` means children position themselves with anchors (the Phase 0
+    behavior). ``hstack``/``vstack`` flow children along the main axis with ``gap_pt`` between
+    them, ``padding`` inside the group, ``main_align`` distributing free main-axis space, and
+    ``cross_align`` placing/stretching each child on the cross axis.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: StackLayout = "absolute"
+    gap_pt: float = 0.0
+    pad_top_pt: float = 0.0
+    pad_right_pt: float = 0.0
+    pad_bottom_pt: float = 0.0
+    pad_left_pt: float = 0.0
+    main_align: MainAlign = "start"
+    cross_align: CrossAlign = "start"
+    wrap: bool = False
 
 
 class Constraints(BaseModel):
     """Positioning and sizing constraints for a node.
 
-    ``anchors`` is keyed by the edge of *this* node being pinned (``top``, ``left``,
-    ``right``, ``bottom``, ``center_x``, ``center_y``). Each node must resolve exactly one
-    horizontal position, one vertical position, a width, and a height.
+    ``anchors`` is keyed by the edge of *this* node being pinned (physical ``top``/``left``/…
+    or logical ``start``/``end``). Outside a stack, each node must resolve exactly one
+    horizontal position, one vertical position, a width, and a height. Inside a stack the main
+    axis and cross-axis position come from the stack, so anchors are forbidden (a located
+    error).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -122,6 +164,7 @@ class Style(BaseModel):
     direction: Literal["ltr", "rtl"] = "ltr"
     line_height: float | None = None
     letter_spacing_pt: float = 0.0
+    language: str | None = None
 
 
 class EffectSpec(BaseModel):
@@ -135,12 +178,82 @@ class EffectSpec(BaseModel):
 
 
 class MaskSpec(BaseModel):
-    """A declared mask (contract-only in Phase 0; not executed)."""
+    """A declared mask resolved through the mask-generator registry at render time."""
 
     model_config = ConfigDict(frozen=True)
 
     component: str
     params: dict[str, object] = Field(default_factory=dict)
+
+
+# --------------------------------------------------------------------------- text models
+FitPolicy = Literal["wrap", "shrink_to_fit", "truncate"]
+OverflowPolicy = Literal["clip", "allow", "error"]
+
+
+class TextRun(BaseModel):
+    """One run of text within a paragraph, with optional per-run typography overrides.
+
+    A run inherits the node's :class:`Style` for any field left ``None``; per-run font
+    families let a Latin span inside a Farsi paragraph shape with its own family while staying
+    in one paragraph (SkParagraph fallback, spec §4.3).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    text: str
+    font_families: tuple[str, ...] = ()
+    font_size_pt: float | None = None
+    font_weight: int | None = None
+    italic: bool | None = None
+    color: RGBA | None = None
+    letter_spacing_pt: float | None = None
+
+
+class ParagraphSpec(BaseModel):
+    """Paragraph-level text layout: alignment and base direction."""
+
+    model_config = ConfigDict(frozen=True)
+
+    align: Literal["left", "right", "center", "start", "end"] = "start"
+    direction: Literal["ltr", "rtl", "auto"] = "auto"
+
+
+class FitSpec(BaseModel):
+    """A text fit policy controlling how text is fitted into its resolved box.
+
+    ``policy`` is ``wrap`` (default), ``shrink_to_fit`` (reduce size to ``min_size_pt``), or
+    ``truncate`` (clip to an ellipsis). ``overflow`` decides what happens when text still does
+    not fit: ``clip`` (hard clip), ``allow`` (paint beyond bounds), or ``error`` (fail).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    policy: FitPolicy = "wrap"
+    min_size_pt: float | None = None
+    overflow: OverflowPolicy = "clip"
+    max_lines: int | None = None
+
+
+OverflowKind = Literal["none", "clipped", "truncated", "shrunk", "overflowing"]
+
+
+class OverflowState(BaseModel):
+    """The recorded outcome of fitting text into a box (spec §4.2/§4.3).
+
+    ``kind`` is the observed result; ``measured_w_pt``/``measured_h_pt`` are the shaped
+    extents, and ``box_w_pt``/``box_h_pt`` are the target extents, so inspection can report by
+    how much text over/underran.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: OverflowKind = "none"
+    measured_w_pt: float = 0.0
+    measured_h_pt: float = 0.0
+    box_w_pt: float = 0.0
+    box_h_pt: float = 0.0
+    resolved_size_pt: float | None = None  # the font size actually used after shrink_to_fit
 
 
 # ------------------------------------------------------------------------- compiled nodes
@@ -160,19 +273,27 @@ class _CompiledNodeBase(BaseModel):
 
 
 class CompiledGroup(_CompiledNodeBase):
-    """A container node establishing a direction and optional clip."""
+    """A container node establishing a direction, optional stack layout, and optional clip."""
 
     type: Literal["group"] = "group"
     direction: Literal["ltr", "rtl"] = "ltr"
     clip: bool = False
+    stack: StackSpec = StackSpec()
     children: tuple[CompiledNode, ...] = ()
 
 
 class CompiledText(_CompiledNodeBase):
-    """A text node holding a single resolved string."""
+    """A text node holding one or more runs plus paragraph and fit policy.
+
+    ``runs`` is always populated (a plain ``text:`` compiles to a single run); ``text`` keeps
+    the concatenated plain string for measurement fallbacks and inspection.
+    """
 
     type: Literal["text"] = "text"
     text: str
+    runs: tuple[TextRun, ...] = ()
+    paragraph: ParagraphSpec = ParagraphSpec()
+    fit: FitSpec = FitSpec()
 
 
 class CompiledImage(_CompiledNodeBase):
@@ -261,8 +382,8 @@ class CompiledDocument(BaseModel):
 
 
 # -------------------------------------------------------------------------- layout results
-class ResolvedText(BaseModel):
-    """Resolved text content ready to shape and paint."""
+class ResolvedRun(BaseModel):
+    """One fully resolved text run ready to shape (every field concrete)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -272,10 +393,32 @@ class ResolvedText(BaseModel):
     font_weight: int
     italic: bool
     color: RGBA
+    letter_spacing_pt: float
+
+
+class ResolvedText(BaseModel):
+    """Resolved text content ready to shape and paint.
+
+    ``font_size_pt`` is the *resolved* size after any ``shrink_to_fit`` pass; the runs carry
+    the same size unless a run overrode it. ``clip`` tells the renderer to clip painting to the
+    node bounds (``overflow: clip`` or ``truncate``).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    text: str
+    runs: tuple[ResolvedRun, ...]
+    font_families: tuple[str, ...]
+    font_size_pt: float
+    font_weight: int
+    italic: bool
+    color: RGBA
     align: Literal["left", "right", "center", "start", "end"]
     direction: Literal["ltr", "rtl"]
     line_height: float | None
     letter_spacing_pt: float
+    language: str | None = None
+    clip: bool = False
 
 
 class ResolvedImage(BaseModel):
@@ -312,10 +455,13 @@ class LayoutNode(BaseModel):
     bounds: Rect
     absolute_transform: Matrix3
     paint_bounds: Rect
-    overflow: Literal["none", "clip", "allow", "error"] = "none"
+    overflow: OverflowState = OverflowState()
+    rotate_deg: float = 0.0
+    rotate_origin: tuple[float, float] | None = None  # absolute pt centre of rotation
     opacity: float = 1.0
     visible: bool = True
     clip: bool = False
+    mask: MaskSpec | None = None
     resolved_content: ResolvedContent = None
     children: tuple[LayoutNode, ...] = ()
     # Authoring location propagated from the compiled node for located diagnostics (RR-3).
@@ -340,6 +486,9 @@ class LayoutDocument(BaseModel):
     canvas: ResolvedCanvas
     seed: int
     root: LayoutNode
+    # Non-fatal diagnostics raised during layout (missing glyphs, fit non-convergence),
+    # surfaced by the facade alongside compile diagnostics. Excluded from any hashing.
+    warnings: tuple[Diagnostic, ...] = ()
 
 
 CompiledGroup.model_rebuild()
