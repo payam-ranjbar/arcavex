@@ -223,8 +223,12 @@ class Compiler:
             self._apply_format_patch(source, resolved_format, root_raw)
             self._apply_locale_patch(source, locale, loc_settings, root_raw)
 
-            overlays = self._locale_data_overlays(source, data, locale, loc_settings, inferred)
-            context = self._build_context(source, data, diags, inferred, overlays)
+            pre_overlays, post_overlays = self._locale_data_overlays(
+                source, data, locale, loc_settings, inferred
+            )
+            context = self._build_context(
+                source, data, diags, inferred, pre_overlays, post_overlays
+            )
             if has_errors(diags):
                 return CompileResult(None, diags, inferred)
 
@@ -343,7 +347,8 @@ class Compiler:
         data: Path | None,
         diags: list[Diagnostic],
         inferred: dict[str, str],
-        overlays: list[dict[str, Any]] | None = None,
+        pre_overlays: list[dict[str, Any]] | None = None,
+        post_overlays: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         raw = source.raw
         var_file = source.file_for("variables")
@@ -365,7 +370,18 @@ class Compiler:
         # preview_data is a *fallback used only when no --data file is supplied* (§4.1.2 /
         # §6.3). When a data file is given, required/default resolution runs against that
         # data alone; preview values must never backfill a missing supplied variable.
+        # ADR-0002 Decision 3 layering (lowest precedence first): preview_data (only when no
+        # --data file is supplied) -> template-shipped locales.<L>.data -> user base --data
+        # file -> user sidecar data.<L>.yaml overlay. User data always outranks template
+        # data; every layer merges over the previous one with the §4.1.4 overlay semantics.
         context: dict[str, Any] = {}
+        if data is None:
+            preview = _to_plain(raw.get("preview_data") or {})
+            if isinstance(preview, dict) and preview:
+                context = merge_overlay(context, preview)
+                inferred["data"] = "preview_data"
+        for overlay in pre_overlays or []:
+            context = merge_overlay(context, overlay)
         # CR-8: per-variable line numbers in the data file, captured from the ruamel map
         # before flattening so a value diagnostic can cite '<data.yaml>:<line>'.
         data_lines: dict[str, int | None] = {}
@@ -385,16 +401,10 @@ class Compiler:
                 )
             for key in loaded:
                 data_lines[str(key)] = line_of(raw_data, str(key))
-            context.update(loaded)
-        else:
-            preview = _to_plain(raw.get("preview_data") or {})
-            if isinstance(preview, dict) and preview:
-                context.update(preview)
-                inferred["data"] = "preview_data"
+            context = merge_overlay(context, loaded)
 
-        # Locale data overlays (inline locale 'data:' then a sibling data-file variant) merge
-        # over the base data under the §4.1.4 semantics before variable resolution.
-        for overlay in overlays or []:
+        # User sidecar overlay (data.<locale>.yaml) merges over the base data (§4.1.4).
+        for overlay in post_overlays or []:
             context = merge_overlay(context, overlay)
             for key in overlay:
                 data_lines.setdefault(str(key), None)
@@ -759,12 +769,21 @@ class Compiler:
         locale: str | None,
         loc_settings: dict[str, Any],
         inferred: dict[str, str],
-    ) -> list[dict[str, Any]]:
-        """Collect data overlays for the locale: inline ``data:`` then a sibling data file."""
-        overlays: list[dict[str, Any]] = []
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Collect ``(pre, post)`` data overlays for the locale.
+
+        ADR-0002 Decision 3: template-shipped ``locales.<L>.data`` is a *pre* overlay that
+        user data merges over (user data always outranks template data); the user's sibling
+        ``base.<locale>.yaml`` is a *post* overlay applied over the base data. Both
+        applications are reported as inferences.
+        """
+        pre: list[dict[str, Any]] = []
+        post: list[dict[str, Any]] = []
         inline = loc_settings.get("data")
         if isinstance(inline, dict) and inline:
-            overlays.append(_to_plain(inline))
+            pre.append(_to_plain(inline))
+            if locale is not None:
+                inferred["locale_data"] = f"locales.{locale}.data"
         # A sibling data-file variant (base.<locale>.yaml) is applied when it exists, and the
         # inference is reported (§4.1.4 / §6.3).
         if data is not None and locale is not None:
@@ -773,9 +792,9 @@ class Compiler:
             if candidate.is_file():
                 loaded = _to_plain(load_yaml(candidate))
                 if isinstance(loaded, dict):
-                    overlays.append(loaded)
+                    post.append(loaded)
                     inferred["data_overlay"] = candidate.name
-        return overlays
+        return pre, post
 
     # ---------------------------------------------------------------------- formats
     def _resolve_format(

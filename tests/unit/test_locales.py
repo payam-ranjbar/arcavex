@@ -125,3 +125,31 @@ def test_sibling_data_file_overlay(tmp_path: Path) -> None:
     label = result.document.root.children[0]
     assert "۲۱" in label.text  # sibling overlay hour=21, fa digits
     assert result.inferred.get("data_overlay") == "d.fa.yaml"
+
+
+def test_four_layer_data_precedence(tmp_path: Path) -> None:
+    """RR2-1 / ADR-0002 D3: preview < locales.<L>.data < user base --data < user sidecar.
+
+    User data always outranks template data; the sidecar outranks the base file. Each
+    variable below is set at a different highest layer so the winner proves the order.
+    """
+    template = tmp_path / "t.yaml"
+    template.write_text(_TPL, encoding="utf-8")
+    # hour set at every layer; base wins over inline locale data, sidecar wins over base.
+    (tmp_path / "d.yaml").write_text("hour: 8\n", encoding="utf-8")
+    result = Compiler().compile(template, tmp_path / "d.yaml", "square", "fa", None)
+    assert result.document is not None, result.diagnostics
+    label = result.document.root.children[0]
+    # No sidecar: user base (8) must beat inline locale data (19).
+    assert "۸" in label.text and "۱۹" not in label.text
+    # Inline overlay application is reported as an inference (RR2-3).
+    assert result.inferred.get("locale_data") == "locales.fa.data"
+    # With a sidecar, it outranks the base file.
+    (tmp_path / "d.fa.yaml").write_text("hour: 21\n", encoding="utf-8")
+    result2 = Compiler().compile(template, tmp_path / "d.yaml", "square", "fa", None)
+    assert result2.document is not None, result2.diagnostics
+    assert "۲۱" in result2.document.root.children[0].text
+    # Without user data at all, inline locale data (19) beats preview_data (17).
+    result3 = Compiler().compile(template, None, "square", "fa", None)
+    assert result3.document is not None, result3.diagnostics
+    assert "۱۹" in result3.document.root.children[0].text

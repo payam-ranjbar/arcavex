@@ -72,6 +72,10 @@ formats:
         value: 92%
       - set: nodes.venue.style.font_size
         value: 22pt
+      # The A4 column is narrow relative to 27pt type: the English subtitle needs a third
+      # line here (RR2-2); the sheet has the vertical room for it.
+      - set: nodes.subtitle.fit.max_lines
+        value: 3
 
 locales:
   en:
