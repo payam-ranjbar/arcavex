@@ -17,7 +17,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,6 +49,10 @@ _EXPORTER_BY_EXT: dict[str, str] = {
 
 # Machine-readable responses carry this so consumers key on a version, not a shape.
 RESPONSE_VERSION = 1
+
+# A project/provenance result model — every one carries ``ok`` and ``diagnostics``, so the
+# facade's never-raises boundary helper is generic over the concrete report it returns.
+_ResultT = TypeVar("_ResultT", bound="BaseModel")
 
 
 def _output_name(stem: str, fmt: str, locale: str | None) -> str:
@@ -87,6 +91,16 @@ class CompileResult:
     diagnostics: list[Diagnostic] = field(default_factory=list)
     inferred: dict[str, str] = field(default_factory=dict)
     format_name: str | None = None
+    # Provenance (§5.3): the fully-resolved variable snapshot and canonical input hashes,
+    # populated on a successful compile. ``resolved_data`` is the merged variable context
+    # (defaults, overlays, and locale data applied) with derived injections like ``palette``
+    # stripped, so a rerun can reconstruct the exact document from it. The hashes are the
+    # canonical SHA-256 digests of the template source, the applied style pack, and the
+    # resolved data — the inputs a manifest records and a diff compares.
+    resolved_data: dict[str, Any] | None = None
+    template_hash: str | None = None
+    style_hash: str | None = None
+    data_hash: str | None = None
 
 
 @dataclass
@@ -124,8 +138,18 @@ class CompilerProtocol(Protocol):
         format_name: str | None,
         locale: str | None,
         style: str | None,
+        resolved_data: dict[str, Any] | None = None,
+        project_patch: list[Any] | None = None,
+        project_patch_file: Path | None = None,
     ) -> CompileResult:
-        """Compile a template + data into a :class:`CompiledDocument`."""
+        """Compile a template + data into a :class:`CompiledDocument`.
+
+        When ``resolved_data`` is given (rerun), it is the authoritative variable snapshot: the
+        data file, preview data, and locale data overlays are skipped and the snapshot is used
+        directly, while template-level structural resolution (format/locale patches, direction,
+        digits) still runs so the output is byte-identical to the original. ``project_patch`` is
+        the project override layer applied after the format/locale patches (§5.4).
+        """
         ...
 
     def inspect_resolved(
@@ -551,6 +575,280 @@ class AuthoringProtocol(Protocol):
         ...
 
 
+# ------------------------------------------------------ projects, library, provenance (§5)
+class ProjectResult(BaseModel):
+    """The result of ``arcavex project new`` — the scaffolded project's shape."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    path: str | None = None
+    name: str | None = None
+    template: str | None = None
+    style: str | None = None
+    formats: list[str] = Field(default_factory=list)
+    locales: list[str] = Field(default_factory=list)
+    status: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ProjectStatusReport(BaseModel):
+    """The result of ``arcavex status`` — the resolved project and its recorded-run count."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    name: str | None = None
+    template: str | None = None
+    style: str | None = None
+    status: str | None = None
+    formats: list[str] = Field(default_factory=list)
+    locales: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    data: str | None = None
+    root: str | None = None
+    runs: int = 0
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class RunReport(BaseModel):
+    """The result of a recorded render (project or ``--record``): the run dir and its outputs."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    run_id: str | None = None
+    run_dir: str | None = None
+    outputs: list[str] = Field(default_factory=list)
+    inferred: dict[str, str] = Field(default_factory=dict)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class RunInfo(BaseModel):
+    """One run's summary row for ``arcavex list-runs``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str
+    created: str
+    kind: str
+    project: str | None = None
+    engine_version: str = ""
+    platform: str = ""
+    outputs: list[str] = Field(default_factory=list)
+
+
+class RunListReport(BaseModel):
+    """The result of ``arcavex list-runs``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    runs: list[RunInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class RerunReport(BaseModel):
+    """The result of ``arcavex rerun``: a new run plus whether it reproduced the original bytes."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    source_run: str | None = None
+    run_id: str | None = None
+    run_dir: str | None = None
+    reproduced: bool = False
+    engine_match: bool = True
+    platform_match: bool = True
+    mismatches: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class OutputDiff(BaseModel):
+    """The per-output comparison between two runs: presence, byte-identity, and DSSIM."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    in_a: bool
+    in_b: bool
+    identical: bool = False
+    dssim: float | None = None
+
+
+class MetadataDiff(BaseModel):
+    """One differing provenance field between two runs (template, data, engine, …)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    field: str
+    a: str | None
+    b: str | None
+
+
+class DiffReport(BaseModel):
+    """The result of ``arcavex diff`` (spec §5.3): per-output pixels plus metadata changes."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    run_a: str | None = None
+    run_b: str | None = None
+    outputs: list[OutputDiff] = Field(default_factory=list)
+    metadata: list[MetadataDiff] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class BatchEntry(BaseModel):
+    """One project's outcome within a batch render."""
+
+    model_config = ConfigDict(frozen=True)
+
+    project: str
+    ok: bool
+    run_id: str | None = None
+    run_dir: str | None = None
+    outputs: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class BatchReport(BaseModel):
+    """The result of ``arcavex batch``: one entry per project, rendered in parallel jobs."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    jobs: int = 1
+    entries: list[BatchEntry] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class PublishReport(BaseModel):
+    """The result of ``arcavex template publish``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    name: str | None = None
+    version: str | None = None
+    path: str | None = None
+    default: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class DetachReport(BaseModel):
+    """The result of ``arcavex template detach`` (copies a library template into a project)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    template: str | None = None
+    path: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class UpgradeOutputDiff(BaseModel):
+    """One output's perceptual difference between the current pin and the upgrade target."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    dssim: float | None = None
+
+
+class UpgradeReport(BaseModel):
+    """The result of ``arcavex project upgrade``: a preview; updates the pin only when applied."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    from_version: str | None = None
+    to_version: str | None = None
+    stale_paths: list[str] = Field(default_factory=list)
+    outputs: list[UpgradeOutputDiff] = Field(default_factory=list)
+    applied: bool = False
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class OrchestratorProtocol(Protocol):
+    """Project/library/provenance operations injected by bootstrap (spec §5).
+
+    The concrete implementation lives in the service layer and drives the pipeline through an
+    injected renderer, so the kernel facade delegates without importing services or built-ins.
+    Every method returns a versioned kernel result model and does not raise across the boundary.
+    """
+
+    def create_project(
+        self,
+        target: Path,
+        name: str,
+        template_ref: str,
+        style: str | None,
+        formats: list[str] | None,
+        locales: list[str] | None,
+    ) -> ProjectResult: ...
+
+    def project_status(self, start: Path | None, project: Path | None) -> ProjectStatusReport: ...
+
+    def clone_project(
+        self, start: Path | None, project: Path | None, target: Path, name: str
+    ) -> ProjectResult: ...
+
+    def set_project_status(
+        self, start: Path | None, project: Path | None, status: str
+    ) -> ProjectStatusReport: ...
+
+    def render_project(
+        self,
+        start: Path | None,
+        project: Path | None,
+        formats: list[str] | None,
+        locales: list[str] | None,
+        dpi: int | None,
+    ) -> RunReport: ...
+
+    def record_render(
+        self,
+        template: Path,
+        data: Path | None,
+        format_name: str | None,
+        locale: str | None,
+        style: str | None,
+        dpi: int | None,
+        outputs_root: Path | None,
+    ) -> RunReport: ...
+
+    def list_runs(self, start: Path | None, project: Path | None) -> RunListReport: ...
+
+    def rerun(self, run_dir: Path) -> RerunReport: ...
+
+    def diff(self, run_a: Path, run_b: Path) -> DiffReport: ...
+
+    def batch_render(
+        self, globs: list[str], jobs: int, dpi: int | None
+    ) -> BatchReport: ...
+
+    def upgrade_project(
+        self, start: Path | None, project: Path | None, to_version: str, apply: bool
+    ) -> UpgradeReport: ...
+
+    def publish_template(
+        self, template: Path, name: str, version: str, set_default: bool
+    ) -> PublishReport: ...
+
+    def detach_template(self, start: Path | None, project: Path | None) -> DetachReport: ...
+
+
 class Facade:
     """Orchestrates the pipeline using injected, kernel-external dependencies."""
 
@@ -567,6 +865,7 @@ class Facade:
         authoring: AuthoringProtocol | None = None,
         preview_root: Path | None = None,
         style_provider: StyleProviderProtocol | None = None,
+        orchestrator: OrchestratorProtocol | None = None,
     ) -> None:
         """Wire the facade.
 
@@ -591,6 +890,7 @@ class Facade:
         self._authoring = authoring
         self._preview_root = preview_root
         self._style_provider = style_provider
+        self._orchestrator = orchestrator
 
     def validate_template(
         self,
@@ -1212,6 +1512,145 @@ class Facade:
 
         visit(compiled.document.root)
         return out
+
+    # ---------------------------------------------------------- projects & provenance (§5)
+    def create_project(
+        self,
+        target: Path,
+        name: str,
+        template_ref: str,
+        style: str | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+    ) -> ProjectResult:
+        """Scaffold a project pinning ``template_ref``. Never raises."""
+        return self._guard_project(
+            lambda o: o.create_project(Path(target), name, template_ref, style, formats, locales),
+            ProjectResult,
+        )
+
+    def project_status(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProjectStatusReport:
+        """Resolve and report the active project (cwd walk or ``--project``). Never raises."""
+        return self._guard_project(
+            lambda o: o.project_status(start, project), ProjectStatusReport
+        )
+
+    def clone_project(
+        self,
+        target: Path,
+        name: str,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProjectResult:
+        """Clone the active project into ``target`` under ``name``. Never raises."""
+        return self._guard_project(
+            lambda o: o.clone_project(start, project, Path(target), name), ProjectResult
+        )
+
+    def set_project_status(
+        self, status: str, start: Path | None = None, project: Path | None = None
+    ) -> ProjectStatusReport:
+        """Set the active project's status. Never raises."""
+        return self._guard_project(
+            lambda o: o.set_project_status(start, project, status), ProjectStatusReport
+        )
+
+    def render_project(
+        self,
+        start: Path | None = None,
+        project: Path | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+        dpi: int | None = None,
+    ) -> RunReport:
+        """Render the active project's formats × locales into a recorded run. Never raises."""
+        return self._guard_project(
+            lambda o: o.render_project(start, project, formats, locales, dpi), RunReport
+        )
+
+    def record_render(
+        self,
+        template: Path,
+        data: Path | None = None,
+        format_name: str | None = None,
+        locale: str | None = None,
+        style: str | None = None,
+        dpi: int | None = None,
+        outputs_root: Path | None = None,
+    ) -> RunReport:
+        """Direct render with a recorded run manifest (``render --record``). Never raises."""
+        return self._guard_project(
+            lambda o: o.record_render(
+                Path(template), data, format_name, locale, style, dpi, outputs_root
+            ),
+            RunReport,
+        )
+
+    def list_runs(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> RunListReport:
+        """List recorded runs for the active project. Never raises."""
+        return self._guard_project(lambda o: o.list_runs(start, project), RunListReport)
+
+    def rerun(self, run_dir: Path) -> RerunReport:
+        """Reproduce a recorded run into a new run dir (byte-identical on match). Never raises."""
+        return self._guard_project(lambda o: o.rerun(Path(run_dir)), RerunReport)
+
+    def diff_runs(self, run_a: Path, run_b: Path) -> DiffReport:
+        """Diff two recorded runs (pixel/perceptual + metadata). Never raises."""
+        return self._guard_project(
+            lambda o: o.diff(Path(run_a), Path(run_b)), DiffReport
+        )
+
+    def batch_render(
+        self, globs: list[str], jobs: int = 1, dpi: int | None = None
+    ) -> BatchReport:
+        """Render every project matched by ``globs`` in parallel jobs (== serial). Never raises."""
+        return self._guard_project(lambda o: o.batch_render(globs, jobs, dpi), BatchReport)
+
+    def upgrade_project(
+        self,
+        to_version: str,
+        apply: bool = False,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> UpgradeReport:
+        """Preview a template-version upgrade; update the pin only when ``apply``. Never raises."""
+        return self._guard_project(
+            lambda o: o.upgrade_project(start, project, to_version, apply), UpgradeReport
+        )
+
+    def publish_template(
+        self, template: Path, name: str, version: str, set_default: bool = True
+    ) -> PublishReport:
+        """Publish a template directory into the library as an immutable version. Never raises."""
+        return self._guard_project(
+            lambda o: o.publish_template(Path(template), name, version, set_default),
+            PublishReport,
+        )
+
+    def detach_template(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> DetachReport:
+        """Copy the project's library template into the project (upgrades off). Never raises."""
+        return self._guard_project(lambda o: o.detach_template(start, project), DetachReport)
+
+    def _guard_project(
+        self, call: Callable[[OrchestratorProtocol], _ResultT], model: type[_ResultT]
+    ) -> _ResultT:
+        """Run an orchestrator call at the facade boundary, never leaking an exception."""
+        if self._orchestrator is None:  # pragma: no cover - always wired in production
+            return model(ok=False, diagnostics=[_unwired("projects")])
+        try:
+            return call(self._orchestrator)
+        except DiagnosticError as exc:
+            return model(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return model(
+                ok=False, diagnostics=[internal_error("Project op failed", detail=repr(exc))]
+            )
 
     def _resolve_preview_root(self) -> Path:
         if self._preview_root is not None:

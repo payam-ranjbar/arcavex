@@ -22,10 +22,15 @@ from arcavex.bootstrap import build_facade
 from arcavex.clients.watch import run_watch
 from arcavex.kernel.api import (
     RESPONSE_VERSION,
+    DiffReport,
     DoctorReport,
     Facade,
     LayoutReport,
     PreviewResult,
+    ProjectStatusReport,
+    RerunReport,
+    RunListReport,
+    RunReport,
 )
 from arcavex.kernel.diagnostics import (
     BUDGET_CODE,
@@ -50,6 +55,8 @@ style_app = typer.Typer(add_completion=False, help="Style-pack commands.")
 app.add_typer(style_app, name="style")
 effects_app = typer.Typer(add_completion=False, help="Effect catalog commands.")
 app.add_typer(effects_app, name="effects")
+project_app = typer.Typer(add_completion=False, help="Project lifecycle commands.")
+app.add_typer(project_app, name="project")
 
 
 def _engine_version() -> str:
@@ -176,7 +183,9 @@ def _print_diagnostics(console: Console, diagnostics: list[Diagnostic], quiet: b
 
 @app.command()
 def render(
-    template: Path = typer.Argument(..., help="Path to the template YAML file."),
+    template: Path | None = typer.Argument(
+        None, help="Template YAML file. Omit to render the current project (project mode)."
+    ),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
     locale: str | None = typer.Option(
@@ -193,6 +202,13 @@ def render(
         "-o",
         help="Output PNG path. Defaults to '<template-stem>.<format>.png' in the CWD.",
     ),
+    project: Path | None = typer.Option(
+        None, "--project", help="Project directory (project mode); overrides upward discovery."
+    ),
+    record: bool = typer.Option(
+        False, "--record", help="Write a recorded run manifest (direct mode); always on in "
+        "project mode."
+    ),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
     debug: bool = typer.Option(
         False, "--debug", help="Overlay node bounds, ids, baselines, and the safe-area margin."
@@ -201,11 +217,25 @@ def render(
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
 ) -> None:
-    """Render a template with data to a PNG file."""
+    """Render a template to a PNG, or (with no template) the current project's runs."""
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
+    # Project mode: no template argument means "render the discovered project" (§6.1.2).
+    if template is None:
+        report = facade.render_project(
+            project=project, formats=[format_name] if format_name else None,
+            locales=[locale] if locale else None, dpi=dpi,
+        )
+        _emit_run_report(console, report, json_out, quiet)
+        raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+    if record:
+        report = facade.record_render(
+            template, data=data, format_name=format_name, locale=locale, style=style, dpi=dpi
+        )
+        _emit_run_report(console, report, json_out, quiet)
+        raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
     # RR1-3: announce the render-affecting inferences (output name, sole format) *before* the
     # pipeline runs, so a long A4 render shows the resolved output up front, not only after.
     plan = facade.render_plan(template, data, format_name, output, locale)
@@ -824,6 +854,371 @@ def _print_effect_info(console: Console, effect: object) -> None:
         req = "required" if p.required else f"default={p.default!r}"
         rng = f" [{p.constraint}]" if p.constraint else ""
         console.print(f"  {_esc(p.name)}: {p.type} ({req}){_esc(rng)}")
+
+
+def _emit_run_report(
+    console: Console, report: RunReport, json_out: bool, quiet: bool
+) -> None:
+    """Print a recorded-render result (run dir + outputs) in JSON or human form."""
+    if json_out:
+        _emit_json(report)
+        return
+    _print_diagnostics(console, report.diagnostics, quiet)
+    if report.ok and not quiet:
+        console.print(f"[green]Recorded run[/green] {report.run_id}")
+        for out in report.outputs:
+            console.print(f"  {out}")
+
+
+# ----------------------------------------------------------------------------- projects
+@project_app.command("new")
+def project_new(
+    target: Path = typer.Argument(..., help="Directory to create the project in."),
+    template: str = typer.Option(
+        ..., "--template", "-t", help="Template reference: 'name@version' or a path."
+    ),
+    name: str | None = typer.Option(None, "--name", help="Project name (defaults to dir name)."),
+    style: str | None = typer.Option(None, "--style", help="Style pack reference."),
+    format_name: list[str] = typer.Option(
+        None, "--format", "-f", help="Restrict to these formats (repeatable)."
+    ),
+    locale: list[str] = typer.Option(
+        None, "--locale", "-l", help="Restrict to these locales (repeatable)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Scaffold a renderable project pinning a template version."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.create_project(
+        target, name or target.name, template, style=style,
+        formats=list(format_name or []) or None, locales=list(locale or []) or None,
+    )
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(
+                f"[green]Created project[/green] {result.name} at {result.path} "
+                f"(template {result.template}, formats {', '.join(result.formats)})"
+            )
+    raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
+
+
+@project_app.command("clone")
+def project_clone(
+    target: Path = typer.Argument(..., help="Directory to clone the project into."),
+    name: str | None = typer.Option(
+        None, "--name", help="New project name (defaults to dir name)."
+    ),
+    project: Path | None = typer.Option(None, "--project", help="Source project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Clone the current (or --project) project into a new directory, reset to draft."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.clone_project(target, name or target.name, project=project)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(f"[green]Cloned[/green] to {result.path} (status {result.status})")
+    raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
+
+
+@project_app.command("set-status")
+def project_set_status(
+    status_value: str = typer.Argument(..., help="draft | review | approved | published."),
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Set the current project's lifecycle status."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.set_project_status(status_value, project=project)
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok and not quiet:
+            console.print(f"[green]Status[/green] {report.name} -> {report.status}")
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@project_app.command("upgrade")
+def project_upgrade(
+    to_version: str = typer.Option(..., "--to", help="Target template version, e.g. 1.3.0."),
+    yes: bool = typer.Option(
+        False, "--yes", help="Update the pin after previewing (default previews only)."
+    ),
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Preview a template-version upgrade; with --yes, update the pin."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.upgrade_project(to_version, apply=yes, project=project)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok:
+            console.print(
+                f"[bold]upgrade[/bold] {report.from_version} -> {report.to_version} "
+                f"({'applied' if report.applied else 'preview only'})"
+            )
+            if report.stale_paths:
+                console.print("[yellow]stale patch paths[/yellow] (no longer resolve):")
+                for p in report.stale_paths:
+                    console.print(f"  {_esc(p)}")
+            for o in report.outputs:
+                score = "identical" if o.dssim == 0.0 else f"dssim {o.dssim:.4f}"
+                console.print(f"  {o.name}: {score}")
+            if not report.applied and not report.stale_paths:
+                console.print("[dim]re-run with --yes to update the pin[/dim]")
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@app.command()
+def status(
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Show the current project's manifest and recorded-run count."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report: ProjectStatusReport = facade.project_status(project=project)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            console.print(f"[bold]{_esc(report.name)}[/bold] [dim]({report.status})[/dim]")
+            console.print(f"  template: {report.template}")
+            console.print(f"  style: {report.style or '-'}")
+            console.print(f"  formats: {', '.join(report.formats) or '-'}")
+            console.print(f"  locales: {', '.join(report.locales) or '-'}")
+            console.print(f"  data: {report.data or '-'}")
+            console.print(f"  runs recorded: {report.runs}")
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@app.command("list-runs")
+def list_runs(
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List the current project's recorded runs, newest first."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report: RunListReport = facade.list_runs(project=project)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        elif not report.runs:
+            console.print("[dim]no recorded runs[/dim]")
+        else:
+            for run in report.runs:
+                console.print(
+                    f"[cyan]{run.run_id}[/cyan] [dim]{run.kind}[/dim] "
+                    f"{len(run.outputs)} output(s) [dim]{run.engine_version} {run.platform}[/dim]"
+                )
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@app.command()
+def rerun(
+    run_dir: Path = typer.Argument(..., help="A recorded run directory (outputs/<run>)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Reproduce a recorded run into a new run directory (byte-identical on match)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report: RerunReport = facade.rerun(run_dir)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok:
+            if report.reproduced:
+                console.print(
+                    f"[green]Reproduced[/green] {report.source_run} -> {report.run_id} "
+                    "(byte-identical)"
+                )
+            else:
+                reason = []
+                if not report.engine_match:
+                    reason.append("engine version differs")
+                if not report.platform_match:
+                    reason.append("platform differs")
+                if report.mismatches:
+                    reason.append(f"{len(report.mismatches)} output(s) differ")
+                console.print(
+                    f"[yellow]Rendered[/yellow] {report.run_id} but did not claim exact "
+                    f"reproduction ({'; '.join(reason) or 'unknown'})"
+                )
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@app.command()
+def diff(
+    run_a: Path = typer.Argument(..., help="First run directory."),
+    run_b: Path = typer.Argument(..., help="Second run directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Diff two recorded runs: per-output pixels/perceptual plus provenance changes."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report: DiffReport = facade.diff_runs(run_a, run_b)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            _print_diff(console, report)
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+def _print_diff(console: Console, report: DiffReport) -> None:
+    console.print(f"[bold]diff[/bold] {report.run_a} .. {report.run_b}")
+    console.print("[bold]outputs[/bold]:")
+    for o in report.outputs:
+        if not (o.in_a and o.in_b):
+            where = "only in A" if o.in_a else "only in B"
+            console.print(f"  {_esc(o.name)}: [yellow]{where}[/yellow]")
+        elif o.identical:
+            console.print(f"  {_esc(o.name)}: [green]identical[/green]")
+        else:
+            score = "shape differs" if o.dssim is None else f"dssim {o.dssim:.4f}"
+            console.print(f"  {_esc(o.name)}: [yellow]{score}[/yellow]")
+    if report.metadata:
+        console.print("[bold]metadata changes[/bold]:")
+        for m in report.metadata:
+            console.print(f"  {_esc(m.field)}: {_esc(m.a)} -> {_esc(m.b)}")
+    else:
+        console.print("[dim]no metadata changes[/dim]")
+
+
+@app.command()
+def batch(
+    patterns: list[str] = typer.Argument(..., help="Glob(s) matching project directories."),
+    jobs: int = typer.Option(1, "--jobs", "-j", help="Parallel render jobs (output == serial)."),
+    dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Render every matched project's formats × locales in parallel jobs."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.batch_render(list(patterns), jobs=jobs, dpi=dpi)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        for entry in report.entries:
+            mark = "[green]ok[/green]" if entry.ok else "[red]failed[/red]"
+            console.print(f"  {mark} {_esc(entry.project)} ({len(entry.outputs)} output(s))")
+            if not entry.ok:
+                _print_diagnostics(console, entry.diagnostics, quiet)
+        if report.ok and not quiet:
+            console.print(
+                f"[green]Batch complete[/green] {len(report.entries)} project(s), "
+                f"{report.jobs} job(s)"
+            )
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@template_app.command("publish")
+def template_publish(
+    template: Path = typer.Argument(..., help="Template directory to publish."),
+    name: str = typer.Option(..., "--name", help="Library template name."),
+    version: str = typer.Option(..., "--version", help="Version to publish, e.g. 1.0.0."),
+    default: bool = typer.Option(
+        True, "--default/--no-default", help="Point the default alias at this version."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Publish a template directory into the library as an immutable version."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.publish_template(template, name, version, set_default=default)
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok and not quiet:
+            console.print(
+                f"[green]Published[/green] {report.name}@{report.version} "
+                f"(default {report.default}) at {report.path}"
+            )
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@template_app.command("detach")
+def template_detach(
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Copy the project's library template into the project (disables version upgrades)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.detach_template(project=project)
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok and not quiet:
+            console.print(f"[green]Detached[/green] into {report.path}")
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
 
 
 def main() -> None:

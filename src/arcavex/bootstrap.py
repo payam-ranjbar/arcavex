@@ -22,8 +22,13 @@ from arcavex.kernel.api import Facade
 from arcavex.kernel.contracts.spi import Effect, MaskGenerator, ShapeGenerator
 from arcavex.kernel.registry import Registries
 from arcavex.services.authoring import AuthoringService
-from arcavex.services.doctor import run_doctor
+from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
+from arcavex.services.library import Library
+from arcavex.services.orchestrator import Orchestrator
+from arcavex.services.pipeline import render_to_file
+from arcavex.services.projects import ProjectService
+from arcavex.services.runs import RunStore
 from arcavex.services.style import StyleResolver
 from arcavex.services.template import Compiler
 from arcavex.services.template.expressions import FunctionTable, UnknownFunctionError, Value
@@ -124,6 +129,7 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         styles=style_resolver,
     )
     authoring = AuthoringService(compiler, registries.template_fns.names())
+    orchestrator = _build_orchestrator(registries, compiler, text_service)
     return Facade(
         registries,
         compiler,
@@ -132,4 +138,65 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         explain_lookup=explain_code,
         authoring=authoring,
         style_provider=style_resolver,
+        orchestrator=orchestrator,
     )
+
+
+def _build_orchestrator(
+    registries: Registries, compiler: Compiler, text_service: TextService
+) -> Orchestrator:
+    """Wire the project/provenance orchestrator over the shared render pipeline.
+
+    The render function binds the registry's solver, backend, and exporter into the one
+    layout→render→export tail (``services.pipeline``), so project renders and reruns share the
+    exact byte-producing path with direct renders.
+    """
+    solver = registries.layouts.get("anchors")
+    backend = registries.backends.get("skia")
+    exporter = registries.exporters.get("png")
+
+    def render_fn(
+        document: object, output: Path, dpi: int | None, debug: bool
+    ) -> object:
+        return render_to_file(
+            solver, backend, exporter, text_service.measure,
+            document, output, dpi, debug,  # type: ignore[arg-type]
+        )
+
+    library = Library()
+    return Orchestrator(
+        compiler,
+        render_fn,  # type: ignore[arg-type]
+        engine_version(),
+        library=library,
+        projects=ProjectService(library),
+        run_store=RunStore(),
+        batch_worker=_batch_render_one,
+    )
+
+
+# A per-process facade cache: a batch worker process builds one engine and reuses it across the
+# projects it is handed, so parallelism does not pay the font-database build cost per project.
+_WORKER_FACADE: Facade | None = None
+
+
+def _batch_render_one(payload: tuple[str, int | None]) -> dict[str, object]:
+    """Render one project in a worker process and return a picklable result (spec §6.1.2).
+
+    This module-level function is the process-pool entry point: it (re)builds a full engine in
+    its own process — no state is shared with the parent or sibling jobs — so a parallel batch is
+    output-identical to a serial one. Diagnostics are returned as plain dicts to cross the
+    process boundary.
+    """
+    global _WORKER_FACADE
+    if _WORKER_FACADE is None:
+        _WORKER_FACADE = build_facade()
+    project_dir, dpi = payload
+    report = _WORKER_FACADE.render_project(project=Path(project_dir), dpi=dpi)
+    return {
+        "ok": report.ok,
+        "run_id": report.run_id,
+        "run_dir": report.run_dir,
+        "outputs": list(report.outputs),
+        "diagnostics": [d.model_dump(mode="json") for d in report.diagnostics],
+    }

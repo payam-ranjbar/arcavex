@@ -14,6 +14,15 @@ during reviews. Nothing here is required v1 scope.
 - Automatic installation of older engine versions for compatibility reruns (§12 open)
 - Hyphenation (unless a concrete template requires it — none did in v1)
 
+## Deferred to Phase 7 (asset & cache budgets)
+
+- **Derived-variant asset cache (§4.7).** Phase 4 landed the CAS core: ingest-by-sha256 with
+  sidecar metadata and decode guards (max source bytes, max decoded pixels, format allowlist)
+  enforced against the image header before decode — enough to pin assets in run manifests. The
+  downscaled-variant cache keyed by `(hash, params)` under an LRU byte budget (so a 40 MP photo
+  in a 400 px slot never decodes at full size twice) is deferred to Phase 7 with the other cache
+  budgets, along with per-render wall-clock / surface-memory / output-dimension budgets (§8.3).
+
 ## Accepted P3 review findings
 
 - **Composite `backdrop` snapshot (CR-1).** `CompositeContext.backdrop` is a read-only accessor

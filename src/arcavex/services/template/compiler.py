@@ -28,6 +28,7 @@ from arcavex.kernel.diagnostics import (
     diagnostic,
     has_errors,
 )
+from arcavex.kernel.ir.canonical import canonical_hash
 from arcavex.kernel.ir.colors import Color
 from arcavex.kernel.ir.models import (
     AnchorEdge,
@@ -118,6 +119,28 @@ _RUN_KEYS = frozenset({
 })
 
 
+def _style_hash(pack: StylePack | None) -> str | None:
+    """Return the canonical hash of a style pack's design tokens, or ``None`` when unstyled.
+
+    Hashes the tokens the compiler actually consumes (name, version, palettes, fonts, presets,
+    roles) rather than the file bytes, so equivalent packs authored differently hash the same
+    and the digest joins the manifest's recorded inputs (§5.3).
+    """
+    if pack is None:
+        return None
+    return canonical_hash(
+        {
+            "name": pack.name,
+            "version": pack.version,
+            "palettes": pack.palettes,
+            "fonts": pack.fonts,
+            "effect_presets": pack.effect_presets,
+            "shape_presets": pack.shape_presets,
+            "roles": pack.roles,
+        }
+    )
+
+
 def _to_plain(obj: Any) -> Any:
     """Convert ruamel structures and scalar subclasses to plain Python values."""
     if isinstance(obj, dict):
@@ -190,6 +213,8 @@ class Compiler:
         self._default_direction: str = "ltr"
         self._font_overrides: dict[str, tuple[str, ...]] = {}
         self._style_pack: StylePack | None = None
+        # The authoritative variable snapshot on the rerun path, else ``None`` (§5.3).
+        self._resolved_data: dict[str, Any] | None = None
 
     def compile(
         self,
@@ -198,8 +223,22 @@ class Compiler:
         format_name: str | None,
         locale: str | None,
         style: str | None,
+        resolved_data: dict[str, Any] | None = None,
+        project_patch: list[Any] | None = None,
+        project_patch_file: Path | None = None,
     ) -> CompileResult:
-        """Compile a template. Returns a document (on success) plus diagnostics."""
+        """Compile a template. Returns a document (on success) plus diagnostics.
+
+        ``resolved_data`` is the rerun path: when supplied it is the authoritative variable
+        snapshot, so data-file/preview/locale-data resolution is skipped while structural
+        resolution (format/locale patches, direction, digits) still runs (§5.3).
+
+        ``project_patch`` is the project override layer (§5.4): a patch list applied to the node
+        AST *after* the format and locale patches, so a project's ``overrides/<template>.patch.
+        yaml`` is the last structural word. A patch that no longer addresses an existing node
+        surfaces the same ``ARC-TPL-092`` a stale format/locale patch would (feeding upgrade's
+        stale-path report).
+        """
         diags: list[Diagnostic] = []
         inferred: dict[str, str] = {}
         self._patch_log = PatchLog()
@@ -207,10 +246,13 @@ class Compiler:
         self._default_direction = "ltr"
         self._font_overrides = {}
         self._style_pack = None
+        self._resolved_data = resolved_data
         try:
             source = load_template(template)
             template_path = source.template_path
             raw = source.raw
+            # Canonical template hash captured before any patch mutates the node AST (§3.1.4).
+            template_hash = canonical_hash(_to_plain(raw))
 
             # RR-4: collect every non-goal section offense in one pass instead of raising on
             # the first, so the AI/human correction loop sees them together.
@@ -223,6 +265,7 @@ class Compiler:
             # palettes feed expressions and its roles/presets feed nodes), sitting under the
             # template's own values (§4.1.4).
             self._style_pack = self._resolve_style(source, style)
+            style_hash = _style_hash(self._style_pack)
 
             # Resolve the requested locale's settings (§4.1.4): direction default, digit policy,
             # font overrides, data overlay, and patch. An undeclared locale is an error.
@@ -251,10 +294,21 @@ class Compiler:
             # (§4.1.5): style -> format patch -> locale patch. Applied to the node AST in place.
             self._apply_format_patch(source, resolved_format, root_raw)
             self._apply_locale_patch(source, locale, loc_settings, root_raw)
+            if project_patch:
+                apply_patches(
+                    root_raw, project_patch, "project",
+                    project_patch_file or source.template_path, "project.patch",
+                    self._patch_log,
+                )
 
-            pre_overlays, post_overlays = self._locale_data_overlays(
-                source, data, locale, loc_settings, inferred
-            )
+            # On the rerun path the snapshot is authoritative, so file/preview/locale data
+            # overlays are skipped; template-level patches above still ran for byte-identity.
+            if resolved_data is None:
+                pre_overlays, post_overlays = self._locale_data_overlays(
+                    source, data, locale, loc_settings, inferred
+                )
+            else:
+                pre_overlays, post_overlays = [], []
             context = self._build_context(
                 source, data, diags, inferred, pre_overlays, post_overlays
             )
@@ -278,7 +332,20 @@ class Compiler:
                 )
 
             doc = CompiledDocument(canvas=canvas, seed=seed, root=root)
-            return CompileResult(doc, diags, inferred, format_name=resolved_format)
+            # The resolved variable snapshot (defaults/overlays applied) drops derived
+            # injections like ``palette`` (re-derived from the style on rerun) so it captures
+            # exactly the authored/derived variable values a rerun needs (§5.3).
+            snapshot = {k: _to_plain(v) for k, v in context.items() if k != "palette"}
+            return CompileResult(
+                doc,
+                diags,
+                inferred,
+                format_name=resolved_format,
+                resolved_data=snapshot,
+                template_hash=template_hash,
+                style_hash=style_hash,
+                data_hash=canonical_hash(snapshot),
+            )
         except DiagnosticError as exc:
             return CompileResult(None, diags + list(exc.diagnostics), inferred)
 
@@ -300,6 +367,7 @@ class Compiler:
         self._default_direction = "ltr"
         self._font_overrides = {}
         self._style_pack = None
+        self._resolved_data = None
         diags: list[Diagnostic] = []
         try:
             source = load_template(template)
@@ -389,6 +457,18 @@ class Compiler:
         pre_overlays: list[dict[str, Any]] | None = None,
         post_overlays: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        # Rerun path (§5.3): the snapshot is authoritative and already validated, so variable
+        # resolution, defaults, and type checks are skipped (re-running them would re-emit
+        # coercion warnings). Only the derived ``palette`` injection is reapplied from the
+        # resolved style so expressions addressing it evaluate identically.
+        if self._resolved_data is not None:
+            context = merge_overlay({}, _to_plain(self._resolved_data))
+            if self._style_pack is not None and "palette" not in context:
+                context["palette"] = {
+                    name: list(colors) for name, colors in self._style_pack.palettes.items()
+                }
+            return context
+
         raw = source.raw
         var_file = source.file_for("variables")
         variables = raw.get("variables")

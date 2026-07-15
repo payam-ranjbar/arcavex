@@ -1,0 +1,113 @@
+"""Filesystem helpers shared by the project, library, asset, and run services.
+
+Everything here exists to make the on-disk state safe under concurrency (spec §8.3): writes
+land through a temporary file and an atomic ``os.replace`` so a reader never sees a torn file,
+directory publication and index updates take a cross-process lock, and content hashing is
+centralized so provenance uses one definition of "the bytes".
+"""
+
+from __future__ import annotations
+
+import errno
+import hashlib
+import os
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+
+def home_dir() -> Path:
+    """Return ``$ARCAVEX_HOME`` if set, else ``~/.arcavex`` — the global library root (§5.1)."""
+    env = os.environ.get("ARCAVEX_HOME")
+    if env:
+        return Path(env)
+    return Path.home() / ".arcavex"
+
+
+def sha256_bytes(data: bytes) -> str:
+    """Return the hex SHA-256 digest of ``data``."""
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    """Return the hex SHA-256 digest of a file, read in chunks."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically (temp file in the same dir, then ``os.replace``)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = _mkstemp_beside(path)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Write ``text`` (UTF-8) to ``path`` atomically."""
+    atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def _mkstemp_beside(path: Path) -> tuple[int, str]:
+    import tempfile
+
+    return tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+
+
+@contextmanager
+def file_lock(lock_path: Path, *, timeout: float = 30.0, poll: float = 0.05) -> Iterator[None]:
+    """Acquire an exclusive cross-process lock by creating ``lock_path`` with ``O_EXCL``.
+
+    Used to serialize library template publication and index updates (§8.3) so two processes
+    never write the same version directory or clobber an index. The lock is a plain file whose
+    exclusive creation is the atomic primitive; it is removed on release. A stale lock older
+    than ``timeout`` is reclaimed so a crashed writer cannot wedge the library forever.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode("ascii"))
+            os.close(fd)
+            break
+        except OSError as exc:
+            if exc.errno != errno.EEXIST:
+                raise
+            if _reclaim_if_stale(lock_path, timeout):
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"could not acquire lock {lock_path} within {timeout}s") from exc
+            time.sleep(poll)
+    try:
+        yield
+    finally:
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _reclaim_if_stale(lock_path: Path, timeout: float) -> bool:
+    """Remove a lock file older than ``timeout`` seconds; return whether it was reclaimed."""
+    try:
+        age = time.time() - lock_path.stat().st_mtime
+    except FileNotFoundError:
+        return True  # vanished — try to acquire again
+    if age > timeout:
+        try:
+            lock_path.unlink()
+            return True
+        except FileNotFoundError:
+            return True
+    return False

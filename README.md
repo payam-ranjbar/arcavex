@@ -35,6 +35,31 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 | `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, temp dir, paths) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
+### Projects, library, and provenance (§5)
+
+| Command | Purpose |
+|---|---|
+| `template publish DIR --name N --version V [--no-default]` | Publish a template into the library as an immutable `N@V`; sets the default alias unless `--no-default`. |
+| `template detach [--project P]` | Copy the project's library template into the project (disables version upgrades). |
+| `project new DIR --template REF [--name N] [--style S] [--format F ...] [--locale L ...]` | Scaffold a renderable project pinning a template (`name@version` or a path). |
+| `project clone DIR [--name N] [--project P]` | Clone a project into a new directory, reset to draft, dropping recorded runs. |
+| `project set-status STATUS [--project P]` | Set the project status (`draft`/`review`/`approved`/`published`). |
+| `project upgrade --to V [--yes] [--project P]` | Preview a template-version upgrade (structural stale paths + perceptual diff); `--yes` updates the pin. |
+| `status [--project P]` | Show the current project's manifest and recorded-run count. |
+| `render [--project P] [--format F] [--locale L] [--dpi N]` | With no template, render the discovered project's formats × locales into a recorded run. |
+| `render TEMPLATE --record [...]` | Direct render that also writes a run manifest. |
+| `list-runs [--project P]` | List the project's recorded runs, newest first. |
+| `rerun outputs/<run>` | Reproduce a recorded run into a new run directory (byte-identical on the same engine + platform). |
+| `diff outputs/<run-a> outputs/<run-b>` | Per-output pixel/perceptual diff plus template/data/asset/font/engine/option changes. |
+| `batch <projects-glob> [--jobs N]` | Render every matched project in parallel jobs; output is byte-identical to serial. |
+
+The CLI discovers `project.yaml` by walking upward from the current directory; `--project PATH`
+overrides discovery. There is no persistent open-project state. A project references a library
+template by `name@version` (bare `name` needs an explicit default alias) or by a filesystem
+path. Recorded runs live under `outputs/<timestamp>_<shorthash>/` with a `manifest.json` pinning
+every input by hash; the exported PNG bytes contain no timestamp or run id, so a same-platform
+rerun reproduces them exactly.
+
 Every command supports `--json`, `--no-color`, and `--quiet`. `--locale L` applies a declared
 locale (direction, digit policy, font overrides, data overlay, and patch); requesting a locale
 the template does not declare is a located error (`ARC-TPL-100`). `arcavex layout inspect
@@ -330,6 +355,13 @@ from?".
   paragraph bounds and baseline rather than per-glyph rectangles (ADR-0001).
 - **`line_height` is not yet honored** (the bundled text stack exposes no strut override), so
   setting it is a located `ARC-TPL-053`; it is tracked in the ledger for a later phase.
+- **Asset store is minimal.** The content-addressed store ingests assets by hash with sidecar
+  metadata and enforces decode guards (max source bytes, max decoded pixels, format allowlist)
+  before any decode, which is enough to pin assets in run manifests. The derived-variant LRU
+  cache (downscaled thumbnails under a byte budget) is deferred to a later phase.
+- **Provenance is same-platform.** A rerun reproduces byte-identical output on the same engine
+  version and platform (OS/arch); cross-platform reproduction is perceptual, not bit-exact, and
+  `rerun` refuses to claim exact reproduction when the engine version or platform differs.
 
 See the `examples/ipen-bilingual/` bilingual poster for locales, stacks, masks, sibling
 anchors, rotation, and fit policies in one template, and
