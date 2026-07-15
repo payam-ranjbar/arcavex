@@ -31,6 +31,7 @@ from arcavex.kernel.api import (
     CompileResult,
     DetachReport,
     DiffReport,
+    ProjectInputs,
     ProjectResult,
     ProjectStatusReport,
     PublishReport,
@@ -40,10 +41,13 @@ from arcavex.kernel.api import (
     RunReport,
     UpgradeOutputDiff,
     UpgradeReport,
+    UpgradeStalePath,
 )
-from arcavex.kernel.diagnostics import Diagnostic, diagnostic, has_errors
+from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
+from arcavex.kernel.ir.canonical import canonical_hash
 from arcavex.kernel.ir.models import CompiledDocument, CompiledGroup, CompiledImage, CompiledNode
 from arcavex.services.assets import AssetStore
+from arcavex.services.config import RuntimeConfig
 from arcavex.services.fsutil import home_dir
 from arcavex.services.imaging import dssim_files
 from arcavex.services.library import Library, is_library_ref
@@ -57,6 +61,7 @@ from arcavex.services.runs import (
     diff_runs,
     font_provenance,
     format_run_id,
+    is_run_dir,
     platform_tag,
     short_hash,
     utc_now,
@@ -112,6 +117,7 @@ class Orchestrator:
         clock: Clock = utc_now,
         dssim_fn: Callable[[Path, Path], float | None] = dssim_files,
         batch_worker: BatchWorker | None = None,
+        config: RuntimeConfig | None = None,
     ) -> None:
         """Wire the orchestrator with its compiler, renderer, services, clock, and batch worker."""
         self._compiler = compiler
@@ -123,6 +129,9 @@ class Orchestrator:
         self._asset_root = asset_root if asset_root is not None else home_dir() / "assets"
         self._clock = clock
         self._dssim = dssim_fn
+        # Runtime config for the §6.3 precedence chain (default DPI); loaded from the home
+        # config.toml unless one is injected (tests).
+        self._config = config if config is not None else RuntimeConfig.load()
         # A picklable module-level worker (bootstrap-provided) that renders one project in an
         # isolated process; without it, batch runs serially in-process.
         self._batch_worker = batch_worker
@@ -224,6 +233,7 @@ class Orchestrator:
                     )
                 ],
             )
+        effective_dpi = self._config.resolve_dpi(cli=dpi, project=proj.manifest.dpi).value
         return self._execute_run(
             kind="project",
             project_name=proj.manifest.name,
@@ -236,7 +246,7 @@ class Orchestrator:
             targets=targets,
             patch_ops=patch_ops,
             patch_file=patch_file,
-            dpi=dpi,
+            dpi=effective_dpi,
             outputs_root=proj.outputs_dir,
         )
 
@@ -270,6 +280,7 @@ class Orchestrator:
             )
         stem = template.stem if template.suffix else template.name
         root = Path(outputs_root) if outputs_root is not None else Path.cwd() / "outputs"
+        effective_dpi = self._config.resolve_dpi(cli=dpi).value
         return self._execute_run(
             kind="direct",
             project_name=None,
@@ -282,7 +293,7 @@ class Orchestrator:
             targets=targets,
             patch_ops=None,
             patch_file=None,
-            dpi=dpi,
+            dpi=effective_dpi,
             outputs_root=root,
         )
 
@@ -306,7 +317,7 @@ class Orchestrator:
     ) -> RunReport:
         staging = Path(tempfile.mkdtemp(prefix="arcavex-run-"))
         try:
-            rendered, diags, template_hash, style_hash = self._render_all(
+            rendered, diags, template_hash, style_hash, timings = self._render_all(
                 stem=stem,
                 template_dir=template_dir,
                 style_ref=style_ref,
@@ -329,9 +340,11 @@ class Orchestrator:
                 is_library=is_library,
                 style_ref=style_ref,
                 style_hash=style_hash,
+                patch=_patch_input_ref(patch_ops, patch_file),
                 dpi=dpi,
                 rendered=rendered,
                 outputs_root=outputs_root,
+                timings=timings,
                 extra_diagnostics=[d for d in diags if not d.is_error()],
             )
             return RunReport(
@@ -357,16 +370,20 @@ class Orchestrator:
         dpi: int | None,
         staging: Path,
         resolved_snapshots: dict[str, dict[str, Any]] | None,
-    ) -> tuple[list[_Rendered] | None, list[Diagnostic], str, str | None]:
+    ) -> tuple[list[_Rendered] | None, list[Diagnostic], str, str | None, dict[str, float]]:
+        import time
+
         rendered: list[_Rendered] = []
         diags: list[Diagnostic] = []
         template_hash = ""
         style_hash: str | None = None
+        timings = {"compile_ms": 0.0, "render_ms": 0.0}
         store = AssetStore(self._asset_root)
         for fmt, locale in targets:
             snapshot = None
             if resolved_snapshots is not None:
                 snapshot = resolved_snapshots.get(_locale_key(locale))
+            compile_start = time.perf_counter()
             result: CompileResult = self._compiler.compile(
                 template_dir,
                 None if snapshot is not None else data_path,
@@ -377,13 +394,16 @@ class Orchestrator:
                 project_patch=patch_ops,
                 project_patch_file=patch_file,
             )
+            timings["compile_ms"] += (time.perf_counter() - compile_start) * 1000.0
             diags.extend(result.diagnostics)
             if result.document is None or has_errors(result.diagnostics):
-                return None, diags, template_hash, style_hash
+                return None, diags, template_hash, style_hash, timings
             template_hash = result.template_hash or template_hash
             style_hash = result.style_hash
             name = _output_name(stem, fmt, locale)
+            render_start = time.perf_counter()
             report, warnings = self._render(result.document, staging / name, dpi, False)
+            timings["render_ms"] += (time.perf_counter() - render_start) * 1000.0
             diags.extend(warnings)
             assets = _collect_assets(result.document, template_dir, store)
             rendered.append(
@@ -402,7 +422,7 @@ class Orchestrator:
                     assets=assets,
                 )
             )
-        return rendered, diags, template_hash, style_hash
+        return rendered, diags, template_hash, style_hash, timings
 
     def _finalize(
         self,
@@ -414,15 +434,18 @@ class Orchestrator:
         is_library: bool,
         style_ref: str | None,
         style_hash: str | None,
+        patch: InputRef | None,
         dpi: int | None,
         rendered: list[_Rendered],
         outputs_root: Path,
+        timings: dict[str, float],
         extra_diagnostics: list[Diagnostic],
     ) -> tuple[RunManifest, Path]:
         fingerprint = short_hash(
             {
                 "template": template_hash,
                 "style": style_hash,
+                "patch": patch.hash if patch else None,
                 "dpi": dpi,
                 "targets": sorted(
                     [r.fmt, r.locale or "", r.data_hash] for r in rendered
@@ -466,20 +489,33 @@ class Orchestrator:
             template=InputRef(ref=template_ref, hash=template_hash),
             template_is_library=is_library,
             style=InputRef(ref=style_ref, hash=style_hash) if style_ref is not None else None,
+            patch=patch,
             dpi=dpi,
             outputs=outputs,
             assets=sorted(assets.values(), key=lambda a: a.sha256),
             fonts_hash=fonts_hash,
             fonts=fonts,
             diagnostics=extra_diagnostics,
+            timings_ms={k: round(v, 3) for k, v in timings.items()},
             resolved_data=snapshots,
         )
         self._runs.write_manifest(run_dir, manifest)
         return manifest, run_dir
 
     # -------------------------------------------------------------------- runs & diff
-    def list_runs(self, start: Path | None, project: Path | None) -> RunListReport:
-        proj = self._projects.resolve(start, project)
+    def list_runs(
+        self, start: Path | None, project: Path | None, path: Path | None = None
+    ) -> RunListReport:
+        """List recorded runs for the active project, or under an explicit ``path`` (DX-7).
+
+        Project mode is the default. When ``path`` is given it names an ``outputs/`` directory
+        (or a single run directory); when no project is discoverable and no path is given, a
+        ``./outputs`` beside the cwd is used, so direct-mode ``--record`` runs are listable.
+        """
+        if path is not None and is_run_dir(Path(path)):
+            manifests = [self._runs.read_manifest(Path(path))]
+        else:
+            manifests = self._runs.list_runs(self._resolve_runs_root(start, project, path))
         infos = [
             RunInfo(
                 run_id=m.run_id,
@@ -490,9 +526,48 @@ class Orchestrator:
                 platform=m.platform,
                 outputs=[o.name for o in m.outputs],
             )
-            for m in self._runs.list_runs(proj.outputs_dir)
+            for m in manifests
         ]
         return RunListReport(ok=True, runs=infos)
+
+    def _resolve_runs_root(
+        self, start: Path | None, project: Path | None, path: Path | None
+    ) -> Path:
+        """Resolve the outputs directory to list runs from (explicit path, project, or cwd)."""
+        if path is not None:
+            return Path(path)
+        try:
+            return self._projects.resolve(start, project).outputs_dir
+        except DiagnosticError:
+            base = Path(start) if start is not None else Path.cwd()
+            candidate = base / "outputs"
+            if candidate.is_dir():
+                return candidate
+            raise
+
+    def project_inputs(
+        self,
+        start: Path | None,
+        project: Path | None,
+        formats: list[str] | None,
+        locales: list[str] | None,
+    ) -> ProjectInputs:
+        """Resolve a project's compile inputs for a project-mode dry run (validate/preview)."""
+        proj = self._projects.resolve(start, project)
+        template_dir, ref, is_lib = self._projects.resolve_template(proj)
+        patch_ops, patch_file = self._projects.load_project_patch(proj)
+        targets = self._projects.render_targets(proj, formats, locales)
+        return ProjectInputs(
+            name=proj.manifest.name,
+            template_dir=template_dir,
+            ref=ref,
+            is_library=is_lib,
+            style=proj.manifest.style,
+            data_path=proj.data_path,
+            patch_ops=patch_ops,
+            patch_file=patch_file,
+            targets=targets,
+        )
 
     def diff(self, run_a: Path, run_b: Path) -> DiffReport:
         return diff_runs(Path(run_a), Path(run_b), self._runs, self._dssim)
@@ -508,7 +583,7 @@ class Orchestrator:
         outputs_root = run_dir.parent
         staging = Path(tempfile.mkdtemp(prefix="arcavex-rerun-"))
         try:
-            rendered, diags, template_hash, style_hash = self._render_all(
+            rendered, diags, template_hash, style_hash, timings = self._render_all(
                 stem=_stem_from_outputs(manifest),
                 template_dir=template_dir,
                 style_ref=manifest.style.ref if manifest.style else None,
@@ -535,12 +610,32 @@ class Orchestrator:
                 is_library=manifest.template_is_library,
                 style_ref=manifest.style.ref if manifest.style else None,
                 style_hash=style_hash,
+                patch=_patch_input_ref(patch_ops, patch_file),
                 dpi=manifest.dpi,
                 rendered=rendered,
                 outputs_root=outputs_root,
+                timings=timings,
                 extra_diagnostics=[d for d in diags if not d.is_error()],
             )
-            self._write_reproduction(new_dir, manifest, reproduced, mismatches, engine_match)
+            # A same-engine, same-platform rerun that still differs means a recorded input
+            # changed on disk. Recompute the input hashes and name which one drifted, so the
+            # report explains *why* rather than only *that* the outputs differ (CR-3/DX-3).
+            drift = self._detect_drift(manifest, new_manifest) if mismatches else []
+            extra = list(new_manifest.diagnostics)
+            if drift and not reproduced:
+                extra.append(
+                    diagnostic(
+                        "ARC-RUN-002",
+                        "Recorded input changed on disk since this run: " + ", ".join(drift),
+                        severity="warning",
+                        file=str(run_dir),
+                        hint="The rerun rendered from the current on-disk inputs; restore the "
+                        "named input(s) to reproduce the original bytes.",
+                    )
+                )
+            self._write_reproduction(
+                new_dir, manifest, reproduced, mismatches, engine_match, drift
+            )
             return RerunReport(
                 ok=True,
                 source_run=manifest.run_id,
@@ -550,9 +645,37 @@ class Orchestrator:
                 engine_match=engine_match,
                 platform_match=platform_match,
                 mismatches=mismatches,
+                drift=drift,
+                diagnostics=extra,
             )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
+
+    def _detect_drift(self, old: RunManifest, new: RunManifest) -> list[str]:
+        """Return the recorded inputs whose content hash changed between two manifests.
+
+        Compares the freshly recomputed inputs of a rerun (``new``) against the recorded run
+        (``old``) so a failed reproduction can name its cause. Data is authoritative from the
+        snapshot on rerun, so it never drifts here; template, overrides, style, assets, and the
+        font environment are re-read from disk and can.
+        """
+        drift: list[str] = []
+        if old.template.hash and new.template.hash and old.template.hash != new.template.hash:
+            drift.append(f"template ({old.template.ref})")
+        if (old.style.hash if old.style else None) != (new.style.hash if new.style else None):
+            drift.append("style")
+        old_patch = old.patch.hash if old.patch else None
+        new_patch = new.patch.hash if new.patch else None
+        if old_patch != new_patch:
+            ref = (old.patch.ref if old.patch else None) or (
+                new.patch.ref if new.patch else None
+            )
+            drift.append(f"overrides ({ref})" if ref else "overrides")
+        if {(a.path, a.sha256) for a in old.assets} != {(a.path, a.sha256) for a in new.assets}:
+            drift.append("assets")
+        if old.fonts_hash and new.fonts_hash and old.fonts_hash != new.fonts_hash:
+            drift.append("fonts")
+        return drift
 
     def _byte_mismatches(
         self, manifest: RunManifest, rendered: list[_Rendered]
@@ -567,6 +690,7 @@ class Orchestrator:
         reproduced: bool,
         mismatches: list[str],
         engine_match: bool,
+        input_drift: list[str],
     ) -> None:
         import json
 
@@ -581,6 +705,9 @@ class Orchestrator:
             "platform_original": source.platform,
             "platform_now": platform_tag(),
             "mismatched_outputs": mismatches,
+            # Which recorded inputs changed on disk (empty when nothing drifted). Names the
+            # cause of a failed reproduction whose engine and platform both match (CR-3).
+            "input_drift": input_drift,
         }
         atomic_write_text(
             new_dir / "reproduction.json", json.dumps(report, ensure_ascii=False, indent=2)
@@ -685,11 +812,11 @@ class Orchestrator:
         target = self._library.resolve(f"{name}@{to_version}")
         patch_ops, patch_file = self._projects.load_project_patch(proj)
         targets = self._projects.render_targets(proj)
-        stale = self._stale_patch_paths(
-            target.path, proj, targets, patch_ops, patch_file
-        )
+        old_dir = self._library.resolve(f"{name}@{from_version}").path if from_version else None
+        stale_paths, stale = self._stale_patch_paths(target.path, patch_ops)
+        added, removed = self._node_structural_diff(old_dir, target.path)
         outputs = self._upgrade_previews(
-            proj, name, from_version, target, targets, patch_ops, patch_file
+            proj, old_dir, target, targets, patch_ops, patch_file
         )
         applied = False
         if apply:
@@ -700,43 +827,83 @@ class Orchestrator:
             ok=True,
             from_version=from_version or None,
             to_version=to_version,
-            stale_paths=stale,
+            stale_paths=stale_paths,
+            stale=stale,
+            added_nodes=added,
+            removed_nodes=removed,
             outputs=outputs,
             applied=applied,
         )
 
     def _stale_patch_paths(
-        self,
-        target_dir: Path,
-        proj: Project,
-        targets: list[tuple[str, str | None]],
-        patch_ops: list[Any] | None,
-        patch_file: Path | None,
-    ) -> list[str]:
+        self, target_dir: Path, patch_ops: list[Any] | None
+    ) -> tuple[list[str], list[UpgradeStalePath]]:
+        """Return the project override paths that no longer address a node in the target version.
+
+        Checks every op independently against the target template's authored node ids (not just
+        the first failing one) and reports the addressed node path and id, the same detail the
+        render-time ``ARC-TPL-092`` gives — not a bare op index (DX-5).
+        """
         if not patch_ops:
-            return []
-        stale: set[str] = set()
-        for fmt, locale in targets:
-            result = self._compiler.compile(
-                target_dir, proj.data_path, fmt, locale, proj.manifest.style,
-                project_patch=patch_ops, project_patch_file=patch_file,
-            )
-            for d in result.diagnostics:
-                if d.code == "ARC-TPL-092" and d.source is not None and d.source.keypath:
-                    stale.add(d.source.keypath)
-        return sorted(stale)
+            return [], []
+        ids = self._authored_node_ids(target_dir)
+        paths: list[str] = []
+        details: list[UpgradeStalePath] = []
+        for i, op in enumerate(patch_ops):
+            path = _op_path(op)
+            if path is None or not path.startswith("nodes."):
+                continue
+            node_id = path.split(".")[1] if len(path.split(".")) > 1 else None
+            if node_id is not None and node_id not in ids:
+                paths.append(path)
+                details.append(
+                    UpgradeStalePath(
+                        op=f"project.patch[{i}]",
+                        path=path,
+                        node_id=node_id,
+                        detail=f"no node with id {node_id!r} in {target_dir.name}",
+                    )
+                )
+        return paths, details
+
+    def _node_structural_diff(
+        self, old_dir: Path | None, new_dir: Path
+    ) -> tuple[list[str], list[str]]:
+        """Return ``(added, removed)`` authored node ids between the old and target versions."""
+        if old_dir is None:
+            return [], []
+        old_ids = self._authored_node_ids(old_dir)
+        new_ids = self._authored_node_ids(new_dir)
+        return sorted(new_ids - old_ids), sorted(old_ids - new_ids)
+
+    def _authored_node_ids(self, template_dir: Path) -> set[str]:
+        """Collect the authored node ids of a template's ``root`` AST (pre-repeat expansion)."""
+        from arcavex.services.template.loader import load_template
+
+        try:
+            source = load_template(template_dir)
+        except DiagnosticError:
+            return set()
+        ids: set[str] = set()
+        _collect_authored_ids(source.raw.get("root"), ids)
+        return ids
 
     def _upgrade_previews(
         self,
         proj: Project,
-        name: str,
-        from_version: str,
+        old_dir: Path | None,
         target: Any,
         targets: list[tuple[str, str | None]],
         patch_ops: list[Any] | None,
         patch_file: Path | None,
     ) -> list[UpgradeOutputDiff]:
-        old_dir = self._library.resolve(f"{name}@{from_version}").path if from_version else None
+        """Render the old and target versions over current data and report their perceptual diff.
+
+        Both versions render with the project override applied; when the override no longer
+        resolves against the target (a stale patch), the target preview is retried without it and
+        ``patch_applied`` is set false, so the diff still shows what the new version looks like —
+        the render/diff steps spec §5.5 lists by name (DX-4).
+        """
         if old_dir is None:
             return []
         staging = Path(tempfile.mkdtemp(prefix="arcavex-upgrade-"))
@@ -750,12 +917,23 @@ class Orchestrator:
                     old_dir, proj, fmt, locale, patch_ops, patch_file, old_png
                 ):
                     continue
+                patch_applied = True
                 if not self._preview_one(
                     target.path, proj, fmt, locale, patch_ops, patch_file, new_png
                 ):
-                    continue
+                    # The override is stale on the target; render the target without it so the
+                    # upgrade decision still gets a comparable preview.
+                    patch_applied = False
+                    if not self._preview_one(
+                        target.path, proj, fmt, locale, None, None, new_png
+                    ):
+                        continue
                 out.append(
-                    UpgradeOutputDiff(name=name_png, dssim=self._dssim(old_png, new_png))
+                    UpgradeOutputDiff(
+                        name=name_png,
+                        dssim=self._dssim(old_png, new_png),
+                        patch_applied=patch_applied,
+                    )
                 )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
@@ -854,6 +1032,63 @@ def _entry_from_worker(project_dir: str, result: dict[str, Any]) -> BatchEntry:
         outputs=list(result.get("outputs", [])),
         diagnostics=diags,
     )
+
+
+def _op_path(op: Any) -> str | None:
+    """Return the ``nodes.<id>[.<field>]`` path a patch op addresses, or ``None`` if malformed."""
+    if not isinstance(op, dict):
+        return None
+    for verb in ("set", "remove", "insert_before", "insert_after"):
+        if verb in op:
+            value = op[verb]
+            return str(value) if isinstance(value, str) else None
+    return None
+
+
+def _collect_authored_ids(node: Any, ids: set[str]) -> None:
+    """Collect authored node ids from a template ``root`` AST, seeing through repeat/if wrappers."""
+    if not isinstance(node, dict):
+        return
+    actual = node["node"] if ("node" in node and ("repeat" in node or "if" in node)) else node
+    if not isinstance(actual, dict):
+        return
+    node_id = actual.get("id")
+    if isinstance(node_id, str):
+        ids.add(node_id)
+    children = actual.get("children")
+    if isinstance(children, list):
+        for child in children:
+            _collect_authored_ids(child, ids)
+
+
+def _patch_input_ref(patch_ops: list[Any] | None, patch_file: Path | None) -> InputRef | None:
+    """Return the applied project patch as a hashed manifest input, or ``None`` when absent.
+
+    The patch is the PROJECT layer in the resolution order (§5.4); hashing its canonical content
+    makes it a first-class provenance input, so diff can attribute a patch-only change and rerun
+    can name a drifted patch (CR-1). The ``ref`` is the project-relative override path.
+    """
+    if not patch_ops:
+        return None
+    ref = f"overrides/{Path(patch_file).name}" if patch_file is not None else "project.patch"
+    return InputRef(ref=ref, hash=canonical_hash(_plain(patch_ops)))
+
+
+def _plain(value: Any) -> Any:
+    """Convert ruamel structures and scalar subclasses to plain Python for stable hashing."""
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, bool):
+        return bool(value)
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value)
+    if isinstance(value, str):
+        return str(value)
+    return value
 
 
 def _locale_key(locale: str | None) -> str:

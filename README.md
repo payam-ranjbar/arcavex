@@ -22,8 +22,8 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 | Command | Purpose |
 |---|---|
 | `render TEMPLATE [--data D] [--format F] [--locale L] [--style S] [-o OUT]` | Render to PNG. |
-| `validate TEMPLATE [--data D] [--format F] [--locale L] [--style S]` | Validate without rendering. |
-| `preview TEMPLATE [--data D] [--format F] [--locale L] [--style S] [--watch]` | Render to a stable preview path; `--watch` re-renders on every save. |
+| `validate [TEMPLATE] [--data D] [--format F] [--locale L] [--style S] [--project P]` | Validate without rendering. Omit `TEMPLATE` to validate the current project (project mode). |
+| `preview [TEMPLATE] [--data D] [--format F] [--locale L] [--style S] [--project P] [--watch]` | Render to a stable preview path; `--watch` re-renders on every save. Omit `TEMPLATE` to preview the current project. |
 | `template new DIR` | Scaffold a minimal renderable template (template.yaml + data.yaml + README). |
 | `template check PATH [--format F] [--locale L] [--style S]` | Validate a template without data (schema + structure + preview_data). |
 | `template inspect PATH [--json]` | Report the authored contract: variables, formats, nodes, functions, example data. |
@@ -32,7 +32,7 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 | `style inspect NAME [--json]` | Show a style pack's palettes, fonts, effect presets, and role defaults. |
 | `effects list [--json]` | List registered effects with their category and each param's type, default, and range. |
 | `effects inspect NAME [--json]` | Show one effect's category and full parameter schema. |
-| `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, temp dir, paths) and engine version. |
+| `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, temp dir, paths, config) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
 ### Projects, library, and provenance (§5)
@@ -48,7 +48,7 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 | `status [--project P]` | Show the current project's manifest and recorded-run count. |
 | `render [--project P] [--format F] [--locale L] [--dpi N]` | With no template, render the discovered project's formats × locales into a recorded run. |
 | `render TEMPLATE --record [...]` | Direct render that also writes a run manifest. |
-| `list-runs [--project P]` | List the project's recorded runs, newest first. |
+| `list-runs [--project P] [--path DIR]` | List recorded runs newest first — the project's, or with `--path` the runs under a direct-mode `outputs/` directory. |
 | `rerun outputs/<run>` | Reproduce a recorded run into a new run directory (byte-identical on the same engine + platform). |
 | `diff outputs/<run-a> outputs/<run-b>` | Per-output pixel/perceptual diff plus template/data/asset/font/engine/option changes. |
 | `batch <projects-glob> [--jobs N]` | Render every matched project in parallel jobs; output is byte-identical to serial. |
@@ -65,6 +65,47 @@ locale (direction, digit policy, font overrides, data overlay, and patch); reque
 the template does not declare is a located error (`ARC-TPL-100`). `arcavex layout inspect
 TEMPLATE [--data D] [--format F] [--locale L] [--json]` reports resolved geometry, and
 `render`/`preview --debug` overlays node bounds, ids, baselines, and the safe-area margin.
+
+Direct-mode `render TEMPLATE --record` runs (recorded outside a project) are `rerun`- and
+`diff`-able by path, and `list-runs --path <outputs-dir>` lists them; `list-runs` with no project
+and no `--path` falls back to a `./outputs` directory beside the current directory.
+
+#### Project overrides (the PROJECT resolution layer)
+
+A project can override its pinned template without forking it, using an override patch file:
+
+- **Location & name:** `overrides/<template-name>.patch.yaml`, where `<template-name>` is the
+  template's name before `@` (e.g. a project pinned to `ipen-poster@1.0.0` uses
+  `overrides/ipen-poster.patch.yaml`). `project new` scaffolds an empty `overrides/` directory.
+- **Contents:** a YAML **list** of patch operations — the same vocabulary as format/locale
+  patches: `set`, `remove`, `insert_before`, `insert_after`, each addressing a node by
+  `nodes.<id>[.<field>...]`. Example:
+  ```yaml
+  - set: nodes.background.style.fill
+    value: '#00ff00'
+  - remove: nodes.watermark
+  ```
+- **Resolution order:** the override is the **PROJECT layer**, applied last, after the style →
+  template → format → locale layers (spec §5.4) — so it is the project's final structural word.
+- **Provenance:** the applied override is captured in the run manifest by canonical content hash
+  (`patch`), so `diff` attributes a patch-only change (`overrides` / `overrides.hash`) and
+  `rerun` names it if the file changed on disk since the run was recorded (`ARC-RUN-002`).
+  `project upgrade` reports override paths that no longer resolve against the target version.
+
+#### Runtime configuration precedence (§6.3)
+
+Settings resolve highest-first through **CLI flag → `ARCAVEX_*` env var → `project.yaml` →
+`~/.arcavex/config.toml` (or `$ARCAVEX_HOME/config.toml`) → built-in default**. The wired setting
+is the default render DPI:
+
+- `--dpi N` on `render`/`batch`/`preview` (highest),
+- `ARCAVEX_DPI=N` in the environment,
+- `dpi: N` in `project.yaml` (project mode),
+- `[render] dpi = N` in `config.toml`,
+- otherwise each format renders at its own declared canvas DPI (the default).
+
+`arcavex doctor` reports whether a `config.toml` is present and which layer the default DPI
+resolves from.
 
 ## Template anatomy
 

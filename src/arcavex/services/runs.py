@@ -114,6 +114,10 @@ class RunManifest(BaseModel):
     template: InputRef
     template_is_library: bool = False
     style: InputRef | None = None
+    # The applied project override patch (§5.4), captured by canonical content hash so a
+    # patch-only change is a first-class provenance input: diff can attribute it and rerun can
+    # name it as a drift cause. ``None`` when the project applied no override (CR-1/DX-2).
+    patch: InputRef | None = None
     dpi: int | None = None
     options: dict[str, Any] = Field(default_factory=dict)
     outputs: list[RunOutput] = Field(default_factory=list)
@@ -272,6 +276,10 @@ def _diff_metadata(a: RunManifest, b: RunManifest) -> list[MetadataDiff]:
     cmp("template", _ref(a.template), _ref(b.template))
     cmp("template.hash", a.template.hash, b.template.hash)
     cmp("style", _ref(a.style), _ref(b.style))
+    # The project override patch is a resolution input (§5.4); a patch-only change now shows up
+    # here (by content hash) instead of an unexplained pixel delta (CR-1/DX-2).
+    cmp("overrides", _ref(a.patch), _ref(b.patch))
+    cmp("overrides.hash", a.patch.hash if a.patch else None, b.patch.hash if b.patch else None)
     cmp("engine_version", a.engine_version, b.engine_version)
     cmp("platform", a.platform, b.platform)
     cmp("ir_version", a.ir_version, b.ir_version)
@@ -281,6 +289,12 @@ def _diff_metadata(a: RunManifest, b: RunManifest) -> list[MetadataDiff]:
         ha = canonical_hash(a.resolved_data[locale]) if locale in a.resolved_data else None
         hb = canonical_hash(b.resolved_data[locale]) if locale in b.resolved_data else None
         cmp(f"data[{locale or '-'}]", ha, hb)
+    # Assets are recorded per-path by sha256; report each added/removed/changed asset so an
+    # asset-only swap (a referenced image's bytes changed) is attributed, not silent (CR-2).
+    assets_a = {p.path: p.sha256 for p in a.assets}
+    assets_b = {p.path: p.sha256 for p in b.assets}
+    for path in sorted(set(assets_a) | set(assets_b)):
+        cmp(f"asset[{path}]", assets_a.get(path), assets_b.get(path))
     return out
 
 

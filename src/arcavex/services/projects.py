@@ -41,6 +41,10 @@ class ProjectModel(BaseModel):
     locales: list[str] = Field(default_factory=list)
     formats: list[str] = Field(default_factory=list)
     data: str | None = None
+    # Optional per-project default render DPI: the project.yaml layer of the §6.3 precedence
+    # chain (below a CLI --dpi / ARCAVEX_DPI, above config.toml). Unset renders each format at
+    # its own declared canvas DPI.
+    dpi: int | None = None
     status: ProjectStatus = "draft"
     tags: list[str] = Field(default_factory=list)
 
@@ -330,7 +334,7 @@ def _resolve_template_dir(path: Path) -> Path:
 
 def _manifest_dict(manifest: ProjectModel) -> dict[str, Any]:
     """Render a manifest as an ordered plain dict for a clean project.yaml."""
-    return {
+    out: dict[str, Any] = {
         "name": manifest.name,
         "template": manifest.template,
         "style": manifest.style,
@@ -340,6 +344,10 @@ def _manifest_dict(manifest: ProjectModel) -> dict[str, Any]:
         "status": manifest.status,
         "tags": list(manifest.tags),
     }
+    # Only persist an explicit per-project DPI, so a scaffolded project.yaml stays clean.
+    if manifest.dpi is not None:
+        out["dpi"] = manifest.dpi
+    return out
 
 
 def _template_style(raw: Any) -> str | None:

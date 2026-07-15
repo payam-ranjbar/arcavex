@@ -42,6 +42,7 @@ def run_doctor(text_service: TextService | None = None) -> DoctorReport:
         _check_fonts(text_service),
         _check_temp_dir(),
         _check_paths(),
+        _check_config(),
     ]
     # 'ok' is true when no probe failed; warnings do not flip overall success.
     ok = all(c.status != "fail" for c in checks)
@@ -161,4 +162,24 @@ def _check_paths() -> DoctorCheck:
         name="paths",
         status="ok",
         detail=f"home={home_dir} [{source}]; preview cache={preview_cache}",
+    )
+
+
+def _check_config() -> DoctorCheck:
+    """Report the resolved runtime config source (§6.3 precedence, DX-8).
+
+    Shows whether a ``config.toml`` is present and which precedence layer the default render DPI
+    resolves from (an ``ARCAVEX_DPI`` env var, the config file, or the built-in per-format
+    default) — so the config chain is inspectable without a project in hand.
+    """
+    from arcavex.services.config import RuntimeConfig, config_path
+
+    resolved = RuntimeConfig.load().resolve_dpi()
+    path = config_path()
+    presence = "present" if path.is_file() else "absent"
+    dpi = "per-format" if resolved.value is None else str(resolved.value)
+    return DoctorCheck(
+        name="config",
+        status="ok",
+        detail=f"config.toml {presence} ({path}); default dpi={dpi} [{resolved.source}]",
     )

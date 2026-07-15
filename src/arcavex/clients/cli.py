@@ -279,7 +279,9 @@ def render(
 
 @app.command()
 def validate(
-    template: Path = typer.Argument(..., help="Path to the template YAML file."),
+    template: Path | None = typer.Argument(
+        None, help="Template YAML file. Omit to validate the current project (project mode)."
+    ),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
     locale: str | None = typer.Option(
@@ -290,19 +292,32 @@ def validate(
         help="Style pack to apply ('name@version' or './file.yaml'); overrides the template's "
         "'style:' opt-in.",
     ),
+    project: Path | None = typer.Option(
+        None, "--project", help="Project directory (project mode); overrides upward discovery."
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
 ) -> None:
-    """Validate a template (and optional data) without rendering."""
+    """Validate a template, or (with no template) the current project, without rendering."""
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
-    diagnostics = facade.validate_template(
-        template=template, data=data, format_name=format_name, locale=locale, style=style
-    )
-    ok = not has_errors(diagnostics)
+    # Project mode: no template argument means "validate the discovered project" (DX-1),
+    # mirroring render's project-mode split — its template + data + overrides across formats.
+    if template is None:
+        result = facade.validate_project(
+            project=project, formats=[format_name] if format_name else None,
+            locales=[locale] if locale else None,
+        )
+        diagnostics = list(result.diagnostics)
+        ok = result.ok
+    else:
+        diagnostics = facade.validate_template(
+            template=template, data=data, format_name=format_name, locale=locale, style=style
+        )
+        ok = not has_errors(diagnostics)
     if json_out:
         typer.echo(
             json.dumps(
@@ -384,7 +399,9 @@ def explain(
 
 @app.command()
 def preview(
-    template: Path = typer.Argument(..., help="Template file or directory."),
+    template: Path | None = typer.Argument(
+        None, help="Template file or directory. Omit to preview the current project (project mode)."
+    ),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
     locale: str | None = typer.Option(None, "--locale", "-l", help="Locale name."),
@@ -393,6 +410,9 @@ def preview(
         help="Style pack to apply ('name@version' or './file.yaml'); overrides the template's "
         "'style:' opt-in.",
     ),
+    project: Path | None = typer.Option(
+        None, "--project", help="Project directory (project mode); overrides upward discovery."
+    ),
     watch: bool = typer.Option(False, "--watch", help="Re-render on every dependent-file save."),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
     debug: bool = typer.Option(False, "--debug", help="Overlay node bounds, ids, and baselines."),
@@ -400,11 +420,26 @@ def preview(
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
 ) -> None:
-    """Render to a stable preview path; with --watch, keep re-rendering on saves."""
+    """Preview a template to a stable path (with --watch, keep re-rendering), or the project."""
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
+    # Project mode: no template argument previews the discovered project across its targets (DX-1).
+    if template is None:
+        report = facade.preview_project(
+            project=project, formats=[format_name] if format_name else None,
+            locales=[locale] if locale else None, dpi=dpi,
+        )
+        if json_out:
+            _emit_json(report)
+        elif not quiet:
+            if not report.ok and not report.previews:
+                _print_diagnostics(console, report.diagnostics, quiet)
+            for res in report.previews:
+                _print_preview_line(console, res, quiet, watching=False)
+        all_diags = [d for res in report.previews for d in res.diagnostics] or report.diagnostics
+        raise typer.Exit(_exit_code_for(all_diags, report.ok))
     if watch:
         _run_preview_watch(
             facade, console, template, data, format_name, locale, style, dpi, quiet, debug
@@ -985,14 +1020,28 @@ def project_upgrade(
                 f"[bold]upgrade[/bold] {report.from_version} -> {report.to_version} "
                 f"({'applied' if report.applied else 'preview only'})"
             )
-            if report.stale_paths:
-                console.print("[yellow]stale patch paths[/yellow] (no longer resolve):")
-                for p in report.stale_paths:
-                    console.print(f"  {_esc(p)}")
-            for o in report.outputs:
-                score = "identical" if o.dssim == 0.0 else f"dssim {o.dssim:.4f}"
-                console.print(f"  {o.name}: {score}")
-            if not report.applied and not report.stale_paths:
+            if report.stale:
+                console.print("[yellow]stale override paths[/yellow] (no longer resolve):")
+                for s in report.stale:
+                    node = f" (node {s.node_id})" if s.node_id else ""
+                    console.print(f"  {_esc(s.path or s.op)}{_esc(node)} [dim]{_esc(s.op)}[/dim]")
+            if report.added_nodes or report.removed_nodes:
+                console.print("[bold]node changes[/bold]:")
+                if report.added_nodes:
+                    console.print(f"  [green]added[/green]: {_esc(', '.join(report.added_nodes))}")
+                if report.removed_nodes:
+                    console.print(
+                        f"  [red]removed[/red]: {_esc(', '.join(report.removed_nodes))}"
+                    )
+            if report.outputs:
+                console.print("[bold]preview diff[/bold] (current pin vs target):")
+                for o in report.outputs:
+                    score = "identical" if o.dssim == 0.0 else (
+                        "shape differs" if o.dssim is None else f"dssim {o.dssim:.4f}"
+                    )
+                    note = "" if o.patch_applied else " [dim](override dropped: stale)[/dim]"
+                    console.print(f"  {_esc(o.name)}: {score}{note}")
+            if not report.applied:
                 console.print("[dim]re-run with --yes to update the pin[/dim]")
     raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
 
@@ -1029,16 +1078,21 @@ def status(
 @app.command("list-runs")
 def list_runs(
     project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    path: Path | None = typer.Option(
+        None, "--path",
+        help="List recorded runs under this outputs/ directory (direct-mode --record runs), "
+        "instead of the current project.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
 ) -> None:
-    """List the current project's recorded runs, newest first."""
+    """List recorded runs (project's, or with --path a direct-mode outputs dir), newest first."""
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color)
     facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
-    report: RunListReport = facade.list_runs(project=project)
+    report: RunListReport = facade.list_runs(project=project, path=path)
     if json_out:
         _emit_json(report)
     elif not quiet:
@@ -1090,6 +1144,12 @@ def rerun(
                     f"[yellow]Rendered[/yellow] {report.run_id} but did not claim exact "
                     f"reproduction ({'; '.join(reason) or 'unknown'})"
                 )
+                # Name the input(s) that changed on disk, so a same-engine/platform failure is
+                # explained rather than just flagged (CR-3/DX-3).
+                if report.drift:
+                    console.print(
+                        f"  [dim]changed on disk:[/dim] {_esc(', '.join(report.drift))}"
+                    )
     raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
 
 
@@ -1161,11 +1221,14 @@ def batch(
             console.print(f"  {mark} {_esc(entry.project)} ({len(entry.outputs)} output(s))")
             if not entry.ok:
                 _print_diagnostics(console, entry.diagnostics, quiet)
-        if report.ok and not quiet:
-            console.print(
-                f"[green]Batch complete[/green] {len(report.entries)} project(s), "
-                f"{report.jobs} job(s)"
-            )
+        # Aggregate tally so a large batch's health is legible without counting rows (DX-10).
+        n_ok = sum(1 for e in report.entries if e.ok)
+        n_failed = len(report.entries) - n_ok
+        color = "green" if report.ok else "red"
+        console.print(
+            f"[{color}]Batch complete[/{color}] {n_ok} ok / {n_failed} failed "
+            f"({len(report.entries)} project(s), {report.jobs} job(s))"
+        )
     raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
 
 

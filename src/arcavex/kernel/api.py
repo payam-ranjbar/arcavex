@@ -104,6 +104,28 @@ class CompileResult:
 
 
 @dataclass
+class ProjectInputs:
+    """The resolved compile inputs for a project's render targets (project-mode dry runs).
+
+    Returned by the orchestrator so the facade can validate or preview a project's current
+    template + data + override patch across its formats × locales without re-implementing
+    project resolution — the same inputs ``render`` project mode uses (DX-1). ``patch_ops`` are
+    the raw override ops (line info preserved for located ``ARC-TPL-092`` diagnostics), so this
+    is a plain dataclass rather than a pydantic model that would flatten them.
+    """
+
+    name: str
+    template_dir: Path
+    ref: str
+    is_library: bool
+    style: str | None
+    data_path: Path | None
+    patch_ops: list[Any] | None
+    patch_file: Path | None
+    targets: list[tuple[str, str | None]]
+
+
+@dataclass
 class ResolvedPatch:
     """One applied patch operation plus the value it produced (for --resolved)."""
 
@@ -483,6 +505,17 @@ class PreviewResult(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class PreviewProjectReport(BaseModel):
+    """The result of ``arcavex preview`` in project mode: one preview per format × locale (DX-1)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    previews: list[PreviewResult] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 # --------------------------------------------------------------------- layout inspection
 class AnchorDerivation(BaseModel):
     """How one axis position of a node was derived from its anchor."""
@@ -666,6 +699,10 @@ class RerunReport(BaseModel):
     engine_match: bool = True
     platform_match: bool = True
     mismatches: list[str] = Field(default_factory=list)
+    # Which recorded inputs changed on disk since the run was recorded (template, overrides,
+    # style, assets, fonts). Explains a failed reproduction whose engine and platform both
+    # match — the byte comparison flags drift, this names its cause (CR-3/DX-3).
+    drift: list[str] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -757,16 +794,43 @@ class DetachReport(BaseModel):
 
 
 class UpgradeOutputDiff(BaseModel):
-    """One output's perceptual difference between the current pin and the upgrade target."""
+    """One output's perceptual difference between the current pin and the upgrade target.
+
+    ``patch_applied`` is false when the project override no longer resolves against the target
+    version, so the target-version preview was rendered *without* the override (the diff still
+    shows what the new version looks like over current data, §5.5).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     name: str
     dssim: float | None = None
+    patch_applied: bool = True
+
+
+class UpgradeStalePath(BaseModel):
+    """One project override op that no longer resolves against the upgrade target (DX-5).
+
+    Reports the addressed node path and id (not just the op index) plus the located diagnostic
+    detail, the same information the render-time ``ARC-TPL-092`` gives.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    op: str  # the patch-list position, e.g. "project.patch[0]"
+    path: str | None = None  # the addressed path, e.g. "nodes.venue.style.font_size"
+    node_id: str | None = None  # the addressed node id, e.g. "venue"
+    detail: str | None = None  # the ARC-TPL-092 message
 
 
 class UpgradeReport(BaseModel):
-    """The result of ``arcavex project upgrade``: a preview; updates the pin only when applied."""
+    """The result of ``arcavex project upgrade``: a preview; updates the pin only when applied.
+
+    Implements the spec §5.5 five steps: compile old + target over current data, report stale
+    override paths (``stale`` / ``stale_paths``) with a structural node diff (``added_nodes`` /
+    ``removed_nodes``), render comparable previews and their perceptual diff (``outputs``), and
+    update the pin only on ``applied``.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -775,6 +839,9 @@ class UpgradeReport(BaseModel):
     from_version: str | None = None
     to_version: str | None = None
     stale_paths: list[str] = Field(default_factory=list)
+    stale: list[UpgradeStalePath] = Field(default_factory=list)
+    added_nodes: list[str] = Field(default_factory=list)
+    removed_nodes: list[str] = Field(default_factory=list)
     outputs: list[UpgradeOutputDiff] = Field(default_factory=list)
     applied: bool = False
     diagnostics: list[Diagnostic] = Field(default_factory=list)
@@ -828,7 +895,17 @@ class OrchestratorProtocol(Protocol):
         outputs_root: Path | None,
     ) -> RunReport: ...
 
-    def list_runs(self, start: Path | None, project: Path | None) -> RunListReport: ...
+    def list_runs(
+        self, start: Path | None, project: Path | None, path: Path | None
+    ) -> RunListReport: ...
+
+    def project_inputs(
+        self,
+        start: Path | None,
+        project: Path | None,
+        formats: list[str] | None,
+        locales: list[str] | None,
+    ) -> ProjectInputs: ...
 
     def rerun(self, run_dir: Path) -> RerunReport: ...
 
@@ -1589,10 +1666,151 @@ class Facade:
         )
 
     def list_runs(
-        self, start: Path | None = None, project: Path | None = None
+        self,
+        start: Path | None = None,
+        project: Path | None = None,
+        path: Path | None = None,
     ) -> RunListReport:
-        """List recorded runs for the active project. Never raises."""
-        return self._guard_project(lambda o: o.list_runs(start, project), RunListReport)
+        """List recorded runs for the active project, or under an explicit ``path``. Never raises.
+
+        With ``path`` (or when no project is discoverable but a ``./outputs`` directory exists),
+        lists direct-mode ``--record`` runs under that directory rather than a project's
+        ``outputs/`` — so recorded runs are discoverable outside a project too (DX-7).
+        """
+        resolved = Path(path) if path is not None else None
+        return self._guard_project(
+            lambda o: o.list_runs(start, project, resolved), RunListReport
+        )
+
+    def validate_project(
+        self,
+        start: Path | None = None,
+        project: Path | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+    ) -> CheckResult:
+        """Validate the discovered project across its formats × locales (DX-1). Never raises.
+
+        Compiles the project's template with its data and override patch for each target and
+        exercises layout, the same coverage ``validate`` gives a template, so a project author
+        can dry-run before rendering. No project found returns the ``ARC-PRJ-001`` diagnostic.
+        """
+        if self._orchestrator is None:  # pragma: no cover - always wired in production
+            return CheckResult(ok=False, diagnostics=[_unwired("projects")])
+        try:
+            inputs = self._orchestrator.project_inputs(start, project, formats, locales)
+        except DiagnosticError as exc:
+            return CheckResult(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return CheckResult(
+                ok=False, diagnostics=[internal_error("Project validate failed", detail=repr(exc))]
+            )
+        diagnostics: list[Diagnostic] = []
+        for fmt, locale in inputs.targets:
+            diagnostics.extend(self._validate_project_target(inputs, fmt, locale))
+        diagnostics = _dedupe(diagnostics)
+        return CheckResult(ok=not has_errors(diagnostics), diagnostics=diagnostics)
+
+    def _validate_project_target(
+        self, inputs: ProjectInputs, format_name: str | None, locale: str | None
+    ) -> list[Diagnostic]:
+        result = self._compiler.compile(
+            inputs.template_dir, inputs.data_path, format_name, locale, inputs.style,
+            project_patch=inputs.patch_ops, project_patch_file=inputs.patch_file,
+        )
+        diagnostics = list(result.diagnostics)
+        if result.document is not None and not has_errors(diagnostics):
+            diagnostics.extend(self._try_layout(result.document))
+        return diagnostics
+
+    def preview_project(
+        self,
+        start: Path | None = None,
+        project: Path | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+        dpi: int | None = None,
+    ) -> PreviewProjectReport:
+        """Preview the discovered project's formats × locales to stable paths (DX-1). Never raises.
+
+        Like ``preview`` for a template, but resolves the project's template, data, and override
+        patch and writes one stable preview PNG per target. No recorded run is created.
+        """
+        if self._orchestrator is None:  # pragma: no cover - always wired in production
+            return PreviewProjectReport(ok=False, diagnostics=[_unwired("projects")])
+        try:
+            inputs = self._orchestrator.project_inputs(start, project, formats, locales)
+        except DiagnosticError as exc:
+            return PreviewProjectReport(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return PreviewProjectReport(
+                ok=False, diagnostics=[internal_error("Project preview failed", detail=repr(exc))]
+            )
+        previews = [
+            self._preview_project_target(inputs, fmt, locale, dpi)
+            for fmt, locale in inputs.targets
+        ]
+        return PreviewProjectReport(ok=all(p.ok for p in previews), previews=previews)
+
+    def _preview_project_target(
+        self, inputs: ProjectInputs, format_name: str | None, locale: str | None, dpi: int | None
+    ) -> PreviewResult:
+        try:
+            compiled = self._compiler.compile(
+                inputs.template_dir, inputs.data_path, format_name, locale, inputs.style,
+                project_patch=inputs.patch_ops, project_patch_file=inputs.patch_file,
+            )
+        except DiagnosticError as exc:
+            return PreviewResult(ok=False, diagnostics=list(exc.diagnostics))
+        diagnostics = list(compiled.diagnostics)
+        if compiled.document is None or has_errors(diagnostics):
+            return PreviewResult(ok=False, diagnostics=diagnostics)
+        resolved_format = compiled.format_name or "out"
+        key = hashlib.sha256(
+            f"{inputs.name}:{inputs.ref}:{resolved_format}:{locale or ''}".encode()
+        ).hexdigest()[:16]
+        seg = f".{locale}" if locale else ""
+        out_path = self._resolve_preview_root() / f"{key}.{resolved_format}{seg}.png"
+        try:
+            report, warnings = self._render_document(compiled.document, out_path, dpi)
+        except DiagnosticError as exc:
+            return PreviewResult(ok=False, diagnostics=diagnostics + list(exc.diagnostics))
+        diagnostics.extend(warnings)
+        return PreviewResult(
+            ok=True,
+            output_path=str(out_path),
+            content_sha256=report.content_sha256,
+            inferred=dict(compiled.inferred),
+            diagnostics=diagnostics,
+        )
+
+    def _render_document(
+        self, document: CompiledDocument, out_path: Path, dpi: int | None
+    ) -> tuple[Any, list[Diagnostic]]:
+        """Lay out, render, and atomically export a compiled document to ``out_path``.
+
+        Shared by project preview; mirrors the direct-preview atomic write so a failed render
+        leaves any prior image intact.
+        """
+        solver = self._registries.layouts.get(self._default_layout)
+        layout = solver.solve(document, self._measure)
+        warnings = list(layout.warnings)
+        backend = self._registries.backends.get(self._default_backend)
+        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=False))
+        exporter = self._registries.exporters.get("png")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_name = tempfile.mkstemp(
+            dir=str(out_path.parent), prefix=".preview-", suffix=".png"
+        )
+        os.close(tmp_fd)
+        tmp_path = Path(tmp_name)
+        try:
+            report = exporter.export(surface, tmp_path, ExportOptions(dpi=dpi))
+            os.replace(tmp_path, out_path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        return report, warnings
 
     def rerun(self, run_dir: Path) -> RerunReport:
         """Reproduce a recorded run into a new run dir (byte-identical on match). Never raises."""
