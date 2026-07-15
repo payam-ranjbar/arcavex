@@ -29,3 +29,6 @@ Thumbs.db
 outputs-tmp/
 memory/
 
+
+# Stray render run dirs at repo root (never authoritative; curated examples live under examples/)
+/outputs/
