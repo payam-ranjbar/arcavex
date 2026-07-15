@@ -19,6 +19,7 @@ from arcavex.kernel.api import (
     DataReport,
     DiagnosticHelp,
     DiffReport,
+    EffectListReport,
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
@@ -28,6 +29,9 @@ from arcavex.kernel.api import (
     RenderResult,
     RerunReport,
     RunListReport,
+    RunReport,
+    StyleInspectReport,
+    StyleListReport,
     TemplateInspectReport,
     TemplateListReport,
 )
@@ -44,10 +48,15 @@ _TOOL_OUTPUT_MODELS = {
     "arcavex_project_list": ProjectListReport,
     "arcavex_project_status": ProjectStatusReport,
     "arcavex_project_clone": ProjectResult,
+    "arcavex_project_render": RunReport,
+    "arcavex_render_record": RunReport,
     "arcavex_data_set": DataReport,
     "arcavex_data_import": DataReport,
     "arcavex_asset_add": AssetReport,
     "arcavex_asset_annotate": AssetReport,
+    "arcavex_style_list": StyleListReport,
+    "arcavex_style_inspect": StyleInspectReport,
+    "arcavex_effects_list": EffectListReport,
     "arcavex_layout_inspect": LayoutReport,
     "arcavex_render": RenderResult,
     "arcavex_run_list": RunListReport,
@@ -65,7 +74,7 @@ def test_catalog_lists_every_declared_tool() -> None:
     """The built server exposes exactly the declared tool catalog (names)."""
     catalog = _catalog()
     assert set(catalog) == {name for name, _ in _TOOL_METHODS}
-    assert len(catalog) == 19
+    assert len(catalog) == 24
 
 
 def test_output_schemas_match_facade_models() -> None:
@@ -99,7 +108,9 @@ def test_every_tool_delegates_to_a_facade_method() -> None:
     for facade_method in (
         "list_templates", "inspect_template", "validate_template", "patch_template",
         "create_project", "list_projects", "project_status", "clone_project",
+        "render_project", "record_render",
         "set_data", "import_data", "add_asset", "annotate_asset",
+        "list_styles", "inspect_style", "list_effects",
         "render_preview", "inspect_layout", "render_file", "list_runs",
         "diff_runs", "rerun", "explain_diagnostic",
     ):

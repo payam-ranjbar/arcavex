@@ -26,8 +26,13 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 | `preview [TEMPLATE] [--data D] [--format F] [--locale L] [--style S] [--project P] [--watch]` | Render to a stable preview path; `--watch` re-renders on every save. Omit `TEMPLATE` to preview the current project. |
 | `template new DIR` | Scaffold a minimal renderable template (template.yaml + data.yaml + README). |
 | `template check PATH [--format F] [--locale L] [--style S]` | Validate a template without data (schema + structure + preview_data). |
-| `template inspect PATH [--json]` | Report the authored contract: variables, formats, nodes, functions, example data. |
+| `template inspect PATH [--json]` | Report the authored contract: variables, formats, locales, nodes, functions, example data. |
+| `template patch PATH [--set P --value V \| --remove P \| --insert-before P --node J \| --insert-after P --node J \| --ops-file F] [--base-sha256 H]` | Apply path-addressed set/remove/insert ops to a template on disk (comment-preserving); the AI mutation contract, also on the CLI. |
 | `template split PATH` | Convert a one-file template into a split directory, losslessly. |
+| `data set KEYPATH VALUE [--project P]` | Set a single value in the current project's data (VALUE parsed as JSON, else a string), then revalidate. |
+| `data import [FILE] [--locale L] [--project P]` | Merge a YAML data document (or stdin) into the project's data under overlay semantics. |
+| `asset add SOURCE [--project P]` | Ingest an image into the content-addressed store and report its reference. |
+| `asset annotate SHA256 [--set k=v ... \| --annotations J]` | Write sidecar annotations (facing/focal_point/tags) onto an ingested asset. |
 | `style list [--json]` | List installed style packs (palettes, presets, roles). |
 | `style inspect NAME [--json]` | Show a style pack's palettes, fonts, effect presets, and role defaults. |
 | `effects list [--json]` | List registered effects with their category and each param's type, default, and range. |
@@ -106,6 +111,43 @@ is the default render DPI:
 
 `arcavex doctor` reports whether a `config.toml` is present and which layer the default DPI
 resolves from.
+
+## MCP authoring surface (§6.2)
+
+Arcavex ships an optional [MCP](https://modelcontextprotocol.io) server so an AI agent can author
+templates and projects through the same service API the CLI uses — never a second engine. Every
+tool is a thin wrapper over one facade method and returns the **same** versioned pydantic result
+the CLI's `--json` returns, with structured, coded, located diagnostics (never scraped text). The
+transport is stdio only (no network).
+
+| Command | Purpose |
+|---|---|
+| `mcp serve` | Start the stdio MCP authoring server (blocks until the client disconnects). |
+| `mcp tools [--json]` | Print the tool catalog (names, descriptions, and input/output JSON schemas) for discovery. |
+
+Wire it into an MCP client (e.g. Claude Desktop) as a stdio server running `arcavex mcp serve`.
+The catalog (24 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_validate`/`_patch`,
+`arcavex_project_create`/`_list`/`_status`/`_clone`/`_render`, `arcavex_render_record`,
+`arcavex_data_set`/`_import`, `arcavex_asset_add`/`_annotate`,
+`arcavex_style_list`/`_inspect`/`arcavex_effects_list`,
+`arcavex_render_preview` (returns the PNG as image content, `debug=true` overlays the layout),
+`arcavex_layout_inspect`, `arcavex_render`, `arcavex_run_list`/`_diff`/`_rerun`, and
+`arcavex_diagnostic_explain`. Every tool delegates to a facade method that is also reachable from
+the CLI/Python API, so MCP adds no exclusive capability (a linted boundary, spec §12.18).
+
+The intended authoring loop (also the server's advertised `instructions`):
+
+1. `arcavex_template_inspect` — read the contract: variables, formats, **locales**, node ids,
+   functions, and example data, so the agent never infers the contract from raw source.
+2. `arcavex_template_patch` — edit an addressed node (`nodes.<id>[.<field>]`). A leaf field in a
+   fixed-vocabulary block (style/fit/paragraph/constraints) is validated before writing, so a
+   typo (`fontsize` for `font_size`) is a located `ARC-TPL-051`, not a silent write; an op that
+   does not name exactly one verb is a located `ARC-TPL-092`.
+3. `arcavex_template_validate` → `arcavex_render_preview` (see the image) →
+   `arcavex_layout_inspect` (resolved geometry, overlaps a compile-clean validate misses).
+4. To author real content: `arcavex_project_create` → `arcavex_data_set` / `arcavex_data_import`
+   (a keypath matching no declared variable warns with `ARC-TPL-112`) → `arcavex_project_render`
+   for a recorded run that `arcavex_run_list`/`_diff`/`_rerun` then operate on.
 
 ## Template anatomy
 

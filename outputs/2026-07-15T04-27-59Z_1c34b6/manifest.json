@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "run_id": "2026-07-15T04-27-59Z_1c34b6",
+  "created": "2026-07-15T04:27:59.228223+00:00",
+  "engine_version": "0.1.0.dev0",
+  "platform": "win-x86_64",
+  "ir_version": "1.0",
+  "kind": "direct",
+  "project": null,
+  "template": {
+    "ref": "C:\\Users\\payam\\AppData\\Local\\Temp\\pytest-of-payam\\pytest-548\\test_render_record_produces_a_0\\card\\template.yaml",
+    "hash": "4af690c2e0fc77ba66176339b54b4c7de036159ddb4562f773db51e22e127c3d"
+  },
+  "template_is_library": false,
+  "style": null,
+  "patch": null,
+  "dpi": null,
+  "options": {},
+  "outputs": [
+    {
+      "name": "template.square.png",
+      "format": "square",
+      "locale": null,
+      "sha256": "e14d3eb5a9930e8a864aacecd3341dcfdfd4409ee315538502b3f438c9fb8d81",
+      "width": 1080,
+      "height": 1080,
+      "bytes": 16008,
+      "seed": 0,
+      "data_hash": "8aab7f9abb3a5c0d759717e32c5655501a4d16eaac792f58c256dfbe61cd08ec"
+    }
+  ],
+  "assets": [],
+  "fonts_hash": "fa4e7ca4d871e3393b2c6e14499adec953acef81f3a88434c79480b5b34ca62d",
+  "fonts": [
+    {
+      "name": "Estedad-Black.ttf",
+      "sha256": "1440cd9f1a1413ba634611b0f5644ceae2fa10bae8573863e0b77ba0d445a3cd"
+    },
+    {
+      "name": "Estedad-Bold.ttf",
+      "sha256": "946d8dc437d5c5e938a6785348c10194d323e3c9b48c8b83ff4c22fae6ba1add"
+    },
+    {
+      "name": "Estedad-Regular.ttf",
+      "sha256": "6fa532c2f732eda9d93508f27d6449e54d84caa2dd8e971ad0e5a6379580ed36"
+    },
+    {
+      "name": "Inter-Black.ttf",
+      "sha256": "6342d3ea6dc088b43867f615e807d898adf100c93edb978b8e52c5eb71a264da"
+    },
+    {
+      "name": "Inter-Bold.ttf",
+      "sha256": "288316099b1e0a47a4716d159098005eef7c0066921f34e3200393dbdb01947f"
+    },
+    {
+      "name": "Inter-Medium.ttf",
+      "sha256": "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872"
+    },
+    {
+      "name": "Inter-Regular.ttf",
+      "sha256": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82"
+    },
+    {
+      "name": "Inter-SemiBold.ttf",
+      "sha256": "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3"
+    },
+    {
+      "name": "Lalezar-Regular.ttf",
+      "sha256": "7b80807bc831f141de0f7dcf6816412bf0c548968d548c5156ca388733390ea9"
+    },
+    {
+      "name": "Vazirmatn-Black.ttf",
+      "sha256": "df4e257be9de1574d11ba2970c69228a7db24174913ff7f776bbf00a9aa5dc1b"
+    },
+    {
+      "name": "Vazirmatn-Bold.ttf",
+      "sha256": "f635fdbea28f265de395ba83b4b1570dcf2f58d13c65469e61903b1c2d2ae723"
+    },
+    {
+      "name": "Vazirmatn-Medium.ttf",
+      "sha256": "b986623e4ddef10755e04be39f8ea7bcb1dc08bfe8dd0aa6af395736f256ad4a"
+    },
+    {
+      "name": "Vazirmatn-Regular.ttf",
+      "sha256": "b69fd4c680b8f3f225feabcc655a2c585d97627b8f5f5c0f9985e894069f3a56"
+    },
+    {
+      "name": "Vazirmatn-SemiBold.ttf",
+      "sha256": "3f239d8364c14ee32c46b6839fa197c28958358b82a9673d2c6acc8506d78bc5"
+    }
+  ],
+  "diagnostics": [],
+  "timings_ms": {
+    "compile_ms": 25.087,
+    "render_ms": 119.923
+  },
+  "resolved_data": {
+    "": {
+      "title": "External Title",
+      "subtitle": "From a real file",
+      "badge": null
+    }
+  }
+}

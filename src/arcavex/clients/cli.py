@@ -26,6 +26,7 @@ from arcavex.kernel.api import (
     DoctorReport,
     Facade,
     LayoutReport,
+    PatchOp,
     PreviewResult,
     ProjectStatusReport,
     RerunReport,
@@ -57,6 +58,10 @@ effects_app = typer.Typer(add_completion=False, help="Effect catalog commands.")
 app.add_typer(effects_app, name="effects")
 project_app = typer.Typer(add_completion=False, help="Project lifecycle commands.")
 app.add_typer(project_app, name="project")
+data_app = typer.Typer(add_completion=False, help="Project data authoring commands.")
+app.add_typer(data_app, name="data")
+asset_app = typer.Typer(add_completion=False, help="Asset ingest/annotation commands.")
+app.add_typer(asset_app, name="asset")
 mcp_app = typer.Typer(add_completion=False, help="MCP authoring server (spec §6.2).")
 app.add_typer(mcp_app, name="mcp")
 
@@ -157,6 +162,18 @@ def _emit_json(payload: object) -> None:
 
     data = payload.model_dump(mode="json") if isinstance(payload, BaseModel) else payload
     typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def _parse_scalar(text: str) -> object:
+    """Parse a CLI value as JSON (numbers, booleans, null, lists) or fall back to a string.
+
+    So ``--value 42`` sets an int and ``--value '#fff'`` (invalid JSON) stays the string
+    ``"#fff"`` — the same coercion an MCP client gets by passing a typed JSON value.
+    """
+    try:
+        return json.loads(text)
+    except (ValueError, TypeError):
+        return text
 
 
 def _print_diagnostics(console: Console, diagnostics: list[Diagnostic], quiet: bool) -> None:
@@ -611,6 +628,16 @@ def template_inspect(
                 req = "required" if var.required else "optional"
                 console.print(f"  {var.name}: {var.type or '?'} ({req}) {var.doc or ''}")
             console.print(f"[bold]formats[/bold]: {', '.join(f.name for f in report.formats)}")
+            if report.locales:
+                console.print("[bold]locales[/bold]:")
+                for loc in report.locales:
+                    bits = [b for b in (loc.direction, loc.digits) if b]
+                    extras = [x for x in (
+                        "fonts" if loc.has_fonts else None,
+                        "patch" if loc.has_patch else None,
+                    ) if x]
+                    detail = ", ".join(bits + extras)
+                    console.print(f"  {_esc(loc.name)}{f' ({_esc(detail)})' if detail else ''}")
             console.print("[bold]nodes[/bold]:")
             for node in report.nodes:
                 tag = "" if node.origin == "static" else f" \\[{node.origin}]"
@@ -677,6 +704,83 @@ def template_split(
                 f"[green]Split[/green] {result.directory} into {', '.join(result.files)}"
             )
     raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@template_app.command("patch")
+def template_patch(
+    template: Path = typer.Argument(..., help="Template file or directory to patch in place."),
+    set_path: str | None = typer.Option(
+        None, "--set", help="Set 'nodes.<id>[.<field>]' to --value."
+    ),
+    value: str | None = typer.Option(
+        None, "--value", help="Value for --set (parsed as JSON, else a string)."
+    ),
+    remove_path: str | None = typer.Option(
+        None, "--remove", help="Remove the node or field at 'nodes.<id>[.<field>]'."
+    ),
+    insert_before: str | None = typer.Option(
+        None, "--insert-before", help="Insert --node before 'nodes.<id>'."
+    ),
+    insert_after: str | None = typer.Option(
+        None, "--insert-after", help="Insert --node after 'nodes.<id>'."
+    ),
+    node: str | None = typer.Option(
+        None, "--node", help="JSON node mapping for --insert-before/--insert-after."
+    ),
+    ops_file: Path | None = typer.Option(
+        None, "--ops-file", help="A JSON array of patch ops (overrides the single-op flags)."
+    ),
+    base_sha256: str | None = typer.Option(
+        None, "--base-sha256", help="Reject the patch if the file changed (from a prior inspect)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Apply path-addressed set/remove/insert ops to a template on disk (comment-preserving).
+
+    The AI mutation contract (spec §4.1.4), also reachable from the CLI: each op addresses a
+    stable node id. Pass one op via the flags, or a batch via --ops-file.
+    """
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    node_map = _parse_scalar(node) if node is not None else None
+    if ops_file is not None:
+        try:
+            raw_ops = json.loads(ops_file.read_text(encoding="utf-8"))
+            ops = [PatchOp.model_validate(o) for o in raw_ops]
+        except (ValueError, TypeError, OSError) as exc:
+            console.print(f"[red]could not read --ops-file[/red]: {_esc(exc)}")
+            raise typer.Exit(EXIT_USAGE) from exc
+    else:
+        op = PatchOp(
+            set=set_path,
+            value=_parse_scalar(value) if (set_path is not None and value is not None) else None,
+            remove=remove_path,
+            insert_before=insert_before,
+            insert_after=insert_after,
+            node=node_map if isinstance(node_map, dict) else None,
+        )
+        if not any((set_path, remove_path, insert_before, insert_after)):
+            console.print(
+                "[red]nothing to patch[/red]: pass one of --set/--remove/--insert-before/"
+                "--insert-after, or --ops-file."
+            )
+            raise typer.Exit(EXIT_USAGE)
+        ops = [op]
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.patch_template(template, ops, base_sha256)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(
+                f"[green]Patched[/green] {result.path} ({result.applied} op(s), "
+                f"sha256 {result.sha256})"
+            )
+    raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
 
 
 @layout_app.command("inspect")
@@ -1283,6 +1387,137 @@ def template_detach(
         _print_diagnostics(console, report.diagnostics, quiet)
         if report.ok and not quiet:
             console.print(f"[green]Detached[/green] into {report.path}")
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@data_app.command("set")
+def data_set(
+    keypath: str = typer.Argument(..., help="Dotted keypath, e.g. 'title' or 'contact.email'."),
+    value: str = typer.Argument(..., help="Value (parsed as JSON, else a string)."),
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Set a single value in the current project's data, then revalidate (spec §3.7)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.set_data(keypath, _parse_scalar(value), project=project)
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok and not quiet:
+            console.print(f"[green]Set[/green] {keypath} in {report.path}")
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@data_app.command("import")
+def data_import(
+    file: Path | None = typer.Argument(
+        None, help="YAML data document to merge. Omit to read from stdin."
+    ),
+    locale: str | None = typer.Option(
+        None, "--locale", "-l", help="Locale to compile-validate against after the merge."
+    ),
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Merge a YAML data document into the current project's data (overlay semantics, §3.7)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    if file is not None:
+        try:
+            yaml_text = file.read_text(encoding="utf-8")
+        except OSError as exc:
+            console.print(f"[red]could not read[/red] {_esc(file)}: {_esc(exc)}")
+            raise typer.Exit(EXIT_USAGE) from exc
+    else:
+        yaml_text = sys.stdin.read()
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.import_data(yaml_text, locale=locale, project=project)
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok and not quiet:
+            console.print(f"[green]Imported[/green] into {report.path}")
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@asset_app.command("add")
+def asset_add(
+    source: Path = typer.Argument(..., help="Image file to ingest into the workspace CAS."),
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Ingest an image into the content-addressed store and report its reference (§4.7)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.add_asset(source, project=project)
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok and report.asset is not None and not quiet:
+            a = report.asset
+            console.print(
+                f"[green]Ingested[/green] {a.sha256} ({a.mime}, {a.width}x{a.height}, "
+                f"{a.bytes} bytes)"
+            )
+    raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@asset_app.command("annotate")
+def asset_annotate(
+    sha256: str = typer.Argument(..., help="The ingested asset's content hash."),
+    set_values: list[str] = typer.Option(
+        None, "--set", help="An annotation as 'key=value' (repeatable; value parsed as JSON)."
+    ),
+    annotations_json: str | None = typer.Option(
+        None, "--annotations", help="A JSON object of annotations (merged with any --set)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Write sidecar annotations (facing/focal_point/tags) onto an ingested asset (§4.7)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    annotations: dict[str, object] = {}
+    if annotations_json is not None:
+        parsed = _parse_scalar(annotations_json)
+        if not isinstance(parsed, dict):
+            console.print("[red]--annotations must be a JSON object[/red]")
+            raise typer.Exit(EXIT_USAGE)
+        annotations.update(parsed)
+    for item in set_values or []:
+        if "=" not in item:
+            console.print(f"[red]--set expects key=value[/red], got {_esc(item)}")
+            raise typer.Exit(EXIT_USAGE)
+        key, _, raw = item.partition("=")
+        annotations[key] = _parse_scalar(raw)
+    if not annotations:
+        console.print("[red]nothing to annotate[/red]: pass --set key=value or --annotations.")
+        raise typer.Exit(EXIT_USAGE)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.annotate_asset(sha256, annotations)
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if report.ok and report.asset is not None and not quiet:
+            console.print(f"[green]Annotated[/green] {report.asset.sha256}")
     raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
 
 

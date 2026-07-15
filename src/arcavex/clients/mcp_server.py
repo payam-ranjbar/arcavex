@@ -12,11 +12,16 @@ Transport is stdio only (no network). ``arcavex mcp serve`` runs the server; ``a
 tools --json`` prints the tool catalog for discovery. This module is a client: it imports the
 facade (and ``bootstrap`` to build one, exactly as the CLI does) and nothing from ``services``
 or ``builtin``.
+
+Path-like tool inputs are declared as plain strings (clean JSON schemas) and coerced to
+``Path`` here at the boundary before the facade is called — the facade's typed signatures
+expect ``Path``, so the coercion cannot be skipped for any path argument (DX-1).
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP, Image
@@ -29,6 +34,7 @@ from arcavex.kernel.api import (
     DataReport,
     DiagnosticHelp,
     DiffReport,
+    EffectListReport,
     Facade,
     LayoutReport,
     PatchOp,
@@ -40,6 +46,9 @@ from arcavex.kernel.api import (
     RenderResult,
     RerunReport,
     RunListReport,
+    RunReport,
+    StyleInspectReport,
+    StyleListReport,
     TemplateInspectReport,
     TemplateListReport,
 )
@@ -52,8 +61,16 @@ _INSTRUCTIONS = (
     "contract and its node ids, arcavex_template_patch to edit an addressed node, "
     "arcavex_template_validate to check, arcavex_render_preview to see the image, "
     "arcavex_layout_inspect to read resolved geometry, arcavex_render to write the final PNG. "
-    "Use arcavex_diagnostic_explain <code> for any diagnostic you do not recognize."
+    "To author real content, scaffold with arcavex_project_create, write data with "
+    "arcavex_data_set / arcavex_data_import, then arcavex_project_render for a recorded run "
+    "(discoverable via arcavex_run_list). Discover vocabulary with arcavex_style_list / "
+    "arcavex_effects_list. Use arcavex_diagnostic_explain <code> for any code you do not know."
 )
+
+
+def _opt_path(value: str | None) -> Path | None:
+    """Coerce an optional path-like tool argument to ``Path`` (``None`` stays ``None``)."""
+    return Path(value) if value else None
 
 
 class ArcavexTools:
@@ -61,7 +78,7 @@ class ArcavexTools:
 
     Kept as bound methods (not free closures) so tests can drive the exact same callables the
     server registers — a tool cannot diverge from what is tested. Path-like inputs are plain
-    strings (clean JSON schemas); the facade converts them to ``Path``.
+    strings in the schema and are converted to ``Path`` here before the facade is called.
     """
 
     def __init__(self, facade: Facade) -> None:
@@ -74,8 +91,8 @@ class ArcavexTools:
         return self._facade.list_templates()
 
     def template_inspect(self, template: str) -> TemplateInspectReport:
-        """Report a template's contract: variables, formats, node ids, functions, preview data."""
-        return self._facade.inspect_template(template)  # type: ignore[arg-type]
+        """Report a template's contract: variables, formats, locales, node ids, functions, data."""
+        return self._facade.inspect_template(Path(template))
 
     def template_validate(
         self,
@@ -87,8 +104,8 @@ class ArcavexTools:
     ) -> CheckResult:
         """Validate a template (schema, structure, expressions, layout) and return diagnostics."""
         diagnostics = self._facade.validate_template(
-            template,  # type: ignore[arg-type]
-            data=data,  # type: ignore[arg-type]
+            Path(template),
+            data=_opt_path(data),
             format_name=format,
             locale=locale,
             style=style,
@@ -100,10 +117,12 @@ class ArcavexTools:
     ) -> PatchTemplateResult:
         """Apply path-addressed set/remove/insert ops to a template file (comment-preserving).
 
-        Each op addresses a stable authored node id ('nodes.<id>[.<field>...]'). Pass the
-        'sha256' from a prior inspect/patch as 'base_sha256' to reject a concurrent edit.
+        Each op addresses a stable authored node id ('nodes.<id>[.<field>]') and names exactly
+        one verb; a leaf field in a fixed-vocabulary block (style/fit/paragraph/constraints) is
+        checked before writing, so a typo is a located diagnostic rather than a silent write.
+        Pass the 'sha256' from a prior inspect/patch as 'base_sha256' to reject a concurrent edit.
         """
-        return self._facade.patch_template(template, ops, base_sha256)  # type: ignore[arg-type]
+        return self._facade.patch_template(Path(template), ops, base_sha256)
 
     # ---------------------------------------------------------------- projects
     def project_create(
@@ -116,8 +135,6 @@ class ArcavexTools:
         locales: list[str] | None = None,
     ) -> ProjectResult:
         """Scaffold a project at 'target' pinning a template reference or path."""
-        from pathlib import Path
-
         return self._facade.create_project(
             Path(target), name or Path(target).name, template,
             style=style, formats=formats, locales=locales,
@@ -125,20 +142,59 @@ class ArcavexTools:
 
     def project_list(self, root: str | None = None) -> ProjectListReport:
         """List projects discovered under 'root' (its own project.yaml and immediate children)."""
-        return self._facade.list_projects(root)  # type: ignore[arg-type]
+        return self._facade.list_projects(_opt_path(root))
 
     def project_status(self, project: str | None = None) -> ProjectStatusReport:
         """Report the active (or --project) project's manifest and recorded-run count."""
-        return self._facade.project_status(project=project)  # type: ignore[arg-type]
+        return self._facade.project_status(project=_opt_path(project))
 
     def project_clone(
         self, target: str, name: str | None = None, project: str | None = None
     ) -> ProjectResult:
         """Clone the active (or 'project') project into 'target', reset to draft."""
-        from pathlib import Path
-
         return self._facade.clone_project(
-            Path(target), name or Path(target).name, project=project,  # type: ignore[arg-type]
+            Path(target), name or Path(target).name, project=_opt_path(project),
+        )
+
+    def project_render(
+        self,
+        project: str | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+        dpi: int | None = None,
+    ) -> RunReport:
+        """Render the active (or 'project') project's formats × locales into a recorded run.
+
+        This is the project-mode render an agent uses after project_create + data_set/data_import:
+        it produces a recorded run (manifest + provenance) that run_list/run_diff/run_rerun then
+        operate on. Direct-file mode (a template + data) uses arcavex_render instead.
+        """
+        return self._facade.render_project(
+            project=_opt_path(project), formats=formats, locales=locales, dpi=dpi
+        )
+
+    def render_record(
+        self,
+        template: str,
+        data: str | None = None,
+        format: str | None = None,
+        locale: str | None = None,
+        style: str | None = None,
+        dpi: int | None = None,
+    ) -> RunReport:
+        """Render a template + data directly with a recorded run manifest (like 'render --record').
+
+        Direct-mode counterpart to arcavex_project_render: produces a recorded run (provenance,
+        reproducible) without a project, so run_list --path / run_rerun / run_diff have a run to
+        act on. Use arcavex_render for a one-off PNG with no recorded run.
+        """
+        return self._facade.record_render(
+            Path(template),
+            data=_opt_path(data),
+            format_name=format,
+            locale=locale,
+            style=style,
+            dpi=dpi,
         )
 
     # ---------------------------------------------------------------- data & assets
@@ -146,27 +202,36 @@ class ArcavexTools:
         self, keypath: str, value: Any, project: str | None = None
     ) -> DataReport:
         """Set a single value at a dotted 'keypath' in the project's data, then revalidate."""
-        return self._facade.set_data(keypath, value, project=project)  # type: ignore[arg-type]
+        return self._facade.set_data(keypath, value, project=_opt_path(project))
 
     def data_import(
         self, yaml_text: str, locale: str | None = None, project: str | None = None
     ) -> DataReport:
         """Merge a YAML data document into the project's data (overlay semantics), then validate."""
-        return self._facade.import_data(
-            yaml_text, locale=locale, project=project,  # type: ignore[arg-type]
-        )
+        return self._facade.import_data(yaml_text, locale=locale, project=_opt_path(project))
 
     def asset_add(self, source: str, project: str | None = None) -> AssetReport:
         """Ingest an image into the workspace content-addressed store and return its reference."""
-        from pathlib import Path
-
-        return self._facade.add_asset(Path(source), project=project)  # type: ignore[arg-type]
+        return self._facade.add_asset(Path(source), project=_opt_path(project))
 
     def asset_annotate(
         self, sha256: str, annotations: dict[str, Any]
     ) -> AssetReport:
         """Write sidecar annotations (facing/focal_point/tags) onto an ingested asset."""
         return self._facade.annotate_asset(sha256, annotations)
+
+    # ---------------------------------------------------------------- catalogs
+    def style_list(self) -> StyleListReport:
+        """List every installed style pack (palettes, fonts, effect presets, role defaults)."""
+        return self._facade.list_styles()
+
+    def style_inspect(self, name: str) -> StyleInspectReport:
+        """Report one style pack's palettes, fonts, effect presets, and role defaults."""
+        return self._facade.inspect_style(name)
+
+    def effects_list(self) -> EffectListReport:
+        """List every registered effect, its category, and each param's type/default/range."""
+        return self._facade.list_effects()
 
     # ---------------------------------------------------------------- render & inspect
     def render_preview(
@@ -187,8 +252,8 @@ class ArcavexTools:
         On a compile/layout failure no image is produced; the PreviewResult block explains why.
         """
         result: PreviewResult = self._facade.render_preview(
-            template,  # type: ignore[arg-type]
-            data,  # type: ignore[arg-type]
+            Path(template),
+            _opt_path(data),
             format,
             locale=locale,
             style=style,
@@ -213,8 +278,8 @@ class ArcavexTools:
     ) -> LayoutReport:
         """Report resolved geometry: per-node bounds, anchor derivations, overflow, overlaps."""
         return self._facade.inspect_layout(
-            template,  # type: ignore[arg-type]
-            data,  # type: ignore[arg-type]
+            Path(template),
+            _opt_path(data),
             format,
             locale=locale,
             style=style,
@@ -232,15 +297,13 @@ class ArcavexTools:
         debug: bool = False,
     ) -> RenderResult:
         """Render a template to a PNG file on disk; return the path, content hash, diagnostics."""
-        from pathlib import Path
-
         return self._facade.render_file(
-            template=template,  # type: ignore[arg-type]
-            data=data,  # type: ignore[arg-type]
+            template=Path(template),
+            data=_opt_path(data),
             format_name=format,
             locale=locale,
             style=style,
-            output=Path(output) if output else None,
+            output=_opt_path(output),
             dpi=dpi,
             debug=debug,
         )
@@ -250,18 +313,14 @@ class ArcavexTools:
         self, project: str | None = None, path: str | None = None
     ) -> RunListReport:
         """List recorded runs for the active (or --project) project, or under an outputs 'path'."""
-        return self._facade.list_runs(project=project, path=path)  # type: ignore[arg-type]
+        return self._facade.list_runs(project=_opt_path(project), path=_opt_path(path))
 
     def run_diff(self, run_a: str, run_b: str) -> DiffReport:
         """Diff two recorded runs: per-output pixels/perceptual plus provenance metadata."""
-        from pathlib import Path
-
         return self._facade.diff_runs(Path(run_a), Path(run_b))
 
     def run_rerun(self, run_dir: str) -> RerunReport:
         """Reproduce a recorded run into a new run directory (byte-identical on match)."""
-        from pathlib import Path
-
         return self._facade.rerun(Path(run_dir))
 
     # ---------------------------------------------------------------- diagnostics
@@ -281,10 +340,15 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_project_list", "project_list"),
     ("arcavex_project_status", "project_status"),
     ("arcavex_project_clone", "project_clone"),
+    ("arcavex_project_render", "project_render"),
+    ("arcavex_render_record", "render_record"),
     ("arcavex_data_set", "data_set"),
     ("arcavex_data_import", "data_import"),
     ("arcavex_asset_add", "asset_add"),
     ("arcavex_asset_annotate", "asset_annotate"),
+    ("arcavex_style_list", "style_list"),
+    ("arcavex_style_inspect", "style_inspect"),
+    ("arcavex_effects_list", "effects_list"),
     ("arcavex_render_preview", "render_preview"),
     ("arcavex_layout_inspect", "layout_inspect"),
     ("arcavex_render", "render"),

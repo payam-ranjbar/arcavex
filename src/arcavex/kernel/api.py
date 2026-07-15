@@ -403,6 +403,25 @@ class FunctionInfo(BaseModel):
     doc: str | None = None
 
 
+class LocaleInfo(BaseModel):
+    """A declared template locale, as reported by inspect (spec §4.1.1).
+
+    ``direction`` and ``digits`` are the locale's own declared settings (``None`` when the
+    locale defaults them); ``has_fonts``/``has_patch`` say whether the locale ships a font
+    remap or a structural patch, so an agent learns a template's locale contract — the set of
+    locales it supports and what each changes — without deliberately triggering an
+    ``ARC-TPL-100`` by guessing a name.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    direction: str | None = None
+    digits: str | None = None
+    has_fonts: bool = False
+    has_patch: bool = False
+
+
 class TemplateInspectReport(BaseModel):
     """The result of ``arcavex template inspect``."""
 
@@ -415,6 +434,7 @@ class TemplateInspectReport(BaseModel):
     is_split: bool = False
     variables: list[VariableInfo] = Field(default_factory=list)
     formats: list[FormatInfo] = Field(default_factory=list)
+    locales: list[LocaleInfo] = Field(default_factory=list)
     nodes: list[NodeInfo] = Field(default_factory=list)
     functions: list[FunctionInfo] = Field(default_factory=list)
     preview_data: dict[str, Any] = Field(default_factory=dict)
@@ -552,7 +572,12 @@ class DataReport(BaseModel):
 
     ``diagnostics`` are the compile diagnostics of the project's template over the merged data
     (located against the data file), so an agent that sets or imports a value learns whether the
-    project still validates without a separate call.
+    project still validates without a separate call. Validation here is **compile-only**: it does
+    not run the layout pass (that needs render registries the orchestrator does not hold), so a
+    data change that overflows a box or overlaps a sibling is not reflected in this report — an
+    agent that needs geometric feedback must call ``layout_inspect``/``render_preview`` after a
+    data edit (CR-5). A keypath matching no declared variable is surfaced here as an
+    ``ARC-TPL-112`` warning so a typo is not a silent no-op (DX-6).
     """
 
     model_config = ConfigDict(frozen=True)

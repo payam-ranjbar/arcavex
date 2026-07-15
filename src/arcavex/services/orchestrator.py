@@ -1044,8 +1044,10 @@ class Orchestrator:
         doc = self._load_data_doc(data_path)
         self._set_keypath(doc, keypath, value, data_path)
         self._write_yaml_atomic(data_path, doc)
+        top = next((s for s in keypath.split(".") if s), "")
+        warnings = self._undeclared_keypath_warnings(proj, [top], data_path)
         return DataReport(
-            ok=not has_errors(diags := self._validate_project_data(proj, None)),
+            ok=not has_errors(diags := warnings + self._validate_project_data(proj, None)),
             path=str(data_path),
             diagnostics=diags,
         )
@@ -1064,8 +1066,10 @@ class Orchestrator:
         incoming = self._parse_data_text(yaml_text, data_path)
         merged = merge_overlay(self._load_data_doc(data_path), incoming)
         self._write_yaml_atomic(data_path, merged)
+        top_keys = [str(k) for k in incoming] if hasattr(incoming, "keys") else []
+        warnings = self._undeclared_keypath_warnings(proj, top_keys, data_path)
         return DataReport(
-            ok=not has_errors(diags := self._validate_project_data(proj, locale)),
+            ok=not has_errors(diags := warnings + self._validate_project_data(proj, locale)),
             path=str(data_path),
             diagnostics=diags,
         )
@@ -1228,6 +1232,54 @@ class Orchestrator:
         yaml.preserve_quotes = True
         yaml.dump(data, buffer)
         atomic_write_text(path, buffer.getvalue())
+
+    def _declared_variable_names(self, proj: Project) -> set[str]:
+        """Return the template's declared variable names, or an empty set if unreadable.
+
+        Best-effort: a template that cannot be loaded (missing, malformed) yields an empty set,
+        which suppresses the keypath check rather than warning against nothing.
+        """
+        from arcavex.services.template.loader import load_template
+
+        try:
+            template_dir, _ref, _is_lib = self._projects.resolve_template(proj)
+            source = load_template(template_dir)
+        except DiagnosticError:
+            return set()
+        variables = source.raw.get("variables")
+        if not hasattr(variables, "keys"):
+            return set()
+        return {str(k) for k in variables}
+
+    def _undeclared_keypath_warnings(
+        self, proj: Project, top_keys: list[str], data_path: Path
+    ) -> list[Diagnostic]:
+        """Warn when a top-level data key matches no declared template variable (DX-6).
+
+        A typo'd keypath ('titel' for 'title') otherwise writes a dead key that no template ever
+        reads and no later validate flags — a silent no-op. This surfaces it as a located warning
+        (not an error, since deliberately-extra data can be legitimate) so an author gets a
+        signal. Only runs when the template declares variables to compare against.
+        """
+        declared = self._declared_variable_names(proj)
+        if not declared:
+            return []
+        out: list[Diagnostic] = []
+        for key in top_keys:
+            if key and key not in declared:
+                out.append(
+                    diagnostic(
+                        "ARC-TPL-112",
+                        f"Data key {key!r} matches no declared template variable",
+                        severity="warning",
+                        file=str(data_path),
+                        keypath=key,
+                        hint="Declared variables: "
+                        + (", ".join(sorted(declared)) or "(none)")
+                        + ". Fix the key name, or ignore this if the extra data is intentional.",
+                    )
+                )
+        return out
 
     def _validate_project_data(self, proj: Project, locale: str | None) -> list[Diagnostic]:
         """Compile the project over its (now-merged) data and return located diagnostics.

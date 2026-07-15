@@ -23,6 +23,18 @@ during reviews. Nothing here is required v1 scope.
   in a 400 px slot never decodes at full size twice) is deferred to Phase 7 with the other cache
   budgets, along with per-render wall-clock / surface-memory / output-dimension budgets (§8.3).
 
+## Accepted P2 review findings
+
+- **`set_data`/`import_data` validation is compile-only (CR-5).** `DataReport.diagnostics` are the
+  project's compile diagnostics over the merged data (missing required variable, type mismatch,
+  bad expression), located against the data file. They intentionally do **not** include the layout
+  pass — that needs the render registries the orchestrator does not hold, and is not what a data
+  edit conceptually validates — so a data change that overflows a box or overlaps a sibling is not
+  reflected in the DataReport. An agent needing geometric feedback after a data edit calls
+  `layout_inspect`/`render_preview`. The DataReport docstring states this honestly; wiring an
+  optional layout check into the data path is deferred (it would duplicate the render wiring the
+  facade already owns for `validate`/`layout inspect`).
+
 ## Accepted P3 review findings
 
 - **Composite `backdrop` snapshot (CR-1).** `CompositeContext.backdrop` is a read-only accessor

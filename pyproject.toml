@@ -98,3 +98,21 @@ forbidden_modules = [
     "arcavex.bootstrap",
     "arcavex.clients",
 ]
+
+# The user-facing clients (CLI, MCP server) are parse-and-present only: they call the service
+# facade through kernel.api and build one via bootstrap, and must never reach into services or
+# built-in internals directly (spec §6.2, CR-3). allow_indirect_imports keeps the check on each
+# module's own imports — the shared watch helper legitimately uses services.template.loader and
+# is governed separately — so this makes the parse-present boundary linted, not review-only.
+[[tool.importlinter.contracts]]
+name = "CLI and MCP clients import only kernel.api + bootstrap (no services/builtin internals)"
+type = "forbidden"
+source_modules = [
+    "arcavex.clients.cli",
+    "arcavex.clients.mcp_server",
+]
+forbidden_modules = [
+    "arcavex.services",
+    "arcavex.builtin",
+]
+allow_indirect_imports = "true"

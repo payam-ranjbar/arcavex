@@ -364,6 +364,16 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "scalar first, or choose a different path.",
         ),
         _e(
+            "ARC-TPL-112",
+            "Data key matches no declared variable",
+            "A 'set_data' or 'import_data' top-level key does not correspond to any variable the "
+            "template declares, so the value is written but no template expression ever reads it "
+            "— usually a typo (for example 'titel' for 'title'). This is a warning, not an error, "
+            "because deliberately-extra data can be legitimate.",
+            "Check the key against the template's declared variables (from 'template inspect'); "
+            "fix the name, or ignore the warning if the extra data is intentional.",
+        ),
+        _e(
             "ARC-TPL-100",
             "Undeclared locale",
             "A locale was requested with --locale that the template does not declare, so its "

@@ -14,6 +14,7 @@ from arcavex.kernel.api import (
     CompilerProtocol,
     FormatInfo,
     FunctionInfo,
+    LocaleInfo,
     NodeInfo,
     PatchOp,
     PatchTemplateResult,
@@ -25,6 +26,13 @@ from arcavex.kernel.api import (
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
 from arcavex.kernel.ir.units import Dim
 from arcavex.services.fsutil import sha256_bytes
+from arcavex.services.template.compiler import (
+    _CONSTRAINT_KEYS,
+    _FIT_KEYS,
+    _PARAGRAPH_KEYS,
+    _SIZE_MAP_KEYS,
+    _STYLE_KEYS,
+)
 from arcavex.services.template.functions import FUNCTION_SIGNATURES
 from arcavex.services.template.loader import (
     _SIDECARS,
@@ -35,6 +43,20 @@ from arcavex.services.template.loader import (
     resolve_template_path,
 )
 from arcavex.services.template.overlays import PatchLog, apply_patches
+
+# Blocks whose fields have a fixed vocabulary the compiler validates at compile time. A patch
+# 'set'/'insert' whose leaf lands in one of these blocks is field-checked before the write, so a
+# typo (fontsize vs font_size) is a located ARC-TPL-051 in the patch response itself rather than
+# a silent write that only surfaces on the next validate (DX-4). Reuses the compiler's own
+# whitelists so the two checks can never diverge. Anchor edges and node-level fields have an
+# open/contextual vocabulary and are left to the compiler's full validation, so this check never
+# rejects a genuinely-valid edit.
+_PATCH_FIELD_SCHEMA: dict[str, frozenset[str]] = {
+    "style": _STYLE_KEYS,
+    "fit": _FIT_KEYS,
+    "paragraph": _PARAGRAPH_KEYS,
+    "constraints": _CONSTRAINT_KEYS,
+}
 
 # The sections a one-file template splits into, mapped to their sidecar filename. Mirrors the
 # loader's merge so a split template loads back to identical content.
@@ -219,6 +241,7 @@ class AuthoringService:
         raw = source.raw
         variables = _variable_infos(raw.get("variables"))
         formats, fmt_diags = _format_infos(raw.get("formats"))
+        locales = _locale_infos(raw.get("locales"))
         preview_data = _to_plain(raw.get("preview_data") or {})
         version = raw.get("version")
         version_str = str(version) if version is not None else None
@@ -238,6 +261,7 @@ class AuthoringService:
             is_split=source.is_split,
             variables=variables,
             formats=formats,
+            locales=locales,
             nodes=nodes,
             functions=_function_infos(self._functions),
             preview_data=preview_data if isinstance(preview_data, dict) else {},
@@ -295,10 +319,13 @@ class AuthoringService:
 
         The ops reuse the exact ``set/remove/insert_*`` grammar the override layers use
         (``services.template.overlays``), applied here to ``template.yaml``'s ``root`` AST and
-        written back through ruamel round-trip so comments and key order survive. An unknown
-        addressed path raises a located ``ARC-TPL-092``; a stale ``base_sha256`` (the file
-        changed on disk since the agent read it) is refused with ``ARC-TPL-110`` before anything
-        is written, so a concurrent edit is never overwritten (spec §8.3). Never raises.
+        written back through ruamel round-trip so comments and key order survive. An op that does
+        not name exactly one verb (``ARC-TPL-092``, CR-1) or whose leaf field is unknown for a
+        fixed-vocabulary block (``ARC-TPL-051``, DX-4) is rejected *before* the write, so an
+        ambiguous op never applies partially and a typo'd field never silently lands. An unknown
+        addressed path raises a located ``ARC-TPL-092``; a stale ``base_sha256`` (the file changed
+        on disk since the agent read it) is refused with ``ARC-TPL-110`` before anything is
+        written, so a concurrent edit is never overwritten (spec §8.3). Never raises.
         """
         try:
             _root_dir, template_yaml = resolve_template_path(template)
@@ -319,6 +346,13 @@ class AuthoringService:
                         "on it, and retry — another writer changed the file.",
                     )
                 ],
+            )
+        # Boundary validation (CR-1/DX-4): reject ambiguous ops and typo'd leaf fields before any
+        # write, so a malformed patch is a located diagnostic, never a partial or silent mutation.
+        op_diags = _validate_patch_ops(ops, template_yaml)
+        if has_errors(op_diags):
+            return PatchTemplateResult(
+                ok=False, path=str(template_yaml), sha256=current_sha, diagnostics=op_diags
             )
         try:
             raw = load_yaml(template_yaml)
@@ -349,6 +383,94 @@ class AuthoringService:
         return PatchTemplateResult(
             ok=True, path=str(template_yaml), sha256=new_sha, applied=len(ops)
         )
+
+
+def _patch_verbs(op: PatchOp) -> list[str]:
+    """Return the verb fields this op actually names (should be exactly one)."""
+    return [
+        verb
+        for verb in ("set", "remove", "insert_before", "insert_after")
+        if getattr(op, verb) is not None
+    ]
+
+
+def _validate_patch_ops(ops: list[PatchOp], template_yaml: Path) -> list[Diagnostic]:
+    """Validate patch ops at the boundary before any write (CR-1 verb count, DX-4 leaf field).
+
+    Returns located diagnostics; an empty list (or warnings only) means the ops are safe to
+    apply. Each op must name exactly one verb, and a ``set`` whose leaf lands in a
+    fixed-vocabulary block (style/fit/paragraph/constraints) must use a known field name —
+    reusing the compiler's own whitelists so this never diverges from what ``validate`` accepts.
+    """
+    diags: list[Diagnostic] = []
+    for i, op in enumerate(ops):
+        kp = f"patch[{i}]"
+        verbs = _patch_verbs(op)
+        if len(verbs) != 1:
+            named = ", ".join(verbs) or "(none)"
+            diags.append(
+                diagnostic(
+                    "ARC-TPL-092",
+                    "Invalid patch operation: each op needs exactly one of "
+                    f"set/remove/insert_before/insert_after (got: {named})",
+                    file=str(template_yaml),
+                    keypath=kp,
+                    hint="Split multiple mutations into separate ops; each op does one thing.",
+                )
+            )
+            continue
+        verb = verbs[0]
+        if verb == "set":
+            leaf = _leaf_field_diag(op.set, template_yaml)
+            if leaf is not None:
+                diags.append(leaf)
+    return diags
+
+
+def _leaf_field_diag(path: str | None, template_yaml: Path) -> Diagnostic | None:
+    """Return an ARC-TPL-051 if ``path``'s leaf is an unknown field of a fixed-vocabulary block.
+
+    Addresses ``nodes.<id>.<block>.<field>`` (and ``constraints.size.<axis>.<field>``). Only the
+    blocks in :data:`_PATCH_FIELD_SCHEMA` (plus the size sub-map) have a closed vocabulary; any
+    other target — a node-level field, an anchor edge — is left to the compiler's full validation
+    so a valid edit is never rejected here.
+    """
+    if not isinstance(path, str) or not path.startswith("nodes."):
+        return None
+    parts = path.split(".")
+    node_id, segments = (parts[1] if len(parts) > 1 else "?"), parts[2:]
+    if len(segments) < 2:
+        return None
+    block = segments[0]
+    if block == "constraints" and len(segments) >= 4 and segments[1] == "size":
+        # nodes.<id>.constraints.size.<axis>.<field>
+        return _unknown_field_diag(
+            node_id, "size", segments[-1], _SIZE_MAP_KEYS, path, template_yaml
+        )
+    allowed = _PATCH_FIELD_SCHEMA.get(block)
+    if allowed is None or len(segments) != 2:
+        return None
+    return _unknown_field_diag(node_id, block, segments[1], allowed, path, template_yaml)
+
+
+def _unknown_field_diag(
+    node_id: str,
+    block: str,
+    field: str,
+    allowed: frozenset[str],
+    path: str,
+    template_yaml: Path,
+) -> Diagnostic | None:
+    if field in allowed:
+        return None
+    valid = ", ".join(sorted(allowed))
+    return diagnostic(
+        "ARC-TPL-051",
+        f"Node {node_id!r} has unknown {block} field {field!r}",
+        file=str(template_yaml),
+        keypath=path,
+        hint=f"Valid {block} fields are: {valid}.",
+    )
 
 
 def _variable_infos(variables: Any) -> list[VariableInfo]:
@@ -408,6 +530,31 @@ def _format_infos(formats: Any) -> tuple[list[FormatInfo], list[Diagnostic]]:
             )
         )
     return out, diags
+
+
+def _locale_infos(locales: Any) -> list[LocaleInfo]:
+    """Report each declared locale's direction/digits and whether it remaps fonts or patches.
+
+    Spec §4.1.1 requires inspect to expose locales so an AI learns the template's locale
+    contract without guessing a name and reading an ``ARC-TPL-100``. Shape validation stays in
+    the compiler (``ARC-TPL-098``/``ARC-TPL-099``); this projection is best-effort and simply
+    skips a malformed entry rather than raising.
+    """
+    if not isinstance(locales, dict):
+        return []
+    out: list[LocaleInfo] = []
+    for name, settings in locales.items():
+        settings = settings if isinstance(settings, dict) else {}
+        out.append(
+            LocaleInfo(
+                name=str(name),
+                direction=_str_or_none(settings.get("direction")),
+                digits=_str_or_none(settings.get("digits")),
+                has_fonts=isinstance(settings.get("fonts"), dict) and bool(settings.get("fonts")),
+                has_patch=isinstance(settings.get("patch"), list) and bool(settings.get("patch")),
+            )
+        )
+    return out
 
 
 def _function_infos(names: list[str]) -> list[FunctionInfo]:
