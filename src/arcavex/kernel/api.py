@@ -497,6 +497,124 @@ class CheckResult(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+# ------------------------------------------------------------------ extensions (§3.3, §7)
+class ExtensionComponentInfo(BaseModel):
+    """One component an extension registers: its kind and globally-unique name."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    name: str
+
+
+class ExtensionSummary(BaseModel):
+    """An added extension as reported by ``ext list``: identity, enabled state, components."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    version: str
+    enabled: bool
+    components: list[ExtensionComponentInfo] = Field(default_factory=list)
+
+
+class ExtensionListReport(BaseModel):
+    """The result of ``arcavex ext list`` — every added local extension and its state.
+
+    ``load_diagnostics`` carries any problem the loader hit registering enabled extensions at
+    engine start (an incompatible or name-colliding extension), so a broken extension surfaces
+    here rather than silently doing nothing.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    extensions: list[ExtensionSummary] = Field(default_factory=list)
+    load_diagnostics: list[Diagnostic] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ExtensionScaffoldReport(BaseModel):
+    """The result of ``arcavex ext scaffold`` — the created extension directory and its files."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    path: str | None = None
+    kind: str | None = None
+    name: str | None = None
+    files: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ExtensionValidateReport(BaseModel):
+    """The result of ``arcavex ext validate`` — the manifest/compat/import/determinism checks."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    name: str | None = None
+    components: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ExtensionTestReport(BaseModel):
+    """The result of ``arcavex ext test`` — the crash-contained golden-fixture run's outcome.
+
+    ``output`` is the captured stdout/stderr of the test subprocess, so a failure's detail (a
+    bounds-honesty note, a golden mismatch) travels back to the caller.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    name: str | None = None
+    passed: bool = False
+    output: str = ""
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ExtensionActionReport(BaseModel):
+    """The result of ``arcavex ext add/enable/disable`` — the extension's new state."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    name: str | None = None
+    enabled: bool = False
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ExtensionServiceProtocol(Protocol):
+    """The extension authoring/lifecycle service injected by bootstrap (spec §7.2).
+
+    Every method returns a versioned kernel result model and does not raise across the facade
+    boundary. The concrete implementation lives in ``services.extensions`` and reads/writes the
+    added-extension state under the Arcavex home.
+    """
+
+    def list_extensions(self, load_diagnostics: list[Diagnostic]) -> ExtensionListReport: ...
+
+    def scaffold_extension(
+        self, kind: str, target: Path, name: str | None
+    ) -> ExtensionScaffoldReport: ...
+
+    def validate_extension(self, path: Path) -> ExtensionValidateReport: ...
+
+    def test_extension(self, path: Path) -> ExtensionTestReport: ...
+
+    def add_extension(self, path: Path) -> ExtensionActionReport: ...
+
+    def enable_extension(self, name: str) -> ExtensionActionReport: ...
+
+    def disable_extension(self, name: str) -> ExtensionActionReport: ...
+
+
 class SplitResult(BaseModel):
     """The result of ``arcavex template split``."""
 
@@ -1139,6 +1257,8 @@ class Facade:
         preview_root: Path | None = None,
         style_provider: StyleProviderProtocol | None = None,
         orchestrator: OrchestratorProtocol | None = None,
+        extensions: ExtensionServiceProtocol | None = None,
+        extension_load_diagnostics: list[Diagnostic] | None = None,
     ) -> None:
         """Wire the facade.
 
@@ -1164,6 +1284,8 @@ class Facade:
         self._preview_root = preview_root
         self._style_provider = style_provider
         self._orchestrator = orchestrator
+        self._extensions = extensions
+        self._extension_load_diagnostics = list(extension_load_diagnostics or [])
 
     def validate_template(
         self,
@@ -1558,6 +1680,90 @@ class Facade:
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return EffectListReport(
                 ok=False, diagnostics=[internal_error("effects list failed", detail=repr(exc))]
+            )
+
+    # ------------------------------------------------------------------ extensions (§7)
+    def list_extensions(self) -> ExtensionListReport:
+        """List every added local extension and its enabled state (spec §7.2). Never raises.
+
+        Carries any extension-load diagnostics from engine construction (an incompatible or
+        name-colliding enabled extension), so a broken extension is visible here.
+        """
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionListReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.list_extensions(self._extension_load_diagnostics)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionListReport(
+                ok=False, diagnostics=[internal_error("ext list failed", detail=repr(exc))]
+            )
+
+    def scaffold_extension(
+        self, kind: str, target: Path, name: str | None = None
+    ) -> ExtensionScaffoldReport:
+        """Scaffold a new, immediately-valid extension directory of ``kind``. Never raises."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionScaffoldReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.scaffold_extension(kind, Path(target), name)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionScaffoldReport(
+                ok=False, diagnostics=[internal_error("ext scaffold failed", detail=repr(exc))]
+            )
+
+    def validate_extension(self, path: Path) -> ExtensionValidateReport:
+        """Run the extension validation gates (manifest, compat, imports, determinism). No raise."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionValidateReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.validate_extension(Path(path))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionValidateReport(
+                ok=False, diagnostics=[internal_error("ext validate failed", detail=repr(exc))]
+            )
+
+    def test_extension(self, path: Path) -> ExtensionTestReport:
+        """Run an extension's golden fixtures in a crash-contained subprocess. Never raises."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionTestReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.test_extension(Path(path))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionTestReport(
+                ok=False, diagnostics=[internal_error("ext test failed", detail=repr(exc))]
+            )
+
+    def add_extension(self, path: Path) -> ExtensionActionReport:
+        """Validate and add a local extension to the state, recorded disabled. Never raises."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionActionReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.add_extension(Path(path))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionActionReport(
+                ok=False, diagnostics=[internal_error("ext add failed", detail=repr(exc))]
+            )
+
+    def enable_extension(self, name: str) -> ExtensionActionReport:
+        """Enable an added extension (registered on the next engine start). Never raises."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionActionReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.enable_extension(name)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionActionReport(
+                ok=False, diagnostics=[internal_error("ext enable failed", detail=repr(exc))]
+            )
+
+    def disable_extension(self, name: str) -> ExtensionActionReport:
+        """Disable an added extension (deregistered on the next engine start). Never raises."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionActionReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.disable_extension(name)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionActionReport(
+                ok=False, diagnostics=[internal_error("ext disable failed", detail=repr(exc))]
             )
 
     def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:

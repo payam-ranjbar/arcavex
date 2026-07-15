@@ -25,14 +25,14 @@ def ev(src: str, ctx: dict | None = None) -> object:
 # ------------------------------------------------------------------- registry wiring
 def test_registry_backed_table_resolves_builtins() -> None:
     """The bootstrap registry table resolves every built-in the default table does."""
-    registries = build_registries(TextService())
+    registries, _ = build_registries(TextService())
     table = build_function_table(registries)
     assert table("upper", ["hi"]) == "HI"
     assert sorted(registries.template_fns.names()) == sorted(BUILTIN_FUNCTIONS)
 
 
 def test_unknown_function_lists_available() -> None:
-    registries = build_registries(TextService())
+    registries, _ = build_registries(TextService())
     table = build_function_table(registries)
     with pytest.raises(UnknownFunctionError) as exc:
         table("nope", [1])

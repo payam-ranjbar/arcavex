@@ -20,10 +20,12 @@ from arcavex.builtin.shapes_core import builtin_shapes
 from arcavex.builtin.template_fns import builtin_template_functions
 from arcavex.kernel.api import Facade
 from arcavex.kernel.contracts.spi import Effect, MaskGenerator, ShapeGenerator
+from arcavex.kernel.diagnostics import Diagnostic
 from arcavex.kernel.registry import Registries
 from arcavex.services.authoring import AuthoringService
 from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
+from arcavex.services.extensions import ExtensionService, load_enabled_extensions
 from arcavex.services.library import Library
 from arcavex.services.orchestrator import Orchestrator
 from arcavex.services.pipeline import render_to_file
@@ -35,8 +37,15 @@ from arcavex.services.template.expressions import FunctionTable, UnknownFunction
 from arcavex.services.text import TextService
 
 
-def build_registries(text_service: TextService) -> Registries:
-    """Create registries and register all built-in components."""
+def build_registries(text_service: TextService) -> tuple[Registries, list[Diagnostic]]:
+    """Create registries, register built-ins, then load enabled local extensions.
+
+    Enabled extensions are loaded *after* the built-in effects/masks/shapes but *before* the
+    solver and backend are constructed, because those snapshot the effect/mask/shape maps — so an
+    extension component is in the pipeline maps exactly like a built-in (spec §3.3). Extension
+    load problems (incompatibility, a name colliding with a built-in) are returned as diagnostics
+    rather than raised, so a broken extension never wedges engine construction.
+    """
     registries = Registries()
     for mask in builtin_masks():
         registries.masks.register(mask.name, mask)
@@ -44,6 +53,13 @@ def build_registries(text_service: TextService) -> Registries:
         registries.effects.register(name, effect)
     for shape in builtin_shapes():
         registries.shapes.register(shape.name, shape)
+    registries.exporters.register("png", PngExporter())
+    for fn in builtin_template_functions():
+        registries.template_fns.register(fn.name, fn)
+    # Load enabled extensions before the maps are snapshotted so their effects/masks/shapes feed
+    # the backend and solver; "anchors"/"skia" are reserved by the loader so an extension cannot
+    # pre-empt the built-in solver/backend registered just below.
+    load_diagnostics = load_enabled_extensions(registries)
     effect_map = _effect_map(registries)
     shape_map = _shape_map(registries)
     # The solver grows paint_bounds from effect declarations; the backend applies effects and
@@ -52,10 +68,7 @@ def build_registries(text_service: TextService) -> Registries:
     registries.backends.register(
         "skia", SkiaBackend(text_service, _mask_map(registries), effect_map, shape_map)
     )
-    registries.exporters.register("png", PngExporter())
-    for fn in builtin_template_functions():
-        registries.template_fns.register(fn.name, fn)
-    return registries
+    return registries, load_diagnostics
 
 
 def _mask_map(registries: Registries) -> dict[str, MaskGenerator]:
@@ -100,7 +113,7 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         The composed :class:`Facade`.
     """
     text_service = TextService(font_dirs)
-    registries = build_registries(text_service)
+    registries, extension_load_diagnostics = build_registries(text_service)
     mask_names = frozenset(registries.masks.names())
 
     def mask_schema(name: str) -> type[BaseModel] | None:
@@ -139,6 +152,8 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         authoring=authoring,
         style_provider=style_resolver,
         orchestrator=orchestrator,
+        extensions=ExtensionService(),
+        extension_load_diagnostics=extension_load_diagnostics,
     )
 
 

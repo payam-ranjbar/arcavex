@@ -24,6 +24,8 @@ from arcavex.kernel.api import (
     RESPONSE_VERSION,
     DiffReport,
     DoctorReport,
+    ExtensionActionReport,
+    ExtensionListReport,
     Facade,
     LayoutReport,
     PatchOp,
@@ -64,6 +66,8 @@ asset_app = typer.Typer(add_completion=False, help="Asset ingest/annotation comm
 app.add_typer(asset_app, name="asset")
 mcp_app = typer.Typer(add_completion=False, help="MCP authoring server (spec §6.2).")
 app.add_typer(mcp_app, name="mcp")
+ext_app = typer.Typer(add_completion=False, help="Trusted local extension commands (spec §7).")
+app.add_typer(ext_app, name="ext")
 
 
 def _engine_version() -> str:
@@ -1550,6 +1554,185 @@ def mcp_tools(
         for tool in tool_catalog(build_mcp_server()):
             console.print(f"[cyan]{_esc(tool['name'])}[/cyan] — {_esc(tool['description'])}")
     raise typer.Exit(EXIT_OK)
+
+
+@ext_app.command("scaffold")
+def ext_scaffold(
+    kind: str = typer.Argument(..., help="Component kind (effect, mask, shape, …)."),
+    target: Path = typer.Argument(..., help="Directory to scaffold the extension into."),
+    name: str | None = typer.Option(None, "--name", help="Extension/component name."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Scaffold a new, immediately-valid extension directory of the given kind."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.scaffold_extension(kind, target, name)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(
+                f"[green]Created[/green] {result.path} "
+                f"({result.kind} '{result.name}') — validate, test, then add it"
+            )
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@ext_app.command("validate")
+def ext_validate(
+    path: Path = typer.Argument(..., help="Extension directory (containing extension.toml)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Validate an extension's manifest, compatibility, imports, determinism, and schemas."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.validate_extension(path)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            components = ", ".join(result.components) or "(none)"
+            console.print(f"[green]OK[/green] {result.name} — components: {components}")
+    raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
+
+
+@ext_app.command("test")
+def ext_test(
+    path: Path = typer.Argument(..., help="Extension directory to golden-test."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Run the extension's golden fixtures in a crash-contained subprocess."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.test_extension(path)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if not quiet:
+            if result.output:
+                console.print(f"[dim]{_esc(result.output)}[/dim]")
+            if result.passed:
+                console.print(f"[green]PASS[/green] {result.name} golden test")
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@ext_app.command("add")
+def ext_add(
+    path: Path = typer.Argument(..., help="Extension directory to add (validated first)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Validate and add a local extension to the Arcavex home, recorded disabled.
+
+    Extensions are trusted local code — review one obtained from an AI or third party like any
+    other dependency before enabling it (spec §7.3).
+    """
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.add_extension(path)
+    _emit_ext_action(console, result, json_out, quiet, "Added", "enable it next")
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@ext_app.command("enable")
+def ext_enable(
+    name: str = typer.Argument(..., help="Added extension name."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Enable an added extension (its components register on the next run)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.enable_extension(name)
+    _emit_ext_action(console, result, json_out, quiet, "Enabled", "active on the next run")
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@ext_app.command("disable")
+def ext_disable(
+    name: str = typer.Argument(..., help="Added extension name."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Disable an added extension (deregistered on the next run)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.disable_extension(name)
+    _emit_ext_action(console, result, json_out, quiet, "Disabled", "inactive on the next run")
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@ext_app.command("list")
+def ext_list(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List every added local extension, its enabled state, and its components."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_extensions()
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_ext_list(console, report)
+    raise typer.Exit(EXIT_OK if report.ok else EXIT_VALIDATION)
+
+
+def _emit_ext_action(
+    console: Console,
+    result: ExtensionActionReport,
+    json_out: bool,
+    quiet: bool,
+    verb: str,
+    tail: str,
+) -> None:
+    if json_out:
+        _emit_json(result)
+        return
+    _print_diagnostics(console, result.diagnostics, quiet)
+    if result.ok and not quiet:
+        console.print(f"[green]{verb}[/green] {result.name} ({tail})")
+
+
+def _print_ext_list(console: Console, report: ExtensionListReport) -> None:
+    for diag in report.load_diagnostics:
+        console.print(
+            f"[yellow]load {diag.code}[/yellow] {_esc(diag.message)}"
+        )
+    if not report.extensions:
+        console.print("[dim]no local extensions added[/dim]")
+        return
+    for ext in report.extensions:
+        state = "[green]enabled[/green]" if ext.enabled else "[dim]disabled[/dim]"
+        components = ", ".join(f"{c.kind}:{c.name}" for c in ext.components) or "(none)"
+        console.print(f"[cyan]{_esc(ext.name)}[/cyan] {ext.version} {state} — {components}")
 
 
 def main() -> None:

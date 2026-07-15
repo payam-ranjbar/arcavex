@@ -63,12 +63,29 @@ addopts = "-q"
 root_package = "arcavex"
 
 [[tool.importlinter.contracts]]
-name = "Kernel is pure (imports nothing from builtin/services/clients)"
+name = "Kernel is pure (imports nothing from builtin/services/clients/sdk)"
 type = "forbidden"
 source_modules = ["arcavex.kernel"]
 forbidden_modules = [
     "arcavex.builtin",
     "arcavex.services",
+    "arcavex.clients",
+    "arcavex.bootstrap",
+    "arcavex.sdk",
+]
+
+# The extension SDK is the public, downward-facing surface a trusted local extension imports. It
+# may re-export the kernel contracts and IR value types but must never reach up into services,
+# built-ins, clients, or the composition root — otherwise an extension importing only arcavex.sdk
+# would transitively depend on engine internals (spec §7.1). This makes the SDK boundary the same
+# mechanized rule the extension import-surface validator enforces on extension code (spec §7.2).
+[[tool.importlinter.contracts]]
+name = "SDK imports only the kernel (never services/builtin/clients)"
+type = "forbidden"
+source_modules = ["arcavex.sdk"]
+forbidden_modules = [
+    "arcavex.services",
+    "arcavex.builtin",
     "arcavex.clients",
     "arcavex.bootstrap",
 ]

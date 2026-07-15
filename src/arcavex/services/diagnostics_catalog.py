@@ -877,6 +877,138 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Check the component name against the available components.",
         ),
         _e(
+            "ARC-EXT-010",
+            "Extension manifest not found",
+            "An extension directory has no extension.toml, so there is no manifest to load.",
+            "Point at a directory containing an extension.toml, or scaffold one with "
+            "'arcavex ext scaffold'.",
+        ),
+        _e(
+            "ARC-EXT-011",
+            "Invalid extension manifest",
+            "The extension.toml is not valid TOML, a field has the wrong type, or a name/entry is "
+            "not a valid identifier ('module:Class').",
+            "Fix the flagged field; the manifest needs name, version, ir_min, engine_min, and a "
+            "list of [[components]] tables with a valid kind, name, and 'module:Class' entry.",
+        ),
+        _e(
+            "ARC-EXT-012",
+            "Extension manifest missing a required field",
+            "A required manifest field (name, version, ir_min, engine_min, a component field, or "
+            "the component list) is absent.",
+            "Add the missing field; every extension declares its identity, version floors, and at "
+            "least one component.",
+        ),
+        _e(
+            "ARC-EXT-013",
+            "Unknown component kind",
+            "A component (or 'ext scaffold') names a kind that is not one of the eight extensible "
+            "contracts.",
+            "Use one of: effect, mask, shape, exporter, layout_solver, template_function, "
+            "backend, decoder.",
+        ),
+        _e(
+            "ARC-EXT-014",
+            "Duplicate component in manifest",
+            "Two components in the same manifest declare the same kind and name.",
+            "Component names are unique per kind; rename one of the two.",
+        ),
+        _e(
+            "ARC-EXT-020",
+            "Extension incompatible with this build",
+            "The extension's declared engine_min or ir_min is newer than this engine or IR "
+            "version, so loading it against this build is not sound.",
+            "Upgrade Arcavex, or lower engine_min/ir_min if the extension truly supports this "
+            "build.",
+        ),
+        _e(
+            "ARC-EXT-021",
+            "Extension entry could not be imported",
+            "An entry module could not be imported, the named class is missing, or the component "
+            "could not be constructed with no arguments — often an import-time error or an "
+            "unimplemented abstract method.",
+            "Check the module exists in the extension directory, defines the named class, imports "
+            "only arcavex.sdk, and implements every method of its contract.",
+        ),
+        _e(
+            "ARC-EXT-022",
+            "Extension component does not match its contract",
+            "A component class does not subclass the contract its kind requires, or its declared "
+            "name/format attribute does not match the manifest name.",
+            "Subclass the arcavex.sdk contract for the kind, and set the class name/format "
+            "attribute to the manifest name so the two agree.",
+        ),
+        _e(
+            "ARC-EXT-023",
+            "Extension component parameter schema invalid",
+            "An effect, mask, or shape component has no valid pydantic 'param_schema', so its "
+            "authored parameters cannot be validated.",
+            "Set 'param_schema' to a pydantic v2 BaseModel subclass describing the parameters.",
+        ),
+        _e(
+            "ARC-EXT-030",
+            "Extension imports outside the SDK surface",
+            "A source file imports an Arcavex module other than the public 'arcavex.sdk'. This is "
+            "an authoring/reliability rule, not a security boundary — extensions are insulated "
+            "from engine internals so they keep working across engine changes.",
+            "Import only from 'arcavex.sdk', which re-exports the contracts, helpers, and IR value "
+            "types an extension may use.",
+        ),
+        _e(
+            "ARC-EXT-031",
+            "Extension uses a non-deterministic API",
+            "A source file imports 'random', or a component method reads the wall clock or an "
+            "undeclared file. Such use makes output depend on when or where it ran, so a rerun "
+            "cannot reproduce the bytes (spec §3.2). This is a reproducibility rule, not a "
+            "hostile-code check.",
+            "Draw randomness from the seeded 'ctx.rng' (arcavex.sdk.effect_rng); do not read the "
+            "clock or undeclared files in render-affecting code.",
+        ),
+        _e(
+            "ARC-EXT-032",
+            "Extension shader failed to compile",
+            "A component's SkSL shader (its 'SKSL' source) did not compile, so it would crash at "
+            "render time.",
+            "Fix the SkSL source; the error message reports the offending line.",
+        ),
+        _e(
+            "ARC-EXT-040",
+            "Unknown extension",
+            "An enable/disable command named an extension that has not been added.",
+            "Add it first with 'arcavex ext add <path>'; 'arcavex ext list' shows what is added.",
+        ),
+        _e(
+            "ARC-EXT-050",
+            "Effect bounds-expansion is dishonest",
+            "A raster effect paints visibly outside the outward margin it declares via "
+            "bounds_expansion, so the layout solver would not reserve enough paint region and the "
+            "output would be clipped in the real pipeline.",
+            "Grow bounds_expansion to cover the effect's real outward spread on every side.",
+        ),
+        _e(
+            "ARC-EXT-051",
+            "Golden output mismatch",
+            "An effect's rendered output differs from its stored golden image beyond the allowed "
+            "tolerance.",
+            "Inspect the render; if the change is intended, regenerate the golden with "
+            "GoldenHarness.save and review the image diff.",
+        ),
+        _e(
+            "ARC-EXT-052",
+            "Extension golden test failed",
+            "The extension's golden_test.py exited non-zero, timed out, or is missing, so the "
+            "crash-contained golden run did not pass.",
+            "Run the test directly to see the failing check; the scaffold ships a golden_test.py "
+            "that drives a GoldenHarness and exits non-zero on failure.",
+        ),
+        _e(
+            "ARC-EXT-060",
+            "Extension scaffold or add target problem",
+            "'ext scaffold' will not write into a non-empty directory, or 'ext add' could not "
+            "copy the extension into the Arcavex home.",
+            "Choose a new or empty scaffold directory, and ensure the Arcavex home is writable.",
+        ),
+        _e(
             "ARC-INT-999",
             "Internal engine error",
             "An unexpected internal error occurred and was wrapped rather than crashing.",
