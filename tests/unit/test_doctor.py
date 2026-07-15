@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from arcavex.bootstrap import build_facade
 from arcavex.services.doctor import run_doctor
 
@@ -32,6 +34,31 @@ def test_doctor_fonts_probe_lists_families() -> None:
     fonts = next(c for c in report.checks if c.name == "fonts")
     assert fonts.status == "ok"
     assert "Inter" in fonts.detail
+
+
+def test_doctor_paths_and_cache_agree_on_home(monkeypatch) -> None:
+    """DX-1: the 'paths' and 'cache' checks must report the same home root under one config.
+
+    Both now resolve through ``fsutil.home_dir()``; previously ``paths`` hand-rolled an OS-temp
+    default while ``cache`` followed ``home_dir()``, so a single ``doctor`` run reported two
+    contradictory home directories.
+    """
+    monkeypatch.delenv("ARCAVEX_HOME", raising=False)
+    report = run_doctor()
+    paths = next(c for c in report.checks if c.name == "paths")
+    cache = next(c for c in report.checks if c.name == "cache")
+    home = str(Path.home() / ".arcavex")
+    assert home in paths.detail
+    assert home in cache.detail
+
+
+def test_doctor_paths_follows_arcavex_home(monkeypatch, tmp_path) -> None:
+    """With ARCAVEX_HOME set, 'paths' reports that home, not an OS-temp default."""
+    monkeypatch.setenv("ARCAVEX_HOME", str(tmp_path))
+    report = run_doctor()
+    paths = next(c for c in report.checks if c.name == "paths")
+    assert str(tmp_path) in paths.detail
+    assert "env ARCAVEX_HOME" in paths.detail
 
 
 def test_doctor_json_serializable() -> None:

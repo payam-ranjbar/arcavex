@@ -105,3 +105,23 @@ jobs:
             --data examples/hello-poster/data.yaml \
             --format square -o /tmp/installed.png
           test -s /tmp/installed.png
+
+      # Render an A4 PDF and open it with a real reader (pypdfium2) so the packaged install is
+      # verified to produce a PDF a third-party parser accepts — not just bytes that pass our own
+      # self-test. This is what pypdfium2 is installed for.
+      - name: Render and validate a PDF with pypdfium2
+        run: |
+          uv run --python /tmp/arcavex-install arcavex render \
+            examples/ipen-bilingual/template.yaml \
+            --data examples/ipen-bilingual/data.yaml \
+            --format a4 --locale fa -o /tmp/installed.pdf
+          test -s /tmp/installed.pdf
+          uv run --python /tmp/arcavex-install python - <<'PY'
+          import pypdfium2 as pdfium
+
+          doc = pdfium.PdfDocument("/tmp/installed.pdf")
+          assert len(doc) == 1, f"expected 1 page, got {len(doc)}"
+          width, height = doc[0].get_size()  # points; A4 = 595.28 x 841.89
+          assert abs(width - 595.28) < 1.0 and abs(height - 841.89) < 1.0, (width, height)
+          print(f"pypdfium2 opened /tmp/installed.pdf: 1 page, {width:.2f} x {height:.2f} pt")
+          PY

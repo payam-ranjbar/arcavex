@@ -119,6 +119,18 @@ is the default render DPI:
 `arcavex doctor` reports whether a `config.toml` is present and which layer the default DPI
 resolves from.
 
+`config.toml` also carries the resource-budget and cache tables that the budget diagnostics
+(`ARC-RND-020..023`) and `doctor` point at — edit these to raise a limit a large render trips or
+to resize the derived-image cache:
+
+| Table / key | Default | What it bounds |
+|---|---|---|
+| `[budgets] max_dimension` | 30000 | Largest output width or height, in pixels (`ARC-RND-020`). |
+| `[budgets] max_pixels` | 400000000 | Largest total output pixel count (`ARC-RND-021`). |
+| `[budgets] max_surface_bytes` | 2000000000 | Peak render-surface memory, in bytes (`ARC-RND-022`). |
+| `[budgets] max_wall_ms` | 120000 | Per-render wall-clock ceiling, in milliseconds (`ARC-RND-023`). |
+| `[cache] derived_bytes` | 256000000 | Byte budget for the derived-image cache; both its memory and disk tiers are held under it, LRU-evicting the oldest variants (§4.7). |
+
 ## MCP authoring surface (§6.2)
 
 Arcavex ships an optional [MCP](https://modelcontextprotocol.io) server so an AI agent can author
@@ -168,7 +180,13 @@ A one-file template is a YAML mapping with these top-level sections:
   omission: it does not fall back to the declared `default`, and for a required variable it is
   still an error. Omitting a key entirely is what selects the default. (See ADR-0002.)
 - `formats:` — named canvases, e.g. `square: {canvas: {width: 1080px, height: 1080px,
-  dpi: 96}}`.
+  dpi: 96}}`. A `canvas` may also declare `bleed: <dim>` (e.g. `bleed: 3mm`) for print-ready
+  PDF output: the bleed grows the PDF's `MediaBox`/`BleedBox` uniformly beyond the `TrimBox`
+  (the finished cut size), so `a4: {canvas: {width: 210mm, height: 297mm, dpi: 300, bleed: 3mm}}`
+  renders a 216×303 mm media box around a 210×297 mm trim — an `A4 + bleed` print file in one
+  command. Bleed only affects PDF page boxes; raster formats ignore it. PDF output is
+  raster-embedded RGB at the target DPI (not vector, not CMYK/PDF-X — those stay deferred, §12),
+  so text and shapes are rasterized pixels, not selectable vectors.
 - `locales:` — per-locale `direction`/`digits`/`fonts`/`data`/`patch`, applied when the
   locale is requested with `--locale`. A `formats.<name>.patch` (and a locale `patch`) apply
   path-addressed `set`/`remove`/`insert_before`/`insert_after` operations to the node tree.
@@ -447,8 +465,9 @@ from?".
   setting it is a located `ARC-TPL-053`; it is tracked in the ledger for a later phase.
 - **Asset store is minimal.** The content-addressed store ingests assets by hash with sidecar
   metadata and enforces decode guards (max source bytes, max decoded pixels, format allowlist)
-  before any decode, which is enough to pin assets in run manifests. The derived-variant LRU
-  cache (downscaled thumbnails under a byte budget) is deferred to a later phase.
+  before any decode, which is enough to pin assets in run manifests. (The derived-variant LRU
+  cache — a large source downscaled once into the slot it occupies, under a byte budget — shipped
+  in this build under `$ARCAVEX_HOME/cache/derived/`; see the config table above and `doctor`.)
 - **Provenance is same-platform.** A rerun reproduces byte-identical output on the same engine
   version and platform (OS/arch); cross-platform reproduction is perceptual, not bit-exact, and
   `rerun` refuses to claim exact reproduction when the engine version or platform differs.

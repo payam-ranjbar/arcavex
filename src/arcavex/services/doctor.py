@@ -212,21 +212,23 @@ def _check_paths() -> DoctorCheck:
     """Report where Arcavex reads/writes: ARCAVEX_HOME and the preview cache (DX-9).
 
     The value's source (the ARCAVEX_HOME environment variable or the built-in default) is
-    named so an author can see which of the §6.3 precedence layers is in effect.
+    named so an author can see which of the §6.3 precedence layers is in effect. The home
+    root is resolved by ``fsutil.home_dir()`` — the single source of truth the library, the
+    cache check, and every other reader use — so ``doctor`` reports one self-consistent home
+    (DX-1), never two disagreeing defaults in the same run.
     """
-    home = os.environ.get("ARCAVEX_HOME")
-    if home:
-        home_dir = Path(home)
+    from arcavex.services.fsutil import home_dir
+
+    if os.environ.get("ARCAVEX_HOME"):
         source = "env ARCAVEX_HOME"
-        preview_cache = home_dir / "cache" / "preview"
     else:
-        home_dir = Path(tempfile.gettempdir()) / "arcavex"
-        source = "default (OS temp)"
-        preview_cache = home_dir / "cache" / "preview"
+        source = "default (~/.arcavex)"
+    root = home_dir()
+    preview_cache = root / "cache" / "preview"
     return DoctorCheck(
         name="paths",
         status="ok",
-        detail=f"home={home_dir} [{source}]; preview cache={preview_cache}",
+        detail=f"home={root} [{source}]; preview cache={preview_cache}",
     )
 
 

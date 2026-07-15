@@ -21,10 +21,63 @@ def _emitted_codes() -> set[str]:
     return codes
 
 
+def _raise_site_codes() -> set[str]:
+    """Codes that appear as a literal *outside* the catalog module — i.e. a real raise-site.
+
+    The catalog module registers every code as a literal, so it must be excluded to tell a code
+    the engine can actually produce apart from one that is merely defined.
+    """
+    codes: set[str] = set()
+    for path in _SRC.rglob("*.py"):
+        if path.name == "diagnostics_catalog.py":
+            continue
+        codes |= set(_CODE_RE.findall(path.read_text(encoding="utf-8")))
+    return codes
+
+
+# Codes registered + documented but intentionally not raised by the current engine. Each needs a
+# reason here so a genuinely-unreachable *new* code (as ARC-EXP-001 was — registered and
+# documented, yet an unwritable output path fell through to ARC-INT-999, DX-2) is caught by
+# ``test_registered_codes_are_reachable`` instead of shipping a diagnostic that can never appear.
+_REACHABILITY_EXEMPT: dict[str, str] = {
+    "ARC-FX-900": "legacy compatibility placeholder; effects now compile and report ARC-FX-9xx",
+    "ARC-LAY-014": "reserved 'unsupported anchor edge'; no current build rejects an edge here",
+    "ARC-RND-900": "reserved 'masks not supported' placeholder; masks shipped, so it is unraised",
+    "ARC-TPL-052": "reserved 'stacks not supported' placeholder; superseded once stacks shipped",
+    "ARC-TPL-091": "reserved 'locale not supported' placeholder; locale shipped in Phase 2",
+    "ARC-TPL-094": "reserved 'style opt-in not supported' placeholder; style shipped later",
+    "ARC-TPL-095": "reserved 'format patch not supported' placeholder; patch shipped later",
+}
+
+
 def test_every_emitted_code_is_documented() -> None:
     """The coverage guarantee: emitted codes are a subset of documented codes."""
     missing = _emitted_codes() - documented_codes()
     assert not missing, f"undocumented diagnostic codes: {sorted(missing)}"
+
+
+def test_registered_codes_are_reachable() -> None:
+    """Every documented code has a raise-site, or an explicit reachability exemption (DX-2).
+
+    ARC-EXP-001 shipped registered and documented but with no raise-site, so an unwritable
+    output path leaked as ARC-INT-999/exit 5. This guards that class of defect: a new catalog
+    code must either be raised somewhere in the engine or be listed — with a reason — in
+    ``_REACHABILITY_EXEMPT``.
+    """
+    reachable = _raise_site_codes() | set(_REACHABILITY_EXEMPT)
+    unreachable = documented_codes() - reachable
+    assert not unreachable, (
+        f"registered codes with no raise-site and no reachability exemption: {sorted(unreachable)}"
+    )
+
+
+def test_reachability_exemptions_stay_honest() -> None:
+    """An exemption must name a real, genuinely-unraised code — drop it once a raise-site exists."""
+    raised = _raise_site_codes()
+    stale = sorted(set(_REACHABILITY_EXEMPT) & raised)
+    assert not stale, f"exempted codes that are actually raised (remove the exemption): {stale}"
+    unknown = sorted(set(_REACHABILITY_EXEMPT) - documented_codes())
+    assert not unknown, f"reachability exemptions for unknown codes: {unknown}"
 
 
 def test_explain_known_code() -> None:

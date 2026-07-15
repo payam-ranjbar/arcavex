@@ -83,8 +83,13 @@ class SkiaBackend(RendererBackend):
         ``image_cache`` is an optional derived-variant cache (spec §4.7): when a large source
         image is drawn into a much smaller slot, the backend fetches a once-downscaled variant
         from it instead of re-decoding the full image every render. It is disposable and never
-        authoritative — a cold cache yields byte-identical output — so ``None`` (no cache) renders
-        the same pixels, just without the acceleration.
+        authoritative — a *cold cache is byte-identical to a warm one* (the release-gate
+        guarantee), because a variant is a pure function of the source bytes and target box.
+        Enabling versus disabling the cache is ~1:1, not bit-exact, for ``cover``/``contain``:
+        the cache path downscales to the fitted box which ``drawImageRect`` then resamples again
+        (two resamples), while ``None`` resamples the full image once. The example scenes stay
+        far under the golden DSSIM budget, and production always wires the cache in, so the gate
+        rests on cold==warm, not on cache==no-cache.
         """
         self._text = text_service
         self._masks = masks or {}

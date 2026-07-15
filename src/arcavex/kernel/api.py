@@ -51,6 +51,11 @@ _EXPORTER_BY_EXT: dict[str, str] = {
     ".pdf": "pdf",
 }
 
+# Default lossy-encoder quality when ``--quality`` is omitted (JPEG, lossy WebP). 90 is the
+# conventional "visually lossless, small" setting; the previous 100 produced JPEGs larger than
+# the equivalent PNG with no visible gain (DX-4). PNG/PDF ignore it; lossless WebP overrides it.
+_DEFAULT_EXPORT_QUALITY = 90
+
 # Machine-readable responses carry this so consumers key on a version, not a shape.
 RESPONSE_VERSION = 1
 
@@ -1537,9 +1542,8 @@ class Facade:
             self._budget.check_wall_ms((time.monotonic() - started) * 1000.0, file=str(template))
 
         exporter = self._registries.exporters.get(exporter_name)
-        output.parent.mkdir(parents=True, exist_ok=True)
         opts = ExportOptions(
-            quality=quality if quality is not None else 100,
+            quality=quality if quality is not None else _DEFAULT_EXPORT_QUALITY,
             dpi=dpi,
             lossless=lossless,
             page_width_pt=canvas.width_pt,
@@ -1547,7 +1551,23 @@ class Facade:
             bleed_pt=canvas.bleed_pt,
             engine_version=self._engine_version,
         )
-        report = exporter.export(surface, output, opts)
+        # Filesystem failures when publishing the output (an unwritable directory, a parent
+        # path component that is a file, a full disk) are the user's problem, not an engine
+        # bug: turn the raw OSError into a located ARC-EXP-001 so it reports as an actionable
+        # export failure (exit 1) instead of leaking as ARC-INT-999/exit 5 (DX-2). The encoder
+        # itself raises its own ARC-EXP-002/003 before any bytes are written.
+        try:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            report = exporter.export(surface, output, opts)
+        except OSError as exc:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-EXP-001",
+                    f"Could not write the output file {str(output)!r}: {exc.strerror or exc}",
+                    file=str(output),
+                    hint="Check the output path is writable and its parent directory exists.",
+                )
+            ) from exc
 
         return RenderResult(
             ok=True,

@@ -50,6 +50,7 @@ class DerivedImageCache:
         self.hits = 0
         self.misses = 0
         self.evictions = 0
+        self.disk_evictions = 0
 
     def stats(self) -> dict[str, int]:
         """Return hit/miss/eviction counters and current memory footprint (for tests/doctor)."""
@@ -57,6 +58,7 @@ class DerivedImageCache:
             "hits": self.hits,
             "misses": self.misses,
             "evictions": self.evictions,
+            "disk_evictions": self.disk_evictions,
             "mem_bytes": self._mem_bytes,
             "entries": len(self._mem),
         }
@@ -131,7 +133,42 @@ class DerivedImageCache:
             atomic_write_bytes(self._disk_path(key), bytes(encoded))
         except OSError:
             # The cache is disposable; a write failure must never fail a render.
-            pass
+            return
+        self._prune_disk()
+
+    def _prune_disk(self) -> None:
+        """Evict oldest on-disk variants by mtime until the tree is within the byte budget (§4.7).
+
+        The persistent tier is bounded by the same configured byte budget as memory, measured in
+        the actual PNG bytes on disk. Recency is the file mtime, which ``_read_disk`` touches on
+        every hit, so a variant used recently outlives a stale one. Eviction is always safe: a
+        pruned variant is a pure function of its source bytes and target size, so a later render
+        simply re-derives it — a cold cache stays byte-identical to a warm one. Filesystem races
+        (a file another process removed concurrently) are swallowed; the cache never fails a render.
+        """
+        entries: list[tuple[float, int, Path]] = []
+        try:
+            candidates = list(self._root.rglob("*.png"))
+        except OSError:
+            return
+        for path in candidates:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue  # vanished between listing and stat — another process pruned it
+            entries.append((stat.st_mtime, stat.st_size, path))
+        total = sum(size for _, size, _ in entries)
+        if total <= self._budget:
+            return
+        for _, size, path in sorted(entries, key=lambda entry: entry[0]):
+            if total <= self._budget:
+                break
+            try:
+                path.unlink()
+            except OSError:
+                continue
+            total -= size
+            self.disk_evictions += 1
 
 
 def _decode(path: Path) -> object | None:

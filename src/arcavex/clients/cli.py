@@ -243,8 +243,8 @@ def render(
     ),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
     quality: int | None = typer.Option(
-        None, "--quality", help="Lossy encoder quality 1-100 (JPEG, lossy WebP). Ignored for "
-        "PNG/PDF.", min=1, max=100,
+        None, "--quality", help="Lossy encoder quality 1-100 (JPEG, lossy WebP; default 90). "
+        "Ignored for PNG/PDF.", min=1, max=100,
     ),
     lossless: bool = typer.Option(
         False, "--lossless", help="Encode WebP losslessly (ignored for other formats)."
@@ -405,7 +405,12 @@ def _print_doctor_table(console: Console, report: DoctorReport) -> None:
     table.add_column("detail")
     marks = {"ok": "[green]ok[/green]", "warn": "[yellow]warn[/yellow]", "fail": "[red]fail[/red]"}
     for check in report.checks:
-        table.add_row(check.name, marks.get(check.status, check.status), check.detail)
+        # Escape the detail: it embeds a precedence source in brackets (e.g. "[default
+        # (~/.arcavex)]") that Rich would otherwise parse as markup and silently strip, hiding
+        # which config layer a value came from — the very thing the paths/config rows report.
+        table.add_row(
+            check.name, marks.get(check.status, check.status), _rich_escape(check.detail)
+        )
     console.print(table)
     for check in report.checks:
         if check.status != "ok" and check.hint:

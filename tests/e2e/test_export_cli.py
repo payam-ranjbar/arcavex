@@ -58,6 +58,24 @@ def test_unsupported_extension_is_rejected(tmp_path: Path) -> None:
     assert not out.exists()
 
 
+def test_unwritable_output_path_raises_located_export_error(tmp_path: Path) -> None:
+    """DX-2: an output whose parent is a regular file is a located ARC-EXP-001, not ARC-INT-999.
+
+    A filesystem failure publishing the render (a bad path, an unwritable directory) is the
+    user's problem — it must report as an actionable, located export failure (exit 1), never
+    leak as an internal engine error (exit 5).
+    """
+    blocker = tmp_path / "isafile"
+    blocker.write_text("not a directory", encoding="utf-8")
+    out = blocker / "out.png"  # parent 'isafile' is a file, so the write cannot succeed
+    proc = _render(out)
+    assert proc.returncode == 1, proc.stderr  # EXIT_VALIDATION, not EXIT_INTERNAL (5)
+    assert "ARC-EXP-001" in proc.stderr
+    assert "ARC-INT-999" not in proc.stderr
+    assert str(blocker.name) in proc.stderr  # the offending path is named
+    assert not out.exists()
+
+
 def test_oversized_render_exits_with_budget_code(tmp_path: Path) -> None:
     template = tmp_path / "huge.yaml"
     template.write_text(

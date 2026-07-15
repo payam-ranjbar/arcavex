@@ -116,6 +116,32 @@ def test_lru_eviction_under_byte_budget(tmp_path: Path) -> None:
     assert cache.stats()["entries"] == 1
 
 
+def test_disk_tier_evicts_under_byte_budget(tmp_path: Path) -> None:
+    """The persistent tier is byte-bounded too: distinct variants past the budget prune the
+    oldest on-disk PNG by mtime, so ``$ARCAVEX_HOME/cache/derived/`` cannot grow unbounded (§4.7).
+    """
+    source = _write_image(tmp_path / "big.png", 2500, 2000)
+    root = tmp_path / "cache"
+
+    # Discover one variant's on-disk (PNG) size so the budget is set relative to it.
+    probe = DerivedImageCache(root=root, byte_budget=64_000_000)
+    probe.variant(source, 400, 320)
+    one = next(root.rglob("*.png")).stat().st_size
+    import shutil
+
+    shutil.rmtree(root)
+
+    # A budget holding ~2 variants; writing several distinct ones must evict the oldest on disk.
+    budget = one * 2 + one // 2
+    cache = DerivedImageCache(root=root, byte_budget=budget)
+    for width in (400, 401, 402, 403, 404, 405):
+        cache.variant(source, width, 320)
+
+    assert cache.stats()["disk_evictions"] >= 1
+    total = sum(path.stat().st_size for path in root.rglob("*.png"))
+    assert total <= budget  # the disk tree is held under the byte budget
+
+
 def test_render_is_identical_cold_vs_warm(tmp_path: Path, monkeypatch) -> None:
     """A large image renders byte-identically whether the derived cache is cold or warm (§4.7)."""
     def _render(home: Path) -> str:
