@@ -867,8 +867,12 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-EXT-001",
             "Duplicate component name",
-            "Two components register the same name for one contract kind.",
-            "Component names are globally unique per kind; rename one provider.",
+            "Two components claim the same name for one contract kind — an extension component "
+            "shadowing a built-in or another added extension. Caught at 'ext validate' and 'ext "
+            "add' (and again by the loader at start), naming both providers: the incumbent as a "
+            "built-in or by its extension name, and the newcomer by its extension and class.",
+            "Component names are globally unique per kind; rename the extension's component (and "
+            "its manifest name) to one that is not already registered.",
         ),
         _e(
             "ARC-EXT-002",
@@ -960,7 +964,9 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "A source file imports 'random', or a component method reads the wall clock or an "
             "undeclared file. Such use makes output depend on when or where it ran, so a rerun "
             "cannot reproduce the bytes (spec §3.2). This is a reproducibility rule, not a "
-            "hostile-code check.",
+            "hostile-code check. The lint is a best-effort AST heuristic — it does not catch "
+            "entropy hidden in a helper, behind an alias, or pulled in at import time — so a clean "
+            "result is a reliability aid, not a guarantee.",
             "Draw randomness from the seeded 'ctx.rng' (arcavex.sdk.effect_rng); do not read the "
             "clock or undeclared files in render-affecting code.",
         ),
@@ -990,8 +996,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Golden output mismatch",
             "An effect's rendered output differs from its stored golden image beyond the allowed "
             "tolerance.",
-            "Inspect the render; if the change is intended, regenerate the golden with "
-            "GoldenHarness.save and review the image diff.",
+            "Inspect the render; if the change is intended, regenerate the committed golden with "
+            "'python golden_test.py --update' and review the image diff.",
         ),
         _e(
             "ARC-EXT-052",

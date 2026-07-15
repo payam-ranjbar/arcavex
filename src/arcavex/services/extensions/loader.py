@@ -57,21 +57,32 @@ def load_enabled_extensions(
     """
     state = ExtensionState(env)
     diagnostics: list[Diagnostic] = []
+    # Which extension registered each (registry, name) so far, so a duplicate names the incumbent
+    # extension rather than its component class (CR-3). Shared across the extensions loaded here.
+    provenance: dict[tuple[str, str], str] = {}
     for record in state.records():
         if not record.enabled:
             continue
         ext_dir = source_path(record.name, env)
-        diagnostics.extend(register_extension(registries, ext_dir))
+        diagnostics.extend(register_extension(registries, ext_dir, provenance=provenance))
     return diagnostics
 
 
-def register_extension(registries: Registries, ext_dir: Path) -> list[Diagnostic]:
+def register_extension(
+    registries: Registries,
+    ext_dir: Path,
+    *,
+    provenance: dict[tuple[str, str], str] | None = None,
+) -> list[Diagnostic]:
     """Parse, compat-check, import, and register one extension directory's components.
 
     Used by the loader for enabled extensions and by ``ext test``/validation to exercise the real
     registration path. Returns diagnostics; components that register cleanly take effect, and a
-    component that collides or fails to import is reported and skipped.
+    component that collides or fails to import is reported and skipped. ``provenance`` accumulates
+    which extension registered each name so a duplicate can name the incumbent extension; the
+    loader shares one across all enabled extensions.
     """
+    prov = provenance if provenance is not None else {}
     manifest, diagnostics = parse_manifest(ext_dir)
     if manifest is None:
         return diagnostics
@@ -81,7 +92,7 @@ def register_extension(registries: Registries, ext_dir: Path) -> list[Diagnostic
         return diagnostics
     package = _load_package(manifest.name, Path(ext_dir))
     for spec in manifest.components:
-        diagnostics.extend(_register_one(registries, manifest, package, spec, ext_dir))
+        diagnostics.extend(_register_one(registries, manifest, package, spec, ext_dir, prov))
     return diagnostics
 
 
@@ -110,12 +121,17 @@ def _register_one(
     package: str,
     spec: ComponentSpec,
     ext_dir: Path,
+    provenance: dict[tuple[str, str], str],
 ) -> list[Diagnostic]:
     kind = COMPONENT_KINDS[spec.kind]
     registry = getattr(registries, kind.registry_attr)
     reserved = _RESERVED_NAMES.get(kind.registry_attr, frozenset())
+    key = (kind.registry_attr, spec.name)
     if registry.has(spec.name) or spec.name in reserved:
-        existing = "a built-in" if spec.name in reserved else type(registry.get(spec.name)).__name__
+        # Name the incumbent by extension (from provenance) when another extension registered it;
+        # otherwise it is a built-in (already in the registry, or a reserved solver/backend name).
+        prior_ext = provenance.get(key)
+        existing = f"extension {prior_ext!r}" if prior_ext is not None else "a built-in"
         return [
             diagnostic(
                 "ARC-EXT-001",
@@ -134,6 +150,7 @@ def _register_one(
         register_component(registries, spec.kind, spec.name, instance)
     except DiagnosticError as exc:
         return list(exc.diagnostics)
+    provenance[key] = manifest.name
     return []
 
 

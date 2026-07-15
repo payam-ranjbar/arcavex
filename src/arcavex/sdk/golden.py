@@ -60,8 +60,9 @@ class GoldenResult:
     notes: list[str] = field(default_factory=list)
 
 
-def load_png(path: Path) -> skia.Image:
+def load_png(path: Path | str) -> skia.Image:
     """Decode a PNG into a Skia image (used for fixtures and goldens)."""
+    path = Path(path)
     data = skia.Data.MakeFromFileName(str(path))
     if data is None:
         raise FileNotFoundError(f"golden fixture not found: {path}")
@@ -71,8 +72,9 @@ def load_png(path: Path) -> skia.Image:
     return image
 
 
-def save_png(image: skia.Image, path: Path) -> None:
+def save_png(image: skia.Image, path: Path | str) -> None:
     """Encode a Skia image to a PNG file (used to (re)generate goldens)."""
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = image.encodeToData(skia.EncodedImageFormat.kPNG, 100)
     path.write_bytes(bytes(data))
@@ -192,7 +194,8 @@ class GoldenHarness:
                         f"Golden output mismatch (max per-channel diff {max_diff} > {tolerance})",
                         file=str(golden),
                         hint="Inspect the render; if the change is intended, regenerate the "
-                        "golden with GoldenHarness.save and review the image diff.",
+                        "committed golden with 'python golden_test.py --update' and review the "
+                        "image diff.",
                     )
                 )
 

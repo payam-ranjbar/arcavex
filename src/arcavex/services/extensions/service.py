@@ -25,6 +25,7 @@ from arcavex.kernel.api import (
 )
 from arcavex.kernel.diagnostics import Diagnostic, diagnostic
 from arcavex.sdk.registration import COMPONENT_KINDS
+from arcavex.services.extensions.collision import TakenNames
 from arcavex.services.extensions.manifest import parse_manifest
 from arcavex.services.extensions.scaffold import scaffold_files
 from arcavex.services.extensions.state import ExtensionState, source_path
@@ -38,10 +39,46 @@ _TEST_TIMEOUT_S = 120
 class ExtensionService:
     """Local-extension lifecycle over the state directory; all methods are boundary-safe."""
 
-    def __init__(self, env: dict[str, str] | None = None) -> None:
-        """Bind the environment used to resolve the Arcavex home (defaults to the process)."""
+    def __init__(
+        self,
+        env: dict[str, str] | None = None,
+        builtin_names: dict[str, frozenset[str]] | None = None,
+    ) -> None:
+        """Bind the environment and the built-in component names for collision detection.
+
+        ``builtin_names`` maps each component kind to the names the built-ins occupy; bootstrap
+        supplies it (the composition root is the only layer that may see the built-ins). Without
+        it, ``validate``/``add`` still catch collisions against other added extensions, and the
+        loader remains the backstop for built-in collisions at engine start.
+        """
         self._env = env
         self._state = ExtensionState(env)
+        self._builtin_names = builtin_names or {}
+
+    def _taken_names(self, exclude: str | None) -> TakenNames:
+        """Build the name -> incumbent-label map for every kind, excluding one extension.
+
+        Merges the built-in names (labelled ``built-in 'name'``) with the components every other
+        added extension declares (labelled ``extension 'ext-name'``). ``exclude`` drops the
+        extension being validated/added so it never collides with its own stored copy.
+        """
+        taken: TakenNames = {}
+        for kind, names in self._builtin_names.items():
+            slot = taken.setdefault(kind, {})
+            for n in names:
+                slot[n] = f"built-in {n!r}"
+        for record in self._state.records():
+            if record.name == exclude:
+                continue
+            manifest, _diags = parse_manifest(source_path(record.name, self._env))
+            if manifest is None:
+                continue
+            for comp in manifest.components:
+                # A built-in incumbent wins the label (it is registered first); setdefault keeps it.
+                taken.setdefault(comp.kind, {}).setdefault(
+                    comp.name, f"extension {record.name!r}"
+                )
+        return taken
 
     # ---------------------------------------------------------------------- list
     def list_extensions(
@@ -114,8 +151,11 @@ class ExtensionService:
     # ------------------------------------------------------------------ validate
     def validate_extension(self, path: Path) -> ExtensionValidateReport:
         """Run every validation gate over an extension directory. Never raises."""
+        ext_dir = Path(path)
+        manifest, _diags = parse_manifest(ext_dir)
+        exclude = manifest.name if manifest is not None else None
         try:
-            result = validate_extension(Path(path))
+            result = validate_extension(ext_dir, taken=self._taken_names(exclude))
         except Exception as exc:  # noqa: BLE001 - boundary must not leak
             return ExtensionValidateReport(
                 ok=False,
@@ -137,10 +177,19 @@ class ExtensionService:
 
     # ---------------------------------------------------------------------- test
     def test_extension(self, path: Path) -> ExtensionTestReport:
-        """Run the extension's ``golden_test.py`` in a subprocess and report the outcome."""
+        """Validate the extension, then run its ``golden_test.py`` in a subprocess.
+
+        ``test`` implies ``validate`` (DX-7): the golden test only exercises what it calls, so it
+        cannot catch a disallowed import, a determinism-lint hit, or a bad param schema. Running
+        validation first means a green ``ext test`` never gives false confidence about those gates.
+        """
         ext_dir = Path(path)
         manifest, _diags = parse_manifest(ext_dir)
         name = manifest.name if manifest is not None else None
+        exclude = manifest.name if manifest is not None else None
+        validation = validate_extension(ext_dir, taken=self._taken_names(exclude))
+        if not validation.ok:
+            return ExtensionTestReport(ok=False, name=name, diagnostics=validation.diagnostics)
         test_file = ext_dir / GOLDEN_TEST_NAME
         if not test_file.is_file():
             return ExtensionTestReport(
@@ -204,7 +253,9 @@ class ExtensionService:
         does not silently disable it.
         """
         ext_dir = Path(path)
-        validation = validate_extension(ext_dir)
+        pre, _diags = parse_manifest(ext_dir)
+        exclude = pre.name if pre is not None else None
+        validation = validate_extension(ext_dir, taken=self._taken_names(exclude))
         if not validation.ok or validation.name is None:
             return ExtensionActionReport(
                 ok=False, name=validation.name, diagnostics=validation.diagnostics
@@ -247,7 +298,9 @@ class ExtensionService:
         record = self._state.get(name)
         if record is None:
             return self._unknown(name)
-        validation = validate_extension(source_path(name, self._env))
+        validation = validate_extension(
+            source_path(name, self._env), taken=self._taken_names(name)
+        )
         if not validation.ok:
             return ExtensionActionReport(
                 ok=False,

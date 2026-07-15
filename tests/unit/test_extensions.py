@@ -284,3 +284,63 @@ def _install(ext_dir: Path, name: str, *, enabled: bool) -> None:
     dest = source_path(name)
     shutil.copytree(ext_dir, dest)
     ExtensionState().add(name, "0.1.0", enabled=enabled)
+
+
+# ------------------------------------------------------------------------- collisions
+def test_validate_collision_with_builtin_names(tmp_path: Path) -> None:
+    """With an injected built-in name map, a colliding component fails validate (DX-2)."""
+    ext = _make_ext(tmp_path, "blur", manifest=_manifest("blur", comp_name="blur"))
+    taken = {"effect": {"blur": "built-in 'blur'"}}
+    result = validate_extension(ext, taken=taken)
+    assert not result.ok
+    dup = next(d for d in result.diagnostics if d.code == "ARC-EXT-001")
+    assert "built-in 'blur'" in dup.message and "blur" in dup.message
+
+
+def test_validate_no_collision_when_name_free(tmp_path: Path) -> None:
+    """The collision gate does not fire for a name nothing else claims."""
+    ext = _make_ext(tmp_path, "fresh-fx")
+    taken = {"effect": {"blur": "built-in 'blur'"}}
+    result = validate_extension(ext, taken=taken)
+    assert result.ok, [d.model_dump() for d in result.diagnostics]
+
+
+def test_service_rejects_builtin_collision(arcavex_home: Path, tmp_path: Path) -> None:
+    """The service builds the taken-map from injected built-ins; add and validate both refuse."""
+    from arcavex.services.extensions.service import ExtensionService
+
+    service = ExtensionService(builtin_names={"effect": frozenset({"blur"})})
+    ext = _make_ext(tmp_path, "blur", manifest=_manifest("blur", comp_name="blur"))
+    assert not service.validate_extension(ext).ok
+    add = service.add_extension(ext)
+    assert not add.ok
+    assert any(d.code == "ARC-EXT-001" for d in add.diagnostics)
+
+
+def test_service_add_rejects_collision_with_other_extension(
+    arcavex_home: Path, tmp_path: Path
+) -> None:
+    """A second extension reusing a first extension's component name is refused at add (CR-3)."""
+    from arcavex.services.extensions.service import ExtensionService
+
+    service = ExtensionService()
+    a = _make_ext(tmp_path / "a", "ext-a", manifest=_manifest("ext-a", comp_name="shared"))
+    assert service.add_extension(a).ok
+    b = _make_ext(tmp_path / "b", "ext-b", manifest=_manifest("ext-b", comp_name="shared"))
+    add = service.add_extension(b)
+    assert not add.ok
+    dup = next(d for d in add.diagnostics if d.code == "ARC-EXT-001")
+    assert "extension 'ext-a'" in dup.message
+
+
+# --------------------------------------------------------------------- SDK path coercion
+def test_save_and_load_png_accept_str_path(tmp_path: Path) -> None:
+    """save_png/load_png coerce a plain str path instead of raising AttributeError (DX-4)."""
+    import numpy as np
+
+    from arcavex.sdk import load_png, rgba_to_image, save_png
+
+    img = rgba_to_image(np.zeros((4, 4, 4), dtype=np.uint8))
+    target = str(tmp_path / "nested" / "out.png")  # a plain string, nested dir created by save
+    save_png(img, target)
+    assert load_png(target).width() == 4

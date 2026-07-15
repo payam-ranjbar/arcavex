@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from arcavex.clients.cli import app
@@ -127,6 +128,101 @@ def test_validate_flags_nondeterminism(arcavex_home: Path, tmp_path: Path) -> No
     assert result.exit_code != 0
     codes = [d["code"] for d in json.loads(result.stdout)["diagnostics"]]
     assert "ARC-EXT-031" in codes
+
+
+ALL_KINDS = (
+    "effect",
+    "mask",
+    "shape",
+    "exporter",
+    "template_function",
+    "decoder",
+    "backend",
+    "layout_solver",
+)
+
+
+@pytest.mark.parametrize("kind", ALL_KINDS)
+def test_scaffold_every_kind_validates_and_tests(
+    arcavex_home: Path, tmp_path: Path, kind: str
+) -> None:
+    """DX-1/CR-1: a fresh scaffold of EVERY documented kind validates and tests green."""
+    ext_dir = tmp_path / f"my-{kind}"
+    scaffold = runner.invoke(
+        app, ["ext", "scaffold", kind, str(ext_dir), "--name", f"my-{kind}", "--json"]
+    )
+    assert scaffold.exit_code == 0, scaffold.output
+    assert (ext_dir / "golden_test.py").is_file(), "every kind must ship a golden_test.py"
+
+    validate = runner.invoke(app, ["ext", "validate", str(ext_dir), "--json"])
+    assert validate.exit_code == 0, f"{kind} validate: {validate.output}"
+    assert json.loads(validate.stdout)["ok"] is True
+
+    test = runner.invoke(app, ["ext", "test", str(ext_dir), "--json"])
+    assert test.exit_code == 0, f"{kind} test: {test.output}"
+    assert json.loads(test.stdout)["passed"] is True
+
+
+def test_collision_with_builtin_caught_at_validate_and_add(
+    arcavex_home: Path, tmp_path: Path
+) -> None:
+    """DX-2/CR-3: a component named after a built-in fails validate AND add, naming both."""
+    ext_dir = tmp_path / "dup"
+    runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir), "--name", "dup-fx"])
+    manifest = ext_dir / "extension.toml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            'kind = "effect"\nname = "dup-fx"', 'kind = "effect"\nname = "blur"'
+        ),
+        encoding="utf-8",
+    )
+
+    validate = runner.invoke(app, ["ext", "validate", str(ext_dir), "--json"])
+    assert validate.exit_code != 0
+    vdiags = json.loads(validate.stdout)["diagnostics"]
+    dup = next(d for d in vdiags if d["code"] == "ARC-EXT-001")
+    assert "built-in 'blur'" in dup["message"] and "dup-fx" in dup["message"]
+
+    add = runner.invoke(app, ["ext", "add", str(ext_dir), "--json"])
+    assert add.exit_code != 0
+    assert any(d["code"] == "ARC-EXT-001" for d in json.loads(add.stdout)["diagnostics"])
+
+
+def test_ext_test_implies_validate(arcavex_home: Path, tmp_path: Path) -> None:
+    """DX-7: a disallowed import fails `ext test` even though golden_test.py never imports it."""
+    ext_dir = tmp_path / "sneaky"
+    runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir)])
+    component = ext_dir / "component.py"
+    component.write_text(
+        "from arcavex.services.doctor import engine_version  # past the SDK surface\n"
+        + component.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    test = runner.invoke(app, ["ext", "test", str(ext_dir), "--json"])
+    assert test.exit_code != 0
+    assert "ARC-EXT-030" in [d["code"] for d in json.loads(test.stdout)["diagnostics"]]
+
+
+def test_golden_update_workflow(arcavex_home: Path, tmp_path: Path) -> None:
+    """DX-5/DX-6: `python golden_test.py --update` writes a golden the next test checks against."""
+    import subprocess
+    import sys
+
+    ext_dir = tmp_path / "updater"
+    runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir), "--name", "updater"])
+    golden = ext_dir / "golden" / "updater.png"
+    assert not golden.exists()  # scaffold ships no committed golden yet
+    assert runner.invoke(app, ["ext", "test", str(ext_dir)]).exit_code == 0  # passes without one
+
+    update = subprocess.run(
+        [sys.executable, "golden_test.py", "--update"],
+        cwd=str(ext_dir), capture_output=True, text=True, check=False,
+    )
+    assert update.returncode == 0, update.stdout + update.stderr
+    assert golden.is_file() and golden.stat().st_size > 0
+
+    # The committed golden is now checked on the next test run, and it matches.
+    assert runner.invoke(app, ["ext", "test", str(ext_dir), "--json"]).exit_code == 0
 
 
 def test_reference_extension_validates_and_tests(arcavex_home: Path) -> None:

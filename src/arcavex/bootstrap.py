@@ -152,9 +152,28 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         authoring=authoring,
         style_provider=style_resolver,
         orchestrator=orchestrator,
-        extensions=ExtensionService(),
+        extensions=ExtensionService(builtin_names=_builtin_component_names()),
         extension_load_diagnostics=extension_load_diagnostics,
     )
+
+
+def _builtin_component_names() -> dict[str, frozenset[str]]:
+    """Return the names each built-in occupies per component kind (spec §3.3 collision check).
+
+    ``ext validate``/``add`` use this to reject an extension component that would shadow a
+    built-in up front, naming both providers. Keyed by the component-kind keyword the manifest
+    uses. ``layout_solver``/``backend`` carry the reserved built-in names the loader guards.
+    """
+    return {
+        "effect": frozenset(builtin_effects()),
+        "mask": frozenset(m.name for m in builtin_masks()),
+        "shape": frozenset(s.name for s in builtin_shapes()),
+        "exporter": frozenset({"png"}),
+        "template_function": frozenset(f.name for f in builtin_template_functions()),
+        "layout_solver": frozenset({"anchors"}),
+        "backend": frozenset({"skia"}),
+        "decoder": frozenset(),
+    }
 
 
 def _build_orchestrator(

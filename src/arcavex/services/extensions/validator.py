@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
 from arcavex.sdk.registration import COMPONENT_KINDS
+from arcavex.services.extensions.collision import TakenNames, check_collisions
 from arcavex.services.extensions.loader import (
     _load_package,
     check_compatibility,
@@ -57,12 +58,16 @@ class ExtensionValidation:
     components: list[str] = field(default_factory=list)
 
 
-def validate_extension(ext_dir: Path) -> ExtensionValidation:
+def validate_extension(
+    ext_dir: Path, *, taken: TakenNames | None = None
+) -> ExtensionValidation:
     """Run every validation gate over an extension directory and return the combined result.
 
     Manifest and compatibility problems short-circuit the dynamic checks (there is nothing sound
     to import); the import-surface and determinism scans are static and always run when the source
-    files parse. Never raises.
+    files parse. When ``taken`` is provided (the names already registered by built-ins and other
+    added extensions, keyed by kind), a component-name collision is reported here — up front —
+    rather than only at engine start (spec §3.3). Never raises.
     """
     ext_dir = Path(ext_dir)
     manifest, diagnostics = parse_manifest(ext_dir)
@@ -72,6 +77,9 @@ def validate_extension(ext_dir: Path) -> ExtensionValidation:
     compat = check_compatibility(manifest, ext_dir)
     if compat is not None:
         diagnostics.append(compat)
+
+    if taken is not None:
+        diagnostics.extend(check_collisions(manifest, ext_dir, taken))
 
     diagnostics.extend(_scan_sources(ext_dir))
 
