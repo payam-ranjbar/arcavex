@@ -119,12 +119,25 @@ class RenderOptions(BaseModel):
 
 
 class ExportOptions(BaseModel):
-    """Options controlling an export."""
+    """Options controlling an export.
+
+    ``quality`` is the lossy encoder quality (JPEG, lossy WebP); ``lossless`` switches WebP to
+    its lossless mode (encoded at quality 100). ``page_width_pt``/``page_height_pt`` carry the
+    physical *trim* size and ``bleed_pt`` the uniform bleed margin for the PDF exporter, which
+    needs the physical page geometry the raster surface alone cannot express (spec §4.6/§3.1.2);
+    raster exporters ignore them. ``engine_version`` is embedded as stable PDF metadata (never a
+    timestamp), so identical inputs stay byte-identical (spec §4.6).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     quality: int = 100
     dpi: int | None = None
+    lossless: bool = False
+    page_width_pt: float | None = None
+    page_height_pt: float | None = None
+    bleed_pt: float = 0.0
+    engine_version: str = ""
 
 
 class ExportReport(BaseModel):

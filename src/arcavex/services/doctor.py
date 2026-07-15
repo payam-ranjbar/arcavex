@@ -40,6 +40,8 @@ def run_doctor(text_service: TextService | None = None) -> DoctorReport:
         _check_skia(),
         _check_icu(),
         _check_fonts(text_service),
+        _check_exporters(),
+        _check_cache(),
         _check_temp_dir(),
         _check_paths(),
         _check_config(),
@@ -124,6 +126,69 @@ def _check_fonts(text_service: TextService | None) -> DoctorCheck:
         name="fonts",
         status="ok",
         detail=f"{len(families)} bundled families: {listed}",
+    )
+
+
+def _check_exporters() -> DoctorCheck:
+    """Confirm every built-in exporter can encode a surface (PNG/JPEG/WebP raster + PDF).
+
+    A tiny surface is encoded through each format so a Skia build missing an encoder (or the PDF
+    backend) is reported here rather than only failing at the end of a real render.
+    """
+    try:
+        import skia  # type: ignore[import-untyped]
+
+        surface = skia.Surface(4, 4)
+        surface.getCanvas().clear(skia.Color4f(1, 1, 1, 1))
+        image = surface.makeImageSnapshot()
+        raster = {
+            "png": skia.EncodedImageFormat.kPNG,
+            "jpeg": skia.EncodedImageFormat.kJPEG,
+            "webp": skia.EncodedImageFormat.kWEBP,
+        }
+        missing = [name for name, fmt in raster.items() if image.encodeToData(fmt, 90) is None]
+        stream = skia.DynamicMemoryWStream()
+        document = skia.PDF.MakeDocument(stream, skia.PDF.Metadata())
+        if document is None:
+            missing.append("pdf")
+        else:
+            document.beginPage(8, 8)
+            document.endPage()
+            document.close()
+            if not bytes(stream.detachAsData()):
+                missing.append("pdf")
+    except Exception as exc:  # noqa: BLE001 - a broken encoder becomes a check row
+        return DoctorCheck(
+            name="exporters",
+            status="fail",
+            detail=f"Exporter self-test failed: {exc!r}",
+            hint="Reinstall skia-python; the build must include PNG/JPEG/WebP and PDF support.",
+        )
+    if missing:
+        return DoctorCheck(
+            name="exporters",
+            status="fail",
+            detail=f"Unavailable exporters: {', '.join(missing)}",
+            hint="Reinstall skia-python built with the missing encoder(s).",
+        )
+    return DoctorCheck(
+        name="exporters",
+        status="ok",
+        detail="png, jpeg, webp, pdf all available",
+    )
+
+
+def _check_cache() -> DoctorCheck:
+    """Report the derived-asset cache directory and its resolved byte budget (§4.7)."""
+    from arcavex.services.cache import cache_root
+    from arcavex.services.config import RuntimeConfig
+
+    budget = RuntimeConfig.load().resolve_cache_bytes(256_000_000)
+    root = cache_root()
+    return DoctorCheck(
+        name="cache",
+        status="ok",
+        detail=f"derived cache={root}; budget={budget} bytes (disposable)",
     )
 
 

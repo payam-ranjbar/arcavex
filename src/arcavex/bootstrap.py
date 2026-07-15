@@ -13,7 +13,8 @@ from pydantic import BaseModel
 
 from arcavex.builtin.backend_skia import SkiaBackend
 from arcavex.builtin.effects_core import builtin_effects
-from arcavex.builtin.export_raster import PngExporter
+from arcavex.builtin.export_pdf import PdfExporter
+from arcavex.builtin.export_raster import JpegExporter, PngExporter, WebpExporter
 from arcavex.builtin.layout_anchors import AnchorLayoutSolver
 from arcavex.builtin.masks_core import builtin_masks
 from arcavex.builtin.shapes_core import builtin_shapes
@@ -23,6 +24,9 @@ from arcavex.kernel.contracts.spi import Effect, MaskGenerator, ShapeGenerator
 from arcavex.kernel.diagnostics import Diagnostic
 from arcavex.kernel.registry import Registries
 from arcavex.services.authoring import AuthoringService
+from arcavex.services.budgets import RenderBudget
+from arcavex.services.cache import DerivedImageCache
+from arcavex.services.config import RuntimeConfig
 from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
 from arcavex.services.extensions import ExtensionService, load_enabled_extensions
@@ -35,6 +39,10 @@ from arcavex.services.style import StyleResolver
 from arcavex.services.template import Compiler
 from arcavex.services.template.expressions import FunctionTable, UnknownFunctionError, Value
 from arcavex.services.text import TextService
+
+# Default in-process byte budget for the derived-variant cache (spec §4.7); overridable via
+# ``[cache].derived_bytes`` in config.toml.
+_DEFAULT_CACHE_BYTES = 256_000_000
 
 
 def build_registries(text_service: TextService) -> tuple[Registries, list[Diagnostic]]:
@@ -54,6 +62,9 @@ def build_registries(text_service: TextService) -> tuple[Registries, list[Diagno
     for shape in builtin_shapes():
         registries.shapes.register(shape.name, shape)
     registries.exporters.register("png", PngExporter())
+    registries.exporters.register("jpeg", JpegExporter())
+    registries.exporters.register("webp", WebpExporter())
+    registries.exporters.register("pdf", PdfExporter())
     for fn in builtin_template_functions():
         registries.template_fns.register(fn.name, fn)
     # Load enabled extensions before the maps are snapshotted so their effects/masks/shapes feed
@@ -65,8 +76,11 @@ def build_registries(text_service: TextService) -> tuple[Registries, list[Diagno
     # The solver grows paint_bounds from effect declarations; the backend applies effects and
     # builds shape-generator paths. Both resolve only through the registry (spec §4.4).
     registries.layouts.register("anchors", AnchorLayoutSolver(effect_map))
+    cache_budget = RuntimeConfig.load().resolve_cache_bytes(_DEFAULT_CACHE_BYTES)
+    image_cache = DerivedImageCache(byte_budget=cache_budget)
     registries.backends.register(
-        "skia", SkiaBackend(text_service, _mask_map(registries), effect_map, shape_map)
+        "skia",
+        SkiaBackend(text_service, _mask_map(registries), effect_map, shape_map, image_cache),
     )
     return registries, load_diagnostics
 
@@ -142,7 +156,8 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         styles=style_resolver,
     )
     authoring = AuthoringService(compiler, registries.template_fns.names())
-    orchestrator = _build_orchestrator(registries, compiler, text_service)
+    budget = RenderBudget.from_config(RuntimeConfig.load().raw)
+    orchestrator = _build_orchestrator(registries, compiler, text_service, budget)
     return Facade(
         registries,
         compiler,
@@ -154,6 +169,8 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         orchestrator=orchestrator,
         extensions=ExtensionService(builtin_names=_builtin_component_names()),
         extension_load_diagnostics=extension_load_diagnostics,
+        budget=budget,
+        engine_version=engine_version(),
     )
 
 
@@ -168,7 +185,7 @@ def _builtin_component_names() -> dict[str, frozenset[str]]:
         "effect": frozenset(builtin_effects()),
         "mask": frozenset(m.name for m in builtin_masks()),
         "shape": frozenset(s.name for s in builtin_shapes()),
-        "exporter": frozenset({"png"}),
+        "exporter": frozenset({"png", "jpeg", "webp", "pdf"}),
         "template_function": frozenset(f.name for f in builtin_template_functions()),
         "layout_solver": frozenset({"anchors"}),
         "backend": frozenset({"skia"}),
@@ -177,17 +194,21 @@ def _builtin_component_names() -> dict[str, frozenset[str]]:
 
 
 def _build_orchestrator(
-    registries: Registries, compiler: Compiler, text_service: TextService
+    registries: Registries,
+    compiler: Compiler,
+    text_service: TextService,
+    budget: RenderBudget,
 ) -> Orchestrator:
     """Wire the project/provenance orchestrator over the shared render pipeline.
 
     The render function binds the registry's solver, backend, and exporter into the one
     layout→render→export tail (``services.pipeline``), so project renders and reruns share the
-    exact byte-producing path with direct renders.
+    exact byte-producing path with direct renders, including the per-render resource budgets.
     """
     solver = registries.layouts.get("anchors")
     backend = registries.backends.get("skia")
     exporter = registries.exporters.get("png")
+    version = engine_version()
 
     def render_fn(
         document: object, output: Path, dpi: int | None, debug: bool
@@ -195,6 +216,7 @@ def _build_orchestrator(
         return render_to_file(
             solver, backend, exporter, text_service.measure,
             document, output, dpi, debug,  # type: ignore[arg-type]
+            budget, version,
         )
 
     library = Library()

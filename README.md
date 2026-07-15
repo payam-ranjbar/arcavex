@@ -2,12 +2,19 @@
 
 Local-first, headless, deterministic, template-driven rendering engine built on skia-python.
 
-A one-file YAML template plus data renders to a PNG with no project or configuration required.
+A one-file YAML template plus data renders to an image or PDF with no project or configuration
+required.
 
 ```bash
 arcavex render examples/hello-poster/template.yaml \
     --data examples/hello-poster/data.yaml --format square -o out.png
 ```
+
+The output extension selects the format — `.png`, `.jpg`/`.jpeg`, `.webp`, or `.pdf`. `--quality`
+sets the lossy encoder quality (JPEG, lossy WebP) and `--lossless` selects lossless WebP. PDF is
+raster-embedded RGB at the target DPI with the correct physical page size and trim/bleed boxes, so
+`A4 + bleed` prints correctly. Every format is deterministic: identical inputs produce
+byte-identical files, with no embedded timestamps or run ids.
 
 Rendering without `-o` writes a deterministic default file,
 `<template-stem>.<format>[.<locale>].png`, in the current directory and reports the chosen name
@@ -21,7 +28,7 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 
 | Command | Purpose |
 |---|---|
-| `render TEMPLATE [--data D] [--format F] [--locale L] [--style S] [-o OUT]` | Render to PNG. |
+| `render TEMPLATE [--data D] [--format F] [--locale L] [--style S] [-o OUT] [--quality Q] [--lossless]` | Render to an image or PDF; the `-o` extension (`.png`/`.jpg`/`.webp`/`.pdf`) picks the format. |
 | `validate [TEMPLATE] [--data D] [--format F] [--locale L] [--style S] [--project P]` | Validate without rendering. Omit `TEMPLATE` to validate the current project (project mode). |
 | `preview [TEMPLATE] [--data D] [--format F] [--locale L] [--style S] [--project P] [--watch]` | Render to a stable preview path; `--watch` re-renders on every save. Omit `TEMPLATE` to preview the current project. |
 | `template new DIR` | Scaffold a minimal renderable template (template.yaml + data.yaml + README). |
@@ -37,7 +44,7 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 | `style inspect NAME [--json]` | Show a style pack's palettes, fonts, effect presets, and role defaults. |
 | `effects list [--json]` | List registered effects with their category and each param's type, default, and range. |
 | `effects inspect NAME [--json]` | Show one effect's category and full parameter schema. |
-| `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, temp dir, paths, config) and engine version. |
+| `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, exporters, cache, temp dir, paths, config) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
 ### Projects, library, and provenance (§5)

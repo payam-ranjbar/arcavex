@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arcavex"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Local-first, headless, deterministic, template-driven rendering engine."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,6 +37,14 @@ arcavex = "arcavex.clients.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/arcavex"]
+
+# Ship the bundled fonts inside the wheel so an installed engine renders without the dev tree
+# (spec §8.5 packaged-install test). They live in library-seed/fonts in the repo; force-include
+# maps them under the package at arcavex/_bundled/fonts, where the text service discovers them
+# (services.text.find_font_dirs). ICU (icudtl.dat) ships with the skia-python dependency, so it
+# needs no packaging here — 'arcavex doctor' diagnoses it if a build cannot locate it (ADR-0001).
+[tool.hatch.build.targets.wheel.force-include]
+"library-seed/fonts" = "arcavex/_bundled/fonts"
 
 [tool.ruff]
 line-length = 100

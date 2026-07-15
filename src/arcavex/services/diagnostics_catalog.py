@@ -632,6 +632,42 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "remove the unsupported characters from the text.",
         ),
         _e(
+            "ARC-RND-020",
+            "Output dimension exceeds the render budget",
+            "The render surface is wider or taller than the per-render output-dimension budget "
+            "(spec §8.3). The limit is checked from the canvas size and DPI before any pixels are "
+            "allocated, so an accidental runaway (a huge canvas, or a DPI override that multiplies "
+            "it) is refused rather than exhausting memory.",
+            "Reduce the format's canvas size or the render DPI, or raise "
+            "[budgets].max_dimension in config.toml.",
+        ),
+        _e(
+            "ARC-RND-021",
+            "Render surface exceeds the pixel budget",
+            "The render surface has more pixels than the per-render decoded-pixel budget allows "
+            "(spec §8.3). Enforced from the canvas size and DPI before allocation, so a runaway "
+            "surface cannot be created.",
+            "Reduce the canvas size or the render DPI, or raise [budgets].max_pixels in "
+            "config.toml.",
+        ),
+        _e(
+            "ARC-RND-022",
+            "Render surface exceeds the memory budget",
+            "The render surface would need more bytes than the per-render surface-memory budget "
+            "allows (spec §8.3). Enforced from the canvas size and DPI before allocation.",
+            "Reduce the canvas size or the render DPI, or raise [budgets].max_surface_bytes in "
+            "config.toml.",
+        ),
+        _e(
+            "ARC-RND-023",
+            "Render exceeded the wall-clock budget",
+            "The render took longer than the per-render wall-clock budget (spec §8.3). This is a "
+            "post-hoc guard — Skia renders are not preemptible in v1 — so it flags a pathological "
+            "render after it completes rather than interrupting it.",
+            "Simplify the scene or its effect chains, reduce the DPI, or raise "
+            "[budgets].max_wall_ms in config.toml.",
+        ),
+        _e(
             "ARC-RND-900",
             "Masks not supported yet",
             "Mask declarations are not available in this build.",
@@ -755,16 +791,43 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "format (PNG, JPEG, GIF, BMP, or WEBP).",
         ),
         _e(
+            "ARC-AST-004",
+            "Image asset escapes the template directory",
+            "An image node's resolved asset path points outside the template's own directory — via "
+            "a '..' segment or a symlink that leads out of it. Template-relative files must stay "
+            "within the template directory (spec §8.3); the check runs on the fully resolved path, "
+            "so it also catches a symlink whose target is elsewhere.",
+            "Move the asset inside the template directory and reference it with a relative path "
+            "that does not climb above the template root.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",
             "Check the output path is writable and the disk has space.",
         ),
         _e(
+            "ARC-EXP-002",
+            "Image encoding failed",
+            "The rendered surface could not be encoded to the requested raster format (PNG, JPEG, "
+            "or WebP). This is an internal encoder failure, not a bad option.",
+            "Retry the render; if it persists, report it with the template and format. Check "
+            "'arcavex doctor' confirms the Skia build supports the format.",
+        ),
+        _e(
+            "ARC-EXP-003",
+            "PDF export failed",
+            "The rendered surface could not be embedded into a PDF — Skia's PDF backend could not "
+            "encode the raster or create the document.",
+            "Retry the render; if it persists, report it. Check 'arcavex doctor' confirms Skia's "
+            "PDF backend is available.",
+        ),
+        _e(
             "ARC-EXP-011",
             "Unsupported output extension",
-            "The requested output file extension is not a supported export format.",
-            "Use a '.png' output path in this build.",
+            "The requested output file extension is not a supported export format. Arcavex selects "
+            "the exporter from the output extension.",
+            "Use one of the supported output extensions: .png, .jpg, .jpeg, .webp, or .pdf.",
         ),
         _e(
             "ARC-PRJ-001",

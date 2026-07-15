@@ -105,8 +105,16 @@ EXIT_INTERNAL = 5
 # ARC-AST-* = missing/undecodable asset; MISSING_FONT_CODE = font not in bundled DB.
 _MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE}
 _MISSING_PREFIXES = ("ARC-AST",)
-# Both expression budget and the repeat iteration cap are resource limits (exit 4).
-_BUDGET_CODES = {BUDGET_CODE, "ARC-TPL-063"}
+# Resource-limit codes that map to exit 4: the expression budget, the repeat iteration cap, and
+# the per-render surface budgets (dimension/pixels/memory/wall-clock, spec §8.3).
+_BUDGET_CODES = {
+    BUDGET_CODE,
+    "ARC-TPL-063",
+    "ARC-RND-020",
+    "ARC-RND-021",
+    "ARC-RND-022",
+    "ARC-RND-023",
+}
 
 
 def _exit_code_for(diagnostics: list[Diagnostic], ok: bool) -> int:
@@ -223,7 +231,8 @@ def render(
         None,
         "--output",
         "-o",
-        help="Output PNG path. Defaults to '<template-stem>.<format>.png' in the CWD.",
+        help="Output path; the extension (.png/.jpg/.jpeg/.webp/.pdf) selects the format. "
+        "Defaults to '<template-stem>.<format>.png' in the CWD.",
     ),
     project: Path | None = typer.Option(
         None, "--project", help="Project directory (project mode); overrides upward discovery."
@@ -233,6 +242,13 @@ def render(
         "project mode."
     ),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
+    quality: int | None = typer.Option(
+        None, "--quality", help="Lossy encoder quality 1-100 (JPEG, lossy WebP). Ignored for "
+        "PNG/PDF.", min=1, max=100,
+    ),
+    lossless: bool = typer.Option(
+        False, "--lossless", help="Encode WebP losslessly (ignored for other formats)."
+    ),
     debug: bool = typer.Option(
         False, "--debug", help="Overlay node bounds, ids, baselines, and the safe-area margin."
     ),
@@ -240,7 +256,7 @@ def render(
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
 ) -> None:
-    """Render a template to a PNG, or (with no template) the current project's runs."""
+    """Render a template to an image or PDF, or (no template) the current project's runs."""
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
@@ -273,6 +289,8 @@ def render(
         output=output,
         dpi=dpi,
         debug=debug,
+        quality=quality,
+        lossless=lossless,
     )
     if json_out:
         typer.echo(

@@ -51,6 +51,20 @@ class RuntimeConfig:
         environ = env if env is not None else dict(os.environ)
         return cls(env=environ, config=_read_config(config_path(environ)))
 
+    @property
+    def raw(self) -> dict[str, Any]:
+        """Return the parsed ``config.toml`` mapping (for section-scoped resolvers)."""
+        return self._config
+
+    def resolve_cache_bytes(self, default: int) -> int:
+        """Resolve the derived-asset cache byte budget from ``[cache].derived_bytes`` (§4.7)."""
+        section = self._config.get("cache")
+        if isinstance(section, dict):
+            value = _as_positive_int(section.get("derived_bytes"))
+            if value is not None:
+                return value
+        return default
+
     def resolve_dpi(self, cli: int | None = None, project: int | None = None) -> Resolved:
         """Resolve the effective default DPI through the full precedence chain.
 

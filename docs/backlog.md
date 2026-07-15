@@ -14,14 +14,26 @@ during reviews. Nothing here is required v1 scope.
 - Automatic installation of older engine versions for compatibility reruns (§12 open)
 - Hyphenation (unless a concrete template requires it — none did in v1)
 
-## Deferred to Phase 7 (asset & cache budgets)
+## Landed in Phase 7 (was deferred)
 
-- **Derived-variant asset cache (§4.7).** Phase 4 landed the CAS core: ingest-by-sha256 with
-  sidecar metadata and decode guards (max source bytes, max decoded pixels, format allowlist)
-  enforced against the image header before decode — enough to pin assets in run manifests. The
-  downscaled-variant cache keyed by `(hash, params)` under an LRU byte budget (so a 40 MP photo
-  in a 400 px slot never decodes at full size twice) is deferred to Phase 7 with the other cache
-  budgets, along with per-render wall-clock / surface-memory / output-dimension budgets (§8.3).
+- **Derived-variant asset cache (§4.7)** and **per-render resource budgets (§8.3)** — both shipped
+  in Phase 7 (`services/cache/derived.py`, `services/budgets.py`). Kept here only as a pointer;
+  see the ledger rows for §4.6/§4.7/§8.3.
+
+## Open performance work (Phase 7 measured, not a v1 blocker)
+
+- **Raster-effect render throughput (§8.2).** `docs/performance.md` records that the base
+  pipeline is well inside budget (plain A4@300 ≈ 0.8 s, plain 1080×1350 ≈ 0.13 s, compile ≈ 15 ms,
+  peak RSS ≈ 1.1 GiB) but effect-heavy scenes miss the p95 targets: each raster effect (grain,
+  noise, blur) pays a full `skia.Image → ndarray → skia.Image` round-trip, so a 3-raster 1080
+  scene is ≈ 2.2 s (target ≤ 1.5 s) and a 4-deep A4@300 chain is ≈ 18 s (target ≤ 6 s). The
+  effects are already NumPy-vectorized; the fix is to operate on a shared mutable buffer and fuse
+  consecutive raster passes the way color passes already fuse — an effect-engine optimization,
+  out of scope for the export/release-hardening phase. Reported honestly rather than tuned to pass.
+- **CLI cold start (§8.2).** ≈ 1 s to a render-ready engine (target ≤ 400 ms), dominated by the
+  one-time `skia-python` import + font-database build. Long-lived processes (MCP server, watch
+  mode) pay it once; a per-invocation `arcavex render` pays it each time. Amortizing it (lazy font
+  DB, cached font index) is future work.
 
 ## Accepted P2 review findings
 

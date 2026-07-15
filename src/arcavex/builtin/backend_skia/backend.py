@@ -18,6 +18,7 @@ Randomness flows exclusively from the seeded effect RNG, so repeated renders are
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar
 
 import skia  # type: ignore[import-untyped]
@@ -47,6 +48,7 @@ from arcavex.kernel.ir.models import (
     SourceRef,
 )
 from arcavex.kernel.ir.units import Rect
+from arcavex.services.assets.probe import probe_image
 from arcavex.services.text.service import TextService
 
 # Deterministic debug-overlay palette, indexed by node kind.
@@ -74,12 +76,21 @@ class SkiaBackend(RendererBackend):
         masks: dict[str, MaskGenerator] | None = None,
         effects: dict[str, Effect] | None = None,
         shapes: dict[str, ShapeGenerator] | None = None,
+        image_cache: object | None = None,
     ) -> None:
-        """Bind the backend to the shared text service and the component registries."""
+        """Bind the backend to the shared text service and the component registries.
+
+        ``image_cache`` is an optional derived-variant cache (spec §4.7): when a large source
+        image is drawn into a much smaller slot, the backend fetches a once-downscaled variant
+        from it instead of re-decoding the full image every render. It is disposable and never
+        authoritative — a cold cache yields byte-identical output — so ``None`` (no cache) renders
+        the same pixels, just without the acceleration.
+        """
         self._text = text_service
         self._masks = masks or {}
         self._effects = effects or {}
         self._shapes = shapes or {}
+        self._image_cache = image_cache
         # Populated during a render when ``RenderOptions.collect_plan`` is set (debug hook for
         # the fusion test); each entry is ``(node_id, EffectPlan)`` in traversal order.
         self.collected_plans: list[tuple[str, EffectPlan]] = []
@@ -390,12 +401,7 @@ class SkiaBackend(RendererBackend):
         # A file that exists but cannot be decoded still reaches here; skia raises
         # ValueError/RuntimeError rather than returning None, so guard the decode and
         # surface a located asset diagnostic (exit 3) instead of an ARC-INT-999 leak.
-        try:
-            image = skia.Image.open(image_spec.asset_path)
-        except (ValueError, RuntimeError) as exc:
-            raise _undecodable_image(image_spec.asset_path, source) from exc
-        if image is None:
-            raise _undecodable_image(image_spec.asset_path, source)
+        image = self._resolve_image(image_spec, bounds, source)
         iw, ih = float(image.width()), float(image.height())
         dst = _skrect(bounds)
         paint = skia.Paint()
@@ -418,6 +424,40 @@ class SkiaBackend(RendererBackend):
             target = skia.Rect.MakeXYWH(dx, dy, dw, dh)
         canvas.drawImageRect(image, target, sampling, paint)  # type: ignore[attr-defined]
         canvas.restore()  # type: ignore[attr-defined]
+
+    def _resolve_image(
+        self, image_spec: ResolvedImage, bounds: Rect, source: SourceRef | None
+    ) -> object:
+        """Decode the node's image, using a downscaled cache variant for a large source.
+
+        When a derived cache is wired and the source is much larger than the pixel slot it will
+        occupy, a once-downscaled variant (aspect-preserved, so the fit math is unchanged) is used
+        instead of the full decode. On a cache miss the cache decodes once; on a hit nothing is
+        decoded here. A small image, no cache, or any probe/cache miss falls back to the full
+        decode, so the pixels match the no-cache path.
+        """
+        variant = self._cached_variant(image_spec, bounds)
+        if variant is not None:
+            return variant
+        try:
+            image = skia.Image.open(image_spec.asset_path)
+        except (ValueError, RuntimeError) as exc:
+            raise _undecodable_image(image_spec.asset_path, source) from exc
+        if image is None:
+            raise _undecodable_image(image_spec.asset_path, source)
+        return image
+
+    def _cached_variant(self, image_spec: ResolvedImage, bounds: Rect) -> object | None:
+        """Return a downscaled cache variant for a large image, or ``None`` to decode directly."""
+        if self._image_cache is None:
+            return None
+        target = _target_pixels(image_spec, bounds, self._dpi)
+        if target is None:
+            return None
+        try:
+            return self._image_cache.variant(Path(image_spec.asset_path), target[0], target[1])  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - a disposable cache must never fail a render
+            return None
 
     # ------------------------------------------------------------------ debug overlay
     def _draw_debug(self, canvas: object, doc: LayoutDocument) -> None:
@@ -552,6 +592,36 @@ def _undecodable_image(asset_path: str, source: SourceRef | None) -> DiagnosticE
             **kwargs,
         )
     )
+
+
+def _target_pixels(
+    image_spec: ResolvedImage, bounds: Rect, dpi: float
+) -> tuple[int, int] | None:
+    """Return the device-pixel box the image will occupy, preserving its aspect (or ``None``).
+
+    The box mirrors the fit math in :meth:`_draw_image` so a variant downscaled to it draws
+    ~1:1: for ``fill`` it is the node's device-pixel bounds; for ``contain``/``cover`` it is the
+    source scaled uniformly to fit/cover the bounds, so the source aspect is kept. Source
+    dimensions come from the file header (a few bytes), never a full decode; a header that will
+    not probe returns ``None`` so the caller decodes directly.
+    """
+    scale = dpi / 72.0
+    if image_spec.fit == "fill":
+        return max(1, round(bounds.w * scale)), max(1, round(bounds.h * scale))
+    try:
+        with open(image_spec.asset_path, "rb") as handle:
+            header = handle.read(131072)
+        probe = probe_image(header, source=image_spec.asset_path)
+    except Exception:  # noqa: BLE001 - probe failure just means "decode directly"
+        return None
+    iw, ih = float(probe.width), float(probe.height)
+    if iw <= 0 or ih <= 0:
+        return None
+    if image_spec.fit == "cover":
+        fit = max(bounds.w / iw, bounds.h / ih)
+    else:  # contain
+        fit = min(bounds.w / iw, bounds.h / ih)
+    return max(1, round(iw * fit * scale)), max(1, round(ih * fit * scale))
 
 
 def _visible(node: LayoutNode) -> bool:

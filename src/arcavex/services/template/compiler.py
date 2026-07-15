@@ -119,6 +119,11 @@ _RUN_KEYS = frozenset({
 })
 
 
+def _is_within(path: Path, root: Path) -> bool:
+    """Return whether ``path`` is ``root`` itself or lives beneath it (both already resolved)."""
+    return path == root or root in path.parents
+
+
 def _style_hash(pack: StylePack | None) -> str | None:
     """Return the canonical hash of a style pack's design tokens, or ``None`` when unstyled.
 
@@ -1220,6 +1225,25 @@ class Compiler:
                 asset, context, template, node_id, keypath, asset_line
             )
             resolved_asset = (template.parent / asset_resolved).resolve()
+            # Path/symlink traversal guard (spec §8.3): a *template-relative* asset must stay within
+            # the template directory. ``.resolve()`` follows symlinks, so a '..' segment or a link
+            # that leads out of the root is caught — a template can never read '../../etc/passwd'.
+            # An absolute path is explicit author intent (trusted local authoring), not a relative
+            # escape, so it is allowed; only relative paths are containment-checked.
+            root = template.parent.resolve()
+            if not Path(asset_resolved).is_absolute() and not _is_within(resolved_asset, root):
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-AST-004",
+                        f"Image asset {asset_resolved!r} escapes the template directory "
+                        f"(node {node_id!r})",
+                        file=str(template),
+                        keypath=f"{keypath}.asset",
+                        line=asset_line,
+                        hint="Keep assets inside the template directory; a relative '..' path or a "
+                        "symlink that points outside it is refused.",
+                    )
+                )
             # Resolve and check existence at compile time so 'validate' also catches missing
             # assets (§4). The message keeps the author's template-relative path, not the
             # machine-absolute one.

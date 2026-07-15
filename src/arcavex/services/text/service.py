@@ -39,11 +39,17 @@ _MAX_FIT_ITERS = 8
 def find_font_dirs() -> list[Path]:
     """Return the ordered list of directories to load bundled fonts from.
 
-    The in-repo ``library-seed/fonts`` directory (located by walking up to the
-    ``pyproject.toml`` marker) comes first, followed by ``$ARCAVEX_HOME/fonts`` when set.
-    System font directories are never included.
+    Discovery covers both running from the repo and running from an installed wheel:
+    the in-repo ``library-seed/fonts`` directory (located by walking up to the ``pyproject.toml``
+    marker) is used in development; the packaged ``arcavex/_bundled/fonts`` directory (shipped in
+    the wheel via ``force-include``) is used when installed; and ``$ARCAVEX_HOME/fonts`` is always
+    appended when set. All discovered roots are returned so an installed engine and a dev checkout
+    render from the same bundled families. System font directories are never included.
     """
     dirs: list[Path] = []
+    packaged = _packaged_fonts_dir()
+    if packaged is not None:
+        dirs.append(packaged)
     marker = _find_repo_root()
     if marker is not None:
         seed = marker / "library-seed" / "fonts"
@@ -55,6 +61,14 @@ def find_font_dirs() -> list[Path]:
         if home_fonts.is_dir():
             dirs.append(home_fonts)
     return dirs
+
+
+def _packaged_fonts_dir() -> Path | None:
+    """Return the wheel-bundled fonts directory beside the installed package, if present."""
+    # ``arcavex/_bundled/fonts`` is created by the wheel's force-include; it is absent in a raw
+    # source checkout, where the repo-root ``library-seed/fonts`` is used instead.
+    packaged = Path(__file__).resolve().parents[2] / "_bundled" / "fonts"
+    return packaged if packaged.is_dir() else None
 
 
 def _find_repo_root() -> Path | None:

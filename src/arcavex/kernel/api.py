@@ -45,6 +45,10 @@ from arcavex.kernel.registry import Registries
 
 _EXPORTER_BY_EXT: dict[str, str] = {
     ".png": "png",
+    ".jpg": "jpeg",
+    ".jpeg": "jpeg",
+    ".webp": "webp",
+    ".pdf": "pdf",
 }
 
 # Machine-readable responses carry this so consumers key on a version, not a shape.
@@ -1240,6 +1244,18 @@ class OrchestratorProtocol(Protocol):
     def list_projects(self, root: Path | None) -> ProjectListReport: ...
 
 
+class BudgetProtocol(Protocol):
+    """Per-render resource budget injected by bootstrap (kept out of the pure kernel, §8.3).
+
+    Both checks raise a ``DiagnosticError`` (an ``ARC-RND`` budget code) when a limit is exceeded,
+    so an oversized render is refused with a located diagnostic and exit 4.
+    """
+
+    def check_surface(self, width_px: int, height_px: int, *, file: str | None = ...) -> None: ...
+
+    def check_wall_ms(self, elapsed_ms: float, *, file: str | None = ...) -> None: ...
+
+
 class Facade:
     """Orchestrates the pipeline using injected, kernel-external dependencies."""
 
@@ -1259,6 +1275,8 @@ class Facade:
         orchestrator: OrchestratorProtocol | None = None,
         extensions: ExtensionServiceProtocol | None = None,
         extension_load_diagnostics: list[Diagnostic] | None = None,
+        budget: BudgetProtocol | None = None,
+        engine_version: str = "",
     ) -> None:
         """Wire the facade.
 
@@ -1286,6 +1304,8 @@ class Facade:
         self._orchestrator = orchestrator
         self._extensions = extensions
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
+        self._budget = budget
+        self._engine_version = engine_version
 
     def validate_template(
         self,
@@ -1345,10 +1365,14 @@ class Facade:
         output: Path | None = None,
         dpi: int | None = None,
         debug: bool = False,
+        quality: int | None = None,
+        lossless: bool = False,
     ) -> RenderResult:
         """Compile, lay out, render, and export a template to ``output``.
 
-        Never raises: unexpected failures are returned in the result's diagnostics.
+        The exporter is chosen from ``output``'s extension (``.png``/``.jpg``/``.jpeg``/``.webp``/
+        ``.pdf``); ``quality`` sets the lossy encoder quality and ``lossless`` selects lossless
+        WebP. Never raises: unexpected failures are returned in the result's diagnostics.
 
         The default output name (§6.3) is resolved up front from the template stem and the
         resolved format and carried in ``inferred`` on *every* return path — success, a
@@ -1365,7 +1389,7 @@ class Facade:
         try:
             return self._render_file_inner(
                 template, data, format_name, locale, style, resolved_output, dpi, debug,
-                inferred_base,
+                inferred_base, quality, lossless,
             )
         except DiagnosticError as exc:
             return RenderResult(
@@ -1459,6 +1483,8 @@ class Facade:
         dpi: int | None,
         debug: bool,
         inferred_base: dict[str, str],
+        quality: int | None = None,
+        lossless: bool = False,
     ) -> RenderResult:
         compiled = self._compiler.compile(template, data, format_name, locale, style)
         diagnostics = list(compiled.diagnostics)
@@ -1477,6 +1503,7 @@ class Facade:
 
         exporter_name = _EXPORTER_BY_EXT.get(output.suffix.lower())
         if exporter_name is None:
+            supported = ", ".join(sorted(_EXPORTER_BY_EXT))
             return RenderResult(
                 ok=False,
                 output_path=None,
@@ -1485,21 +1512,42 @@ class Facade:
                     diagnostic(
                         "ARC-EXP-011",
                         f"Unsupported output extension {output.suffix!r}",
-                        hint="Phase 0 exports PNG only. Use a '.png' output path.",
+                        hint=f"Use one of the supported output extensions: {supported}.",
                     )
                 ],
             )
+
+        canvas = compiled.document.canvas
+        effective_dpi = dpi or canvas.dpi
+        width_px = max(1, round(canvas.width_pt * effective_dpi / 72.0))
+        height_px = max(1, round(canvas.height_pt * effective_dpi / 72.0))
+        if self._budget is not None:
+            # Pre-flight the resource budgets before allocating the surface, located on the
+            # template whose canvas/DPI produced it (spec §8.3).
+            self._budget.check_surface(width_px, height_px, file=str(template))
 
         solver = self._registries.layouts.get(self._default_layout)
         layout = solver.solve(compiled.document, self._measure)
         diagnostics.extend(layout.warnings)
 
         backend = self._registries.backends.get(self._default_backend)
+        started = time.monotonic()
         surface = backend.render(layout, RenderOptions(dpi=dpi, debug=debug))
+        if self._budget is not None:
+            self._budget.check_wall_ms((time.monotonic() - started) * 1000.0, file=str(template))
 
         exporter = self._registries.exporters.get(exporter_name)
         output.parent.mkdir(parents=True, exist_ok=True)
-        report = exporter.export(surface, output, ExportOptions(dpi=dpi))
+        opts = ExportOptions(
+            quality=quality if quality is not None else 100,
+            dpi=dpi,
+            lossless=lossless,
+            page_width_pt=canvas.width_pt,
+            page_height_pt=canvas.height_pt,
+            bleed_pt=canvas.bleed_pt,
+            engine_version=self._engine_version,
+        )
+        report = exporter.export(surface, output, opts)
 
         return RenderResult(
             ok=True,
