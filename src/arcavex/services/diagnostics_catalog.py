@@ -633,9 +633,10 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-FX-902",
             "Invalid mask or effect parameters",
             "A mask's or effect's parameters failed validation against the component's parameter "
-            "schema (wrong name, type, or out-of-range value).",
-            "Check each parameter against the component's documented schema; the message names "
-            "the first offending field.",
+            "schema (wrong name, type, or out-of-range value). Effect length params accept pt, "
+            "mm, or px (px converts against the canvas DPI); mask length params are pt or mm.",
+            "Check each parameter against the component's documented schema; the message lists "
+            "every offending field so you can fix them in one pass.",
         ),
         _e(
             "ARC-FX-903",
@@ -663,8 +664,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Invalid shape-generator parameters",
             "A shape generator's parameters failed validation against its schema, or the "
             "generator raised while building its path.",
-            "Check each parameter against the generator's documented schema; the message names "
-            "the first offending field.",
+            "Check each parameter against the generator's documented schema; the message lists "
+            "every offending field so you can fix them in one pass.",
         ),
         _e(
             "ARC-FX-913",

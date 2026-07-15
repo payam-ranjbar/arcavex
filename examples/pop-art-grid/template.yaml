@@ -1,10 +1,12 @@
 # Pop-art Warhol grid — golden case #3 (spec §8.5).
 #
-# One source portrait repeated across a full-bleed 2x2 grid; each cell recolours it with a
-# different palette from the `pop-art` style pack and screens it at a different halftone angle.
-# The per-cell effect chain is grade -> duotone -> posterize (three colour effects; the first
-# two fuse into one matrix) -> halftone (SkSL dot-screen) -> grain (seeded). Palettes and the
-# halftone/grain presets come from the style pack; the title uses its display role.
+# One source portrait repeated across a full-bleed 2x2 grid; each cell sits on a different
+# panel colour from the `pop-art` style pack and screens the portrait at a different halftone
+# angle and ink. The per-cell effect chain is grade (spread the tonal range the dot screen
+# reads) -> halftone (SkSL dot-screen; ink + angle vary per cell) -> grain (seeded). The
+# halftone reads a full-tone graded source — no posterize/duotone flattening it first — so the
+# face and shoulders stay legible while the dots track luminance. Palettes and the halftone/
+# grain presets come from the style pack; the title uses its display role.
 style: pop-art@0.1
 
 variables:
@@ -57,9 +59,7 @@ root:
             asset: source.png
             fit: cover
             effects:
-              - {name: grade, params: {contrast: 1.15, saturation: 0.9}}
-              - {name: duotone, params: {shadow: "{{ palette[cell.palette][3] }}", highlight: "{{ palette[cell.palette][0] }}"}}
-              - {name: posterize, params: {levels: 5}}
+              - {name: grade, params: {brightness: 0.05, contrast: 1.45}}
               - {preset: halftone, params: {angle: "{{ cell.angle }}", ink: "{{ palette[cell.palette][3] }}"}}
               - {preset: grain}
             constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 100%, h: 100%}}

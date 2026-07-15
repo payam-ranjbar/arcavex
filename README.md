@@ -21,15 +21,17 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 
 | Command | Purpose |
 |---|---|
-| `render TEMPLATE [--data D] [--format F] [--locale L] [-o OUT]` | Render to PNG. |
-| `validate TEMPLATE [--data D] [--format F] [--locale L]` | Validate without rendering. |
-| `preview TEMPLATE [--data D] [--format F] [--locale L] [--watch]` | Render to a stable preview path; `--watch` re-renders on every save. |
+| `render TEMPLATE [--data D] [--format F] [--locale L] [--style S] [-o OUT]` | Render to PNG. |
+| `validate TEMPLATE [--data D] [--format F] [--locale L] [--style S]` | Validate without rendering. |
+| `preview TEMPLATE [--data D] [--format F] [--locale L] [--style S] [--watch]` | Render to a stable preview path; `--watch` re-renders on every save. |
 | `template new DIR` | Scaffold a minimal renderable template (template.yaml + data.yaml + README). |
-| `template check PATH [--format F] [--locale L]` | Validate a template without data (schema + structure + preview_data). |
+| `template check PATH [--format F] [--locale L] [--style S]` | Validate a template without data (schema + structure + preview_data). |
 | `template inspect PATH [--json]` | Report the authored contract: variables, formats, nodes, functions, example data. |
 | `template split PATH` | Convert a one-file template into a split directory, losslessly. |
 | `style list [--json]` | List installed style packs (palettes, presets, roles). |
 | `style inspect NAME [--json]` | Show a style pack's palettes, fonts, effect presets, and role defaults. |
+| `effects list [--json]` | List registered effects with their category and each param's type, default, and range. |
+| `effects inspect NAME [--json]` | Show one effect's category and full parameter schema. |
 | `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, temp dir, paths) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
@@ -67,8 +69,35 @@ A one-file template is a YAML mapping with these top-level sections:
   grain, noise, ink-bleed, halftone (a real SkSL dot-screen), channel-offset, torn-paper, and
   edge-wear. The renderer compiles the list into `geometry → fused color → raster → composite`;
   consecutive color effects fuse into one pass, and every effect declares the bounds expansion
-  it needs so a shadow or blur is never clipped. Shape nodes may use a `generator:` (`starburst`,
+  it needs so a shadow or blur is never clipped. Effect length params accept `pt`, `mm`, or `px`
+  (a `px` value converts against the canvas DPI, like everywhere else); a bare number is points.
+  Run `arcavex effects list` (or `effects inspect NAME`) to see each effect's parameters,
+  defaults, and ranges without reading source. Shape nodes may use a `generator:` (`starburst`,
   `speech_bubble`, `qr_code`). See `examples/pop-art-grid` for a Warhol grid using all of this.
+
+  **Effects reference** (run `arcavex effects list` for full param schemas):
+
+  | Effect | Category | Key params |
+  |---|---|---|
+  | `blur` | raster | `radius` |
+  | `drop-shadow` | composite | `dx`, `dy`, `blur`, `color` |
+  | `glow` | composite | `radius`, `color` |
+  | `grade` | color | `brightness`, `contrast`, `saturation` |
+  | `duotone` | color | `shadow`, `highlight` |
+  | `threshold` | color | `level`, `low`, `high` |
+  | `posterize` | color | `levels` |
+  | `palette-map` | raster | `colors` |
+  | `grain` | raster | `amount` |
+  | `noise` | raster | `amount` |
+  | `ink-bleed` | raster | `radius` |
+  | `halftone` | raster | `pitch`, `angle`, `ink` |
+  | `channel-offset` | raster | `distance`, `angle` |
+  | `torn-paper` | geometry | `amplitude`, `segment` |
+  | `edge-wear` | raster | `amount` |
+
+  When text sits over a textured effect panel (halftone, grain, noise), give it a solid plate or
+  a high-contrast fill plus a dark drop-shadow — the dot/speckle mesh eats a same-toned label.
+  pop-art-grid's title bar is a flat plate over the halftone for exactly this reason.
 
 ### Split templates
 
@@ -94,8 +123,8 @@ Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`, `s
 its subtree are not rendered), `z` (draw order within siblings), `style`, `constraints`,
 `transform` (translation + `rotate`), and `mask` (`{component, params}` — built-ins:
 `rounded_rect`, `circle`, `diamond_grid`). A `group` may set `layout: hstack|vstack` with
-`gap`/`padding`/`main_align`/`cross_align` to flow its children. Effects and style packs are
-later phases and are rejected with a "not supported in this build" diagnostic.
+`gap`/`padding`/`main_align`/`cross_align` to flow its children. Any node may also carry
+`effects:` and a template may opt into a `style:` pack (see above).
 
 ### Structural constructs
 
@@ -291,8 +320,6 @@ from?".
 
 ## Known limitations (this build)
 
-- **Effects and style packs are Phase 3**, and are rejected with located diagnostics
-  (`ARC-FX-900`, `ARC-TPL-093/094`).
 - **`fit_content` is text-only.** Sizing an image or group to its intrinsic content is not yet
   available (`ARC-LAY-020`); give those nodes an explicit size or an `aspect` ratio.
 - **Wrapping stacks are deferred.** A stack with `wrap: true` reports `ARC-LAY-056` rather than

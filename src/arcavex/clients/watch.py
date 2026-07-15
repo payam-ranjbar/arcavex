@@ -64,6 +64,7 @@ def run_watch(
     on_result: Callable[[PreviewResult], None],
     *,
     locale: str | None = None,
+    style: str | None = None,
     debug: bool = False,
     stop_event: threading.Event | None = None,
     max_iterations: int | None = None,
@@ -91,13 +92,13 @@ def run_watch(
 
     def render(changed: str | None) -> PreviewResult:
         return facade.render_preview(
-            template, data, format_name, locale=locale, dpi=dpi, changed_file=changed,
-            debug=debug,
+            template, data, format_name, locale=locale, style=style, dpi=dpi,
+            changed_file=changed, debug=debug,
         )
 
     asset_dirs = [
         str(Path(p).parent)
-        for p in facade.collect_asset_paths(template, data, format_name, locale)
+        for p in facade.collect_asset_paths(template, data, format_name, locale, style)
     ]
     paths = watch_paths(template, data, asset_dirs)
 

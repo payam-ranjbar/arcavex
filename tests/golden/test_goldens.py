@@ -77,14 +77,14 @@ _EFFECT_PROBES: dict[str, tuple[str, str]] = {
     "blur": ("        - {name: blur, params: {radius: 3pt}}", "image"),
     "grain": ("        - {name: grain, params: {amount: 0.12}}", "image"),
     "noise": ("        - {name: noise, params: {amount: 0.15}}", "image"),
-    "ink-bleed": ("        - {name: ink-bleed, params: {radius: 2pt}}", "shape"),
+    "ink-bleed": ("        - {name: ink-bleed, params: {radius: 3pt}}", "image"),
     "halftone": (
         "        - {name: halftone, params: {pitch: 6pt, angle: 15, ink: '#111111'}}", "image"
     ),
     "channel-offset": (
         "        - {name: channel-offset, params: {distance: 3pt, angle: 20}}", "image"
     ),
-    "edge-wear": ("        - {name: edge-wear, params: {amount: 0.5}}", "shape"),
+    "edge-wear": ("        - {name: edge-wear, params: {amount: 0.85}}", "shape"),
     "palette-map": (
         "        - {name: palette-map, params: {colors: ['#101033','#ff3ea5','#ffd600']}}",
         "image",

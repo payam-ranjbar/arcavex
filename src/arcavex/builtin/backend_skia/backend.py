@@ -199,6 +199,9 @@ class SkiaBackend(RendererBackend):
             image = planned.effect.apply(ctx)
         for planned in plan.composite:
             rng = effect_rng(self._seed, node.source_node_id, planned.index)
+            # backdrop is a deferred accessor (always None in v1) — the renderer does not yet
+            # snapshot the content painted below in z-order. Tracked in docs/backlog.md; the
+            # shipped composite effects (drop-shadow, glow) build only from the element's alpha.
             cctx = CompositeContext(image, None, planned.params, rng, self._pool, self._dpi)
             image = planned.effect.apply(cctx)
 

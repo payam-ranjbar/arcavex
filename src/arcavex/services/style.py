@@ -103,12 +103,23 @@ class StyleResolver:
         """Bind the resolver to its search directories (defaults to :func:`find_style_dirs`)."""
         self._dirs = style_dirs if style_dirs is not None else find_style_dirs()
 
-    def resolve(self, ref: str, template_dir: Path) -> StylePack:
+    def resolve(
+        self,
+        ref: str,
+        template_dir: Path,
+        *,
+        file: str | None = None,
+        keypath: str | None = None,
+        line: int | None = None,
+    ) -> StylePack:
         """Resolve a ``style:`` reference to a loaded pack.
 
         A ref containing a path separator or ending in ``.yaml`` is a template-relative file;
-        anything else is a ``name`` or ``name@version`` library reference.
+        anything else is a ``name`` or ``name@version`` library reference. ``file``/``keypath``/
+        ``line`` locate the offending ``style:`` reference in the source, so a missing pack or
+        file is a *located* error like the preset/role diagnostics (CR-3/DX-7).
         """
+        loc = {"file": file, "keypath": keypath, "line": line}
         if ref.endswith(".yaml") or ref.startswith((".", "/", "~")) or "/" in ref or "\\" in ref:
             path = (template_dir / ref).resolve()
             if not path.is_file():
@@ -118,12 +129,13 @@ class StyleResolver:
                         f"Style file not found: {ref}",
                         hint="Give a path relative to the template, or a 'name@version' library "
                         "reference.",
+                        **loc,
                     )
                 )
             name = path.stem
             return self._load(path, name)
         name, _, version = ref.partition("@")
-        path = self._find_library(name, version or None, ref)
+        path = self._find_library(name, version or None, ref, loc)
         return self._load(path, name)
 
     def list_packs(self) -> list[StylePack]:
@@ -142,7 +154,14 @@ class StyleResolver:
         return self._load(path, name)
 
     # -------------------------------------------------------------------- internals
-    def _find_library(self, name: str, version: str | None, ref: str) -> Path:
+    def _find_library(
+        self,
+        name: str,
+        version: str | None,
+        ref: str,
+        loc: dict[str, str | int | None] | None = None,
+    ) -> Path:
+        loc = loc or {}
         candidates: list[tuple[str, Path]] = []
         for base in self._dirs:
             pack_dir = base / name
@@ -156,6 +175,7 @@ class StyleResolver:
                     "ARC-STY-001",
                     f"Unknown style pack {ref!r}",
                     hint=f"Available styles: {self._available_names() or '(none)'}.",
+                    **loc,
                 )
             )
         if version is not None:
@@ -173,6 +193,7 @@ class StyleResolver:
                     "ARC-STY-001",
                     f"Style {name!r} has no version matching {version!r}",
                     hint=f"Available versions: {available}.",
+                    **loc,
                 )
             )
         # No version requested: take the highest.

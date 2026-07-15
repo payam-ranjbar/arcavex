@@ -190,6 +190,7 @@ class StyleListReport(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    response_version: int = RESPONSE_VERSION
     ok: bool
     styles: list[StyleSummary] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
@@ -200,8 +201,42 @@ class StyleInspectReport(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    response_version: int = RESPONSE_VERSION
     ok: bool
     style: StyleSummary | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class EffectParamInfo(BaseModel):
+    """One parameter of an effect's schema, as reported by ``effects list``/``effect inspect``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    type: str
+    required: bool = False
+    default: Any = None
+    constraint: str | None = None
+
+
+class EffectInfo(BaseModel):
+    """A registered effect's name, category, and parameter schema (DX-6 discovery)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    category: str
+    params: list[EffectParamInfo] = Field(default_factory=list)
+
+
+class EffectListReport(BaseModel):
+    """The result of ``arcavex effects list`` — every registered effect and its params."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    effects: list[EffectInfo] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -928,6 +963,30 @@ class Facade:
                 ok=False, diagnostics=[internal_error("style inspect failed", detail=repr(exc))]
             )
 
+    def list_effects(self) -> EffectListReport:
+        """List every registered effect with its category and parameter schema (DX-6).
+
+        A discovery surface parallel to :meth:`list_styles`: an AI or human author can read
+        each effect's real param names, types, defaults, and ranges without triggering an
+        error or reading source. Never raises.
+        """
+        try:
+            infos: list[EffectInfo] = []
+            for name in self._registries.effects.names():
+                effect = self._registries.effects.get(name)
+                infos.append(
+                    EffectInfo(
+                        name=name,
+                        category=effect.kind.value,
+                        params=_effect_param_infos(effect.param_schema),
+                    )
+                )
+            return EffectListReport(ok=True, effects=infos)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return EffectListReport(
+                ok=False, diagnostics=[internal_error("effects list failed", detail=repr(exc))]
+            )
+
     def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:
         """Scaffold a new renderable one-file template directory. Never raises."""
         if self._authoring is None:  # pragma: no cover - always wired in production
@@ -942,11 +1001,15 @@ class Facade:
             )
 
     def check_template(
-        self, template: Path, format_name: str | None = None, locale: str | None = None
+        self,
+        template: Path,
+        format_name: str | None = None,
+        locale: str | None = None,
+        style: str | None = None,
     ) -> CheckResult:
         """Validate a template without data (schema + structure + preview_data)."""
         diagnostics = self.validate_template(
-            template, data=None, format_name=format_name, locale=locale
+            template, data=None, format_name=format_name, locale=locale, style=style
         )
         return CheckResult(ok=not has_errors(diagnostics), diagnostics=diagnostics)
 
@@ -1161,6 +1224,70 @@ class Facade:
 
 def _unwired(what: str) -> Diagnostic:
     return internal_error(f"{what} service is not wired")
+
+
+def _effect_param_infos(schema: type[BaseModel]) -> list[EffectParamInfo]:
+    """Project a pydantic effect param schema onto reportable field infos (DX-6).
+
+    Type names are author-facing: a length param (points/mm/px) reports ``length`` and a colour
+    param reports ``colour``, detected from the field's ``BeforeValidator`` rather than a raw
+    ``number``/``array`` so the discovery output tells an author what unit grammar to use.
+    """
+    out: list[EffectParamInfo] = []
+    for name, finfo in schema.model_fields.items():
+        out.append(
+            EffectParamInfo(
+                name=name,
+                type=_friendly_param_type(finfo),
+                required=finfo.is_required(),
+                default=None if finfo.is_required() else _plain_default(finfo.default),
+                constraint=_param_constraint(finfo),
+            )
+        )
+    return out
+
+
+def _friendly_param_type(finfo: Any) -> str:
+    """Return an author-facing type name for a pydantic field (kernel stays builtin-free)."""
+    for meta in finfo.metadata:
+        func = getattr(meta, "func", None)
+        fname = getattr(func, "__name__", "") if func is not None else ""
+        if fname == "_as_pt":
+            return "length"
+        if fname == "_as_rgba":
+            return "colour"
+    annotation = finfo.annotation
+    mapping: dict[Any, str] = {float: "number", int: "integer", bool: "boolean", str: "string"}
+    if annotation in mapping:
+        return mapping[annotation]
+    origin = getattr(annotation, "__origin__", None)
+    if origin in (tuple, list):
+        return "list"
+    return getattr(annotation, "__name__", str(annotation))
+
+
+def _param_constraint(finfo: Any) -> str | None:
+    """Render a field's numeric bounds (ge/gt/le/lt) as a short ``lo..hi`` string, if any."""
+    lo: str | None = None
+    hi: str | None = None
+    for meta in finfo.metadata:
+        if hasattr(meta, "ge"):
+            lo = f">={meta.ge:g}"
+        elif hasattr(meta, "gt"):
+            lo = f">{meta.gt:g}"
+        if hasattr(meta, "le"):
+            hi = f"<={meta.le:g}"
+        elif hasattr(meta, "lt"):
+            hi = f"<{meta.lt:g}"
+    parts = [p for p in (lo, hi) if p is not None]
+    return ", ".join(parts) if parts else None
+
+
+def _plain_default(value: Any) -> Any:
+    """Return a JSON-friendly form of a field default (tuples become lists)."""
+    if isinstance(value, tuple):
+        return list(value)
+    return value
 
 
 def _style_summary(pack: StylePackProtocol) -> StyleSummary:

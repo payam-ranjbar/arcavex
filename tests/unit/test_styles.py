@@ -184,3 +184,50 @@ def test_style_cli_overrides_template(facade, tmp_path) -> None:  # noqa: ANN001
     assert compiled.document is not None, [d.code for d in compiled.diagnostics]
     fill = compiled.document.root.children[0].style.fill
     assert fill is not None and fill[1] > 0.7  # warhol_2[0] = #00E5A0 (green)
+
+
+def test_unknown_template_style_is_located(facade, tmp_path) -> None:  # noqa: ANN001
+    """CR-3/DX-7: a template 'style:' naming a missing pack points at the style line."""
+    template = _write(
+        tmp_path,
+        "style: does-not-exist@9\n"
+        "formats: {sq: {canvas: {width: 64px, height: 64px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      shape: rect\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+            "size: {w: fill, h: fill}}\n",
+    )
+    diags = facade.validate_template(template, format_name="sq")
+    sty = next(d for d in diags if d.code == "ARC-STY-001")
+    assert sty.source is not None
+    assert sty.source.file and sty.source.keypath == "style" and sty.source.line == 1
+
+
+def test_style_cli_local_file_resolves_from_cwd(facade, tmp_path, monkeypatch) -> None:  # noqa: ANN001,E501
+    """A CLI --style ./file.yaml resolves relative to the working directory, not the template."""
+    tpl_dir = tmp_path / "tpl"
+    tpl_dir.mkdir()
+    template = tpl_dir / "t.yaml"
+    template.write_text(
+        "formats: {sq: {canvas: {width: 64px, height: 64px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      shape: rect\n"
+        "      style: {fill: '{{ palette.duo[1] }}'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+            "size: {w: fill, h: fill}}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "mine.yaml").write_text(
+        "version: 1\npalettes: {duo: ['#000000', '#ffffff']}\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)  # ./mine.yaml lives in cwd, not beside the template
+    compiled = facade._compiler.compile(template, None, "sq", None, "./mine.yaml")
+    assert compiled.document is not None, [d.code for d in compiled.diagnostics]
+    fill = compiled.document.root.children[0].style.fill
+    assert fill is not None and fill[0] > 0.99  # duo[1] == #ffffff
+
+
+def test_style_reports_carry_response_version(facade) -> None:  # noqa: ANN001
+    """DX-3: style list/inspect carry the versioned-response envelope like every other command."""
+    assert facade.list_styles().response_version == 1
+    assert facade.inspect_style("pop-art").response_version == 1

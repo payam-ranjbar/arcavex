@@ -201,10 +201,13 @@ class RasterContext:
 
 @dataclass(frozen=True)
 class CompositeContext:
-    """Input to a ``COMPOSITE`` effect: the element raster plus a read-only backdrop snapshot.
+    """Input to a ``COMPOSITE`` effect: the element raster plus a read-only backdrop accessor.
 
-    ``backdrop`` is the content already painted below the node in z-order (spec §3.2), clipped
-    to the node's paint region, or ``None`` when nothing is below. ``dpi`` converts point
+    ``backdrop`` is reserved for the content painted below the node in z-order (spec §3.2). It
+    is a **deferred, read-only accessor that always returns ``None`` in v1** — the renderer does
+    not yet snapshot the underlying canvas region, so a composite effect must not rely on it.
+    The two shipped composite effects (drop-shadow, glow) build entirely from the element's own
+    alpha and ignore it. Populating it is tracked in ``docs/backlog.md``. ``dpi`` converts point
     params (shadow offset, blur radius) to pixels.
     """
 

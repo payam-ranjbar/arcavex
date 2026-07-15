@@ -214,8 +214,8 @@ def test_surface_pool_reuses_and_never_leaks(facade, tmp_path) -> None:  # noqa:
         "      style: {fill: '#cc4477', corner_radius: 10px}\n"
         "      effects:\n"
         "        - {name: blur, params: {radius: 2pt}}\n"
+        "        - {name: halftone, params: {pitch: 5pt}}\n"
         "        - {name: grain, params: {amount: 0.1}}\n"
-        "        - {name: ink-bleed, params: {radius: 1pt}}\n"
         "        - {name: drop-shadow, params: {dx: 4pt, dy: 4pt, blur: 3pt}}\n"
         "      constraints: {anchor: {center_x: parent.center_x, center_y: parent.center_y}, "
             "size: {w: 60%, h: 60%}}\n",
@@ -233,7 +233,7 @@ _HONESTY_EFFECTS = {
     "blur": ("shape", "{name: blur, params: {radius: 4pt}}", True),
     "drop-shadow": ("shape", "{name: drop-shadow, params: {dx: 8pt, dy: 8pt, blur: 4pt}}", True),
     "glow": ("shape", "{name: glow, params: {radius: 8pt}}", True),
-    "ink-bleed": ("shape", "{name: ink-bleed, params: {radius: 3pt}}", True),
+    "ink-bleed": ("shape", "{name: ink-bleed, params: {radius: 3pt}}", False),
     "channel-offset": ("shape", "{name: channel-offset, params: {distance: 4pt}}", True),
     "torn-paper": ("shape", "{name: torn-paper, params: {amplitude: 6pt, segment: 12pt}}", True),
     "grain": ("shape", "{name: grain, params: {amount: 0.2}}", False),
@@ -343,3 +343,134 @@ def test_geometry_effect_on_text_is_rejected(facade, tmp_path) -> None:  # noqa:
     )
     diags = facade.validate_template(template, format_name="sq")
     assert any(d.code == "ARC-FX-911" for d in diags)
+
+
+def test_effect_length_accepts_px(facade, tmp_path) -> None:  # noqa: ANN001
+    """DX-4: a px-valued effect length compiles and converts against the canvas DPI."""
+    template = _write(
+        tmp_path,
+        "formats: {sq: {canvas: {width: 128px, height: 128px, dpi: 144}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      shape: rrect\n"
+        "      style: {fill: '#cc4477'}\n"
+        "      effects: [{name: drop-shadow, params: {dx: 6px, dy: 6px, blur: 12px}}]\n"
+        "      constraints: {anchor: {center_x: parent.center_x, center_y: parent.center_y}, "
+            "size: {w: 50%, h: 50%}}\n",
+    )
+    compiled = facade._compiler.compile(template, None, "sq", None, None)
+    assert compiled.document is not None, [d.code for d in compiled.diagnostics]
+    shadow = compiled.document.root.children[0].effects[0]
+    # 6px at 144dpi == 3pt; 12px == 6pt (px -> pt uses the canvas DPI).
+    assert shadow.params["dx"] == pytest.approx(3.0)
+    assert shadow.params["blur"] == pytest.approx(6.0)
+
+
+def test_effect_length_rejects_percent(facade, tmp_path) -> None:  # noqa: ANN001
+    """A relative % has no basis for an effect length and is still rejected (located)."""
+    template = _write(
+        tmp_path,
+        "formats: {sq: {canvas: {width: 64px, height: 64px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      shape: rect\n"
+        "      effects: [{name: blur, params: {radius: 10%}}]\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+            "size: {w: fill, h: fill}}\n",
+    )
+    diags = facade.validate_template(template, format_name="sq")
+    assert any(d.code == "ARC-FX-902" for d in diags)
+
+
+def test_invalid_effect_params_lists_all_fields(facade, tmp_path) -> None:  # noqa: ANN001
+    """DX-5: every offending field appears in one diagnostic, not just the first."""
+    template = _write(
+        tmp_path,
+        "formats: {sq: {canvas: {width: 64px, height: 64px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      shape: rect\n"
+        "      effects: [{name: grade, params: {contrast: 9, saturation: 9}}]\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+            "size: {w: fill, h: fill}}\n",
+    )
+    diags = facade.validate_template(template, format_name="sq")
+    d = next(d for d in diags if d.code == "ARC-FX-902")
+    assert "contrast" in d.message and "saturation" in d.message
+
+
+def test_ink_bleed_grows_dark_ink_not_light() -> None:
+    """ink-bleed spreads dark ink into lighter areas (a grey erosion), never the reverse.
+
+    Regression for the effect having grown the *bright* value (a dilate) — the opposite of its
+    name. On a dark ink square over a light opaque field the ink region must expand.
+    """
+    from arcavex.builtin.effects_core.context import (
+        RasterContext,
+        SurfacePool,
+        image_to_rgba,
+        rgba_to_image,
+    )
+    from arcavex.builtin.effects_core.raster import InkBleed, InkBleedParams
+
+    field = np.full((48, 48, 4), 235, dtype=np.uint8)
+    field[..., 3] = 255
+    field[18:30, 18:30] = (20, 20, 20, 255)  # dark ink square on a light opaque field
+    ctx = RasterContext(
+        rgba_to_image(field), InkBleedParams(radius=3.0),
+        effect_rng(1, "probe", 0), SurfacePool(), 96.0,
+    )
+    out = image_to_rgba(InkBleed().apply(ctx))
+    dark_before = int(np.sum(np.all(field[..., :3] < 60, axis=-1)))
+    dark_after = int(np.sum(np.all(out[..., :3] < 60, axis=-1)))
+    assert dark_after > dark_before  # ink grew, not shrank
+    assert np.array_equal(out[..., 3], field[..., 3])  # silhouette (alpha) untouched
+
+
+def test_channel_offset_splits_rgb_and_keeps_alpha() -> None:
+    """CR-5: channel-offset shifts R/B apart (a real split) and never touches alpha.
+
+    The bounds-honesty test can only watch the alpha channel, which channel-offset leaves
+    untouched — so this asserts directly that the colour split happens and that the silhouette
+    (alpha) is preserved bit-for-bit, i.e. no colour leaks the subject's shape outward.
+    """
+    from arcavex.builtin.effects_core.context import (
+        RasterContext,
+        SurfacePool,
+        image_to_rgba,
+        rgba_to_image,
+    )
+    from arcavex.builtin.effects_core.raster import ChannelOffset, ChannelOffsetParams
+
+    src = np.zeros((32, 32, 4), dtype=np.uint8)
+    src[8:24, 14:18] = (255, 255, 255, 255)  # an opaque white vertical bar on transparent
+    image = rgba_to_image(src)
+    pool = SurfacePool()
+    ctx = RasterContext(
+        image, ChannelOffsetParams(distance=3.0, angle=0.0),
+        effect_rng(1, "probe", 0), pool, 96.0,
+    )
+    out = image_to_rgba(ChannelOffset().apply(ctx))
+
+    # Alpha is preserved exactly: the split cannot smear the subject's silhouette outward.
+    assert np.array_equal(out[..., 3], src[..., 3])
+    # The red and blue columns are displaced in opposite directions, so red != blue near the bar.
+    assert not np.array_equal(out[..., 0], out[..., 2])
+    # Red moved right of its source column, blue moved left (chromatic split), so along the bar's
+    # rows the red-heavy and blue-heavy columns differ.
+    row = 16
+    red_cols = set(np.nonzero(out[row, :, 0])[0].tolist())
+    blue_cols = set(np.nonzero(out[row, :, 2])[0].tolist())
+    assert red_cols != blue_cols
+
+
+def test_list_effects_reports_schema(facade) -> None:  # noqa: ANN001
+    """DX-6: list_effects surfaces each effect's category and param schema for discovery."""
+    report = facade.list_effects()
+    assert report.ok and report.response_version == 1
+    by_name = {e.name: e for e in report.effects}
+    assert set(by_name) == set(builtin_effects())
+    shadow = by_name["drop-shadow"]
+    assert shadow.category == "composite"
+    params = {p.name: p for p in shadow.params}
+    assert params["blur"].type == "length" and params["color"].type == "colour"
+    assert params["blur"].default == pytest.approx(4.0)
+    posterize = {p.name: p for p in by_name["posterize"].params}
+    assert posterize["levels"].type == "integer" and posterize["levels"].constraint == ">=2, <=64"

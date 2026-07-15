@@ -48,6 +48,8 @@ layout_app = typer.Typer(add_completion=False, help="Layout inspection commands.
 app.add_typer(layout_app, name="layout")
 style_app = typer.Typer(add_completion=False, help="Style-pack commands.")
 app.add_typer(style_app, name="style")
+effects_app = typer.Typer(add_completion=False, help="Effect catalog commands.")
+app.add_typer(effects_app, name="effects")
 
 
 def _engine_version() -> str:
@@ -180,6 +182,11 @@ def render(
     locale: str | None = typer.Option(
         None, "--locale", "-l", help="Locale name (application is Phase 2)."
     ),
+    style: str | None = typer.Option(
+        None, "--style",
+        help="Style pack to apply ('name@version' or './file.yaml'); overrides the template's "
+        "'style:' opt-in.",
+    ),
     output: Path | None = typer.Option(
         None,
         "--output",
@@ -209,6 +216,7 @@ def render(
         data=data,
         format_name=format_name,
         locale=locale,
+        style=style,
         output=output,
         dpi=dpi,
         debug=debug,
@@ -247,6 +255,11 @@ def validate(
     locale: str | None = typer.Option(
         None, "--locale", "-l", help="Locale name (application is Phase 2)."
     ),
+    style: str | None = typer.Option(
+        None, "--style",
+        help="Style pack to apply ('name@version' or './file.yaml'); overrides the template's "
+        "'style:' opt-in.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
@@ -257,7 +270,7 @@ def validate(
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
     diagnostics = facade.validate_template(
-        template=template, data=data, format_name=format_name, locale=locale
+        template=template, data=data, format_name=format_name, locale=locale, style=style
     )
     ok = not has_errors(diagnostics)
     if json_out:
@@ -345,6 +358,11 @@ def preview(
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
     locale: str | None = typer.Option(None, "--locale", "-l", help="Locale name."),
+    style: str | None = typer.Option(
+        None, "--style",
+        help="Style pack to apply ('name@version' or './file.yaml'); overrides the template's "
+        "'style:' opt-in.",
+    ),
     watch: bool = typer.Option(False, "--watch", help="Re-render on every dependent-file save."),
     dpi: int | None = typer.Option(None, "--dpi", help="Override render DPI."),
     debug: bool = typer.Option(False, "--debug", help="Overlay node bounds, ids, and baselines."),
@@ -359,11 +377,11 @@ def preview(
     facade = _build_facade_or_exit(console, quiet)
     if watch:
         _run_preview_watch(
-            facade, console, template, data, format_name, locale, dpi, quiet, debug
+            facade, console, template, data, format_name, locale, style, dpi, quiet, debug
         )
         raise typer.Exit(EXIT_OK)  # Ctrl+C / stop exits cleanly
     result = facade.render_preview(
-        template, data, format_name, locale=locale, dpi=dpi, debug=debug
+        template, data, format_name, locale=locale, style=style, dpi=dpi, debug=debug
     )
     if json_out:
         _emit_json(result)
@@ -379,6 +397,7 @@ def _run_preview_watch(
     data: Path | None,
     format_name: str | None,
     locale: str | None,
+    style: str | None,
     dpi: int | None,
     quiet: bool,
     debug: bool = False,
@@ -396,7 +415,7 @@ def _run_preview_watch(
     try:
         run_watch(
             facade, template, data, format_name, dpi, on_result,
-            locale=locale, debug=debug, stop_event=stop_event,
+            locale=locale, style=style, debug=debug, stop_event=stop_event,
         )
     except KeyboardInterrupt:  # pragma: no cover - interactive only
         stop_event.set()
@@ -460,6 +479,11 @@ def template_check(
     locale: str | None = typer.Option(
         None, "--locale", "-l", help="Locale name (application is Phase 2)."
     ),
+    style: str | None = typer.Option(
+        None, "--style",
+        help="Style pack to apply ('name@version' or './file.yaml'); overrides the template's "
+        "'style:' opt-in.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
@@ -469,7 +493,7 @@ def template_check(
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
-    result = facade.check_template(template, format_name, locale)
+    result = facade.check_template(template, format_name, locale, style)
     if json_out:
         _emit_json(result)
     else:
@@ -737,6 +761,69 @@ def _print_style_summary(console: Console, style: object) -> None:
         console.print("[bold]roles[/bold]:")
         for role, fields in s.roles.items():  # type: ignore[attr-defined]
             console.print(f"  [cyan]{_esc(role)}[/cyan]: {_esc(str(fields))}")
+
+
+@effects_app.command("list")
+def effects_list(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List the registered effects, their category, and each param's type/default/range."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_effects()
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            for effect in report.effects:
+                _print_effect_info(console, effect)
+    raise typer.Exit(EXIT_OK if report.ok else EXIT_VALIDATION)
+
+
+@effects_app.command("inspect")
+def effects_inspect(
+    name: str = typer.Argument(..., help="Effect name, e.g. 'drop-shadow'."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Show one effect's category and full parameter schema."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_effects()
+    match = next((e for e in report.effects if e.name == name), None)
+    if match is None:
+        if not quiet:
+            available = ", ".join(e.name for e in report.effects) or "(none)"
+            console.print(
+                f"[red]unknown effect[/red] {_esc(name)}\n"
+                f"  [dim]registered effects:[/dim] {_esc(available)}"
+            )
+        raise typer.Exit(EXIT_VALIDATION)
+    if json_out:
+        _emit_json(match)
+    elif not quiet:
+        _print_effect_info(console, match)
+    raise typer.Exit(EXIT_OK)
+
+
+def _print_effect_info(console: Console, effect: object) -> None:
+    e = effect  # EffectInfo
+    console.print(
+        f"[cyan]{_esc(e.name)}[/cyan] [dim]{e.category}[/dim]"  # type: ignore[attr-defined]
+    )
+    for p in e.params:  # type: ignore[attr-defined]
+        req = "required" if p.required else f"default={p.default!r}"
+        rng = f" [{p.constraint}]" if p.constraint else ""
+        console.print(f"  {_esc(p.name)}: {p.type} ({req}){_esc(rng)}")
 
 
 def main() -> None:

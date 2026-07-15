@@ -168,7 +168,11 @@ class Style(BaseModel):
 
 
 class EffectSpec(BaseModel):
-    """A declared effect (contract-only in Phase 0; not executed)."""
+    """A declared effect: its resolved name, category, and validated params.
+
+    The renderer compiles a node's ordered ``EffectSpec`` list into a category-aware plan and
+    executes it (spec §4.4); ``params`` are already schema-validated and normalized to points.
+    """
 
     model_config = ConfigDict(frozen=True)
 

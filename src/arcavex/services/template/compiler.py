@@ -772,11 +772,17 @@ class Compiler:
     ) -> StylePack | None:
         """Resolve the effective style pack from the CLI ``--style`` or the template ``style:``.
 
-        The CLI reference overrides the template's opt-in. When a style is requested but this
-        build has no style resolver wired (isolated tests), it is a located ``ARC-TPL-090``.
+        The CLI reference overrides the template's opt-in. A local-file reference from the CLI is
+        resolved relative to the working directory the user invoked from (what ``./file.yaml`` on
+        a command line means), while a template ``style:`` file reference stays relative to the
+        template — so both spellings resolve the path the author expects. When a style is
+        requested but this build has no style resolver wired (isolated tests), it is a located
+        ``ARC-TPL-090``.
         """
         template_ref = source.raw.get("style")
-        ref = style_cli if style_cli is not None else template_ref
+        from_cli = style_cli is not None
+        ref = style_cli if from_cli else template_ref
+        base_dir = Path.cwd() if from_cli else source.root_dir
         if ref is None:
             return None
         if not isinstance(ref, str) or not ref:
@@ -800,7 +806,18 @@ class Compiler:
                     hint="Run through the full engine (bootstrap) to use style packs.",
                 )
             )
-        return self._styles.resolve(ref, source.root_dir)
+        # Locate a template ``style:`` reference in the source so a missing pack points at the
+        # offending line, like the preset/role errors (CR-3/DX-7). A CLI ``--style`` override has
+        # no template line, so it resolves without a source location.
+        if from_cli:
+            return self._styles.resolve(ref, base_dir)
+        return self._styles.resolve(
+            ref,
+            base_dir,
+            file=str(source.template_path),
+            keypath="style",
+            line=line_of(source.raw, "style"),
+        )
 
     @staticmethod
     def _font_override_map(fonts: Any) -> dict[str, tuple[str, ...]]:
@@ -1039,7 +1056,7 @@ class Compiler:
             "style": style,
             "mask": self._parse_mask(raw, template, node_id, keypath),
             "effects": self._parse_effects(
-                raw, node_type, context, template, node_id, keypath
+                raw, node_type, context, template, node_id, keypath, canvas.dpi
             ),
             "visible": visible,
             "z": z,
@@ -1503,6 +1520,7 @@ class Compiler:
         template: Path,
         node_id: str,
         keypath: str,
+        dpi: int,
     ) -> tuple[EffectSpec, ...]:
         """Parse a node's ``effect_preset``/``effects`` into validated, ordered effect specs.
 
@@ -1540,7 +1558,7 @@ class Compiler:
             name, params = self._effect_name_params(entry, template, node_id, fx_kp)
             params = self._eval_params(params, context, template, node_id, fx_kp)
             specs.append(
-                self._validate_effect(name, params, node_type, template, node_id, fx_kp)
+                self._validate_effect(name, params, node_type, template, node_id, fx_kp, dpi)
             )
         return tuple(specs)
 
@@ -1632,6 +1650,7 @@ class Compiler:
         template: Path,
         node_id: str,
         keypath: str,
+        dpi: int,
     ) -> EffectSpec:
         assert self._effects is not None
         if name not in self._effects:
@@ -1660,13 +1679,17 @@ class Compiler:
             schema = self._effect_schema(name)
             if schema is not None:
                 try:
-                    validated = schema(**params).model_dump(mode="json")
+                    # Validate with the canvas DPI in context so a px-valued effect length is
+                    # converted to points against the right resolution (DX-4).
+                    validated = schema.model_validate(
+                        params, context={"dpi": dpi}
+                    ).model_dump(mode="json")
                 except Exception as exc:  # noqa: BLE001 - pydantic error -> located diagnostic
                     raise DiagnosticError(
                         diagnostic(
                             "ARC-FX-902",
                             f"Node {node_id!r} effect {name!r} has invalid parameters: "
-                            f"{_first_error(exc)}",
+                            f"{_all_errors(exc)}",
                             file=str(template), keypath=keypath,
                             hint="Check each parameter's name, type, and range for this effect.",
                         )
@@ -1728,7 +1751,7 @@ class Compiler:
                         diagnostic(
                             "ARC-FX-912",
                             f"Shape node {node_id!r} generator {generator!r} has invalid "
-                            f"params: {_first_error(exc)}",
+                            f"params: {_all_errors(exc)}",
                             file=str(template), keypath=f"{keypath}.params",
                             line=line_of(raw, "params"),
                             hint="Check each parameter's name, type, and range for this generator.",
@@ -1817,7 +1840,7 @@ class Compiler:
             raise DiagnosticError(
                 diagnostic(
                     "ARC-FX-902",
-                    f"Node {node_id!r} mask {component!r} has invalid params: {_first_error(exc)}",
+                    f"Node {node_id!r} mask {component!r} has invalid params: {_all_errors(exc)}",
                     file=str(template),
                     keypath=f"{keypath}.mask.params",
                     line=line,
@@ -2960,6 +2983,29 @@ def _first_error(exc: Exception) -> str:
             first = items[0]
             loc = ".".join(str(p) for p in first.get("loc", ()))
             return f"{loc}: {first.get('msg', 'invalid')}" if loc else str(first.get("msg"))
+    return str(exc)
+
+
+def _all_errors(exc: Exception) -> str:
+    """Return every offending field from a pydantic ValidationError, joined (DX-5).
+
+    Pydantic already collects each field error in one pass, so reporting them all lets an author
+    fix every mistake at once instead of one render-and-fail round trip per field. Falls back to
+    a single message for non-validation exceptions.
+    """
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        try:
+            items = errors()
+        except Exception:  # noqa: BLE001
+            items = []
+        parts: list[str] = []
+        for item in items:
+            loc = ".".join(str(p) for p in item.get("loc", ()))
+            msg = str(item.get("msg", "invalid"))
+            parts.append(f"{loc}: {msg}" if loc else msg)
+        if parts:
+            return "; ".join(parts)
     return str(exc)
 
 

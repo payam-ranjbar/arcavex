@@ -90,7 +90,7 @@ class GrainParams(BaseModel):
 
 
 class Grain(_RasterEffect):
-    """Seeded monochrome grain added to opaque pixels."""
+    """Seeded monochrome grain: one shared noise field jitters RGB (alpha is left untouched)."""
 
     param_schema: ClassVar[type[BaseModel]] = GrainParams
 
@@ -121,7 +121,7 @@ class Noise(_RasterEffect):
     param_schema: ClassVar[type[BaseModel]] = NoiseParams
 
     def apply(self, ctx: object) -> skia.Image:
-        """Return the raster with independent per-channel noise added on opaque pixels."""
+        """Return the raster with independent per-channel noise added to RGB (alpha untouched)."""
         assert isinstance(ctx, RasterContext)
         p = ctx.params
         assert isinstance(p, NoiseParams)
@@ -134,39 +134,66 @@ class Noise(_RasterEffect):
 
 # ----------------------------------------------------------------------------- ink-bleed
 class InkBleedParams(BaseModel):
-    """Grow dark ink into light areas by a point ``radius`` (morphological dilate on ink)."""
+    """Grow dark ink into lighter areas by a point ``radius`` (grey erosion of the ink)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     radius: Points = Field(default=1.5, ge=0.0)
 
 
+def _box_min(a: np.ndarray, r: int) -> np.ndarray:
+    """Separable edge-clamped box minimum of radius ``r`` (a morphological grey erosion).
+
+    Grows the darker value outward by ``r`` pixels on each axis, clamping at the array edge (no
+    wrap), so dark ink spreads into lighter neighbours deterministically.
+    """
+    acc = a
+    for d in range(1, r + 1):
+        left = np.empty_like(a)
+        left[:, d:] = a[:, :-d]
+        left[:, :d] = a[:, :1]
+        right = np.empty_like(a)
+        right[:, :-d] = a[:, d:]
+        right[:, -d:] = a[:, -1:]
+        acc = np.minimum(np.minimum(acc, left), right)
+    horizontal = acc
+    for d in range(1, r + 1):
+        up = np.empty_like(horizontal)
+        up[d:, :] = horizontal[:-d, :]
+        up[:d, :] = horizontal[:1, :]
+        down = np.empty_like(horizontal)
+        down[:-d, :] = horizontal[d:, :]
+        down[-d:, :] = horizontal[-1:, :]
+        acc = np.minimum(np.minimum(acc, up), down)
+    return acc
+
+
 class InkBleed(_RasterEffect):
-    """Dilate darker pixels outward via a Skia dilate filter, mimicking wet-ink spread."""
+    """Spread dark ink into lighter opaque areas (a grey erosion), mimicking wet-ink spread.
+
+    Only opaque pixels feed the erosion — the cleared padding never darkens ink at the edges —
+    and alpha is left untouched, so the effect thickens ink without eroding the node silhouette.
+    It grows ink *inward* among opaque content and so declares no bounds expansion.
+    """
 
     param_schema: ClassVar[type[BaseModel]] = InkBleedParams
 
-    def bounds_expansion(self, params: BaseModel) -> Insets:
-        """Ink can bleed up to ``radius`` past the node edge."""
-        assert isinstance(params, InkBleedParams)
-        r = params.radius
-        return Insets(r, r, r, r)
-
     def apply(self, ctx: object) -> skia.Image:
-        """Return the bled raster."""
+        """Return the raster with dark ink grown into lighter opaque neighbours."""
         assert isinstance(ctx, RasterContext)
         p = ctx.params
         assert isinstance(p, InkBleedParams)
-        r = _pt_to_px(p.radius, ctx.dpi)
-        image = ctx.image
-        image_filter = skia.ImageFilters.Dilate(r, r)
-
-        def draw(canvas: skia.Canvas) -> None:
-            paint = skia.Paint()
-            paint.setImageFilter(image_filter)
-            canvas.drawImage(image, 0, 0, skia.SamplingOptions(), paint)
-
-        return render_to_pool(ctx.pool, image.width(), image.height(), draw)
+        r = max(1, int(round(_pt_to_px(p.radius, ctx.dpi))))
+        rgba = image_to_rgba(ctx.image)
+        rgb = rgba[..., :3].astype(np.int16)
+        opaque = rgba[..., 3] > 0
+        # Transparent pixels are treated as maximally light so they never darken a neighbour,
+        # so ink bleeds only from real opaque content, not from the cleared surface padding.
+        work = np.where(opaque[..., None], rgb, 255)
+        bled = _box_min(work, r)
+        out = rgba.copy()
+        out[..., :3] = np.where(opaque[..., None], bled, rgb).astype(np.uint8)
+        return rgba_to_image(out)
 
 
 # -------------------------------------------------------------------------------- halftone

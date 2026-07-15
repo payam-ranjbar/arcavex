@@ -16,4 +16,12 @@ during reviews. Nothing here is required v1 scope.
 
 ## Accepted P3 review findings
 
-(populated during phase reviews)
+- **Composite `backdrop` snapshot (CR-1).** `CompositeContext.backdrop` is a read-only accessor
+  reserved for the content painted below a node in z-order (spec §3.2), but in v1 it always
+  returns `None`: the renderer does not snapshot the underlying canvas region into it. No shipped
+  behaviour depends on it — the two composite effects (drop-shadow, glow) build from the
+  element's own alpha — so this is deferred rather than fixed in Phase 3. Populating it requires
+  reading back the correct device-space region of the (possibly nested element) canvas under the
+  full CTM and clipping it to the node's paint region; that is a renderer change larger than the
+  latent gap warrants now. The docstring and the construction site state the deferral honestly so
+  no future composite effect assumes a live backdrop.
