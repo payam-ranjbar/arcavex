@@ -346,6 +346,24 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "give inserts a 'node:' mapping.",
         ),
         _e(
+            "ARC-TPL-110",
+            "Template changed on disk",
+            "A 'patch_template' call passed a base hash that no longer matches the template file "
+            "on disk, so another writer changed the file since it was read. The patch is refused "
+            "before anything is written, so a concurrent edit is never silently overwritten.",
+            "Re-inspect the template to get its current content hash, rebase the edit on the "
+            "current file, and retry the patch.",
+        ),
+        _e(
+            "ARC-TPL-111",
+            "Invalid data keypath",
+            "A 'set_data' keypath is empty, or one of its dotted segments descends into a value "
+            "that is not a mapping (for example addressing 'contact.email' when 'contact' is "
+            "already a scalar string). Only mappings can be traversed.",
+            "Use a dotted keypath whose intermediate segments are mappings; clear the offending "
+            "scalar first, or choose a different path.",
+        ),
+        _e(
             "ARC-TPL-100",
             "Undeclared locale",
             "A locale was requested with --locale that the template does not declare, so its "

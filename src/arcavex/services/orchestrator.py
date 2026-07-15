@@ -26,19 +26,26 @@ from pathlib import Path
 from typing import Any
 
 from arcavex.kernel.api import (
+    AssetInfo,
+    AssetReport,
     BatchEntry,
     BatchReport,
     CompileResult,
+    DataReport,
     DetachReport,
     DiffReport,
+    LibraryTemplateInfo,
     ProjectInputs,
+    ProjectListReport,
     ProjectResult,
     ProjectStatusReport,
+    ProjectSummary,
     PublishReport,
     RerunReport,
     RunInfo,
     RunListReport,
     RunReport,
+    TemplateListReport,
     UpgradeOutputDiff,
     UpgradeReport,
     UpgradeStalePath,
@@ -46,9 +53,9 @@ from arcavex.kernel.api import (
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
 from arcavex.kernel.ir.canonical import canonical_hash
 from arcavex.kernel.ir.models import CompiledDocument, CompiledGroup, CompiledImage, CompiledNode
-from arcavex.services.assets import AssetStore
+from arcavex.services.assets import AssetRef, AssetStore
 from arcavex.services.config import RuntimeConfig
-from arcavex.services.fsutil import home_dir
+from arcavex.services.fsutil import atomic_write_text, home_dir
 from arcavex.services.imaging import dssim_files
 from arcavex.services.library import Library, is_library_ref
 from arcavex.services.projects import Project, ProjectService, template_stem
@@ -66,6 +73,8 @@ from arcavex.services.runs import (
     short_hash,
     utc_now,
 )
+from arcavex.services.template.loader import load_yaml
+from arcavex.services.template.overlays import merge_overlay
 
 # (document, output_path, dpi, debug) -> (report-with-sha256, layout warnings)
 RenderFn = Callable[[CompiledDocument, Path, "int | None", bool], "tuple[Any, list[Diagnostic]]"]
@@ -1019,6 +1028,240 @@ class Orchestrator:
                 )
             ],
         )
+
+    # -------------------------------------------------------------------- data & assets
+    def set_data(
+        self, start: Path | None, project: Path | None, keypath: str, value: Any
+    ) -> DataReport:
+        """Set ``keypath = value`` in the active project's base data document, then revalidate.
+
+        Intermediate mappings are created as needed; traversing through an existing non-mapping
+        value is a located ``ARC-TPL-111``. The write is atomic and the project is compiled over
+        the merged data so the returned diagnostics report whether it still validates.
+        """
+        proj = self._projects.resolve(start, project)
+        data_path = self._require_data_path(proj)
+        doc = self._load_data_doc(data_path)
+        self._set_keypath(doc, keypath, value, data_path)
+        self._write_yaml_atomic(data_path, doc)
+        return DataReport(
+            ok=not has_errors(diags := self._validate_project_data(proj, None)),
+            path=str(data_path),
+            diagnostics=diags,
+        )
+
+    def import_data(
+        self, start: Path | None, project: Path | None, yaml_text: str, locale: str | None
+    ) -> DataReport:
+        """Merge a YAML document into the active project's base data (overlay semantics).
+
+        The incoming document must be a mapping (``ARC-TPL-012`` otherwise); it merges under the
+        data-overlay rules (mappings merge recursively, scalars/lists replace, ``!delete``
+        removes). ``locale`` selects the template locale to compile-validate against afterward.
+        """
+        proj = self._projects.resolve(start, project)
+        data_path = self._require_data_path(proj)
+        incoming = self._parse_data_text(yaml_text, data_path)
+        merged = merge_overlay(self._load_data_doc(data_path), incoming)
+        self._write_yaml_atomic(data_path, merged)
+        return DataReport(
+            ok=not has_errors(diags := self._validate_project_data(proj, locale)),
+            path=str(data_path),
+            diagnostics=diags,
+        )
+
+    def add_asset(
+        self, start: Path | None, project: Path | None, source: Path
+    ) -> AssetReport:
+        """Ingest an image into the workspace CAS and return its reference (§4.7).
+
+        Uses the same content-addressed store a recorded run ingests into, so a manually added
+        asset and a render-time asset share one hash space and one set of decode guards.
+        """
+        ref = AssetStore(self._asset_root).ingest(Path(source))
+        return AssetReport(ok=True, asset=_asset_info(ref))
+
+    def annotate_asset(self, sha256: str, annotations: dict[str, Any]) -> AssetReport:
+        """Merge sidecar ``annotations`` onto an ingested asset and return the ref (§4.7)."""
+        ref = AssetStore(self._asset_root).annotate(sha256, dict(annotations))
+        return AssetReport(ok=True, asset=_asset_info(ref))
+
+    # -------------------------------------------------------------------- discovery
+    def list_templates(self) -> TemplateListReport:
+        """List every published library template and its versions (§5.1)."""
+        infos = [
+            LibraryTemplateInfo(name=idx.name, versions=list(idx.versions), default=idx.default)
+            for idx in self._library.list_templates()
+        ]
+        return TemplateListReport(ok=True, templates=infos)
+
+    def list_projects(self, root: Path | None) -> ProjectListReport:
+        """List projects under ``root`` (default cwd): ``root`` itself and its immediate children.
+
+        A shallow scan keeps discovery predictable and cheap — it finds the projects a user
+        organizes side by side under a campaigns directory without walking an arbitrarily deep
+        tree. Each entry reports the manifest identity so an agent can pick one to act on.
+        """
+        base = Path(root) if root is not None else Path.cwd()
+        if not base.is_dir():
+            return ProjectListReport(ok=True, projects=[])
+        candidates = [base, *(p for p in sorted(base.iterdir()) if p.is_dir())]
+        summaries: list[ProjectSummary] = []
+        for directory in candidates:
+            if not (directory / "project.yaml").is_file():
+                continue
+            try:
+                proj = self._projects.load(directory)
+            except DiagnosticError:
+                continue
+            summaries.append(
+                ProjectSummary(
+                    name=proj.manifest.name,
+                    path=str(proj.root),
+                    status=proj.manifest.status,
+                    template=proj.manifest.template,
+                )
+            )
+        return ProjectListReport(ok=True, projects=summaries)
+
+    # ------------------------------------------------------------------ data internals
+    def _require_data_path(self, proj: Project) -> Path:
+        data_path = proj.data_path
+        if data_path is None:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-PRJ-002",
+                    "Project declares no data file to edit",
+                    file=str(proj.project_file),
+                    hint="Add a 'data:' path to project.yaml (e.g. 'data: data/<name>.yaml').",
+                )
+            )
+        return data_path
+
+    def _load_data_doc(self, data_path: Path) -> Any:
+        """Load the project's data document, or an empty ruamel mapping when it does not exist."""
+        from ruamel.yaml.comments import CommentedMap
+
+        if not data_path.is_file():
+            return CommentedMap()
+        raw = load_yaml(data_path)
+        if not hasattr(raw, "get"):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-012",
+                    f"Project data file is not a mapping: {data_path.name}",
+                    file=str(data_path),
+                    hint="Write the data file as 'name: value' pairs.",
+                )
+            )
+        return raw
+
+    def _parse_data_text(self, yaml_text: str, data_path: Path) -> Any:
+        from ruamel.yaml import YAML
+
+        parser = YAML(typ="rt")
+        parser.preserve_quotes = True
+        try:
+            parsed = parser.load(yaml_text)
+        except Exception as exc:  # noqa: BLE001 - malformed import text -> located diagnostic
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-002",
+                    f"Imported data is not valid YAML: {exc}",
+                    file=str(data_path),
+                    hint="Provide a valid YAML mapping of variable names to values.",
+                )
+            ) from exc
+        if not hasattr(parsed, "get"):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-012",
+                    "Imported data document is not a mapping",
+                    file=str(data_path),
+                    hint="Import a mapping of 'name: value' pairs, not a list or scalar.",
+                )
+            )
+        return parsed
+
+    def _set_keypath(self, doc: Any, keypath: str, value: Any, data_path: Path) -> None:
+        """Set ``keypath`` (dotted) to ``value`` in ``doc``, creating intermediate mappings."""
+        from ruamel.yaml.comments import CommentedMap
+
+        segments = [s for s in keypath.split(".") if s]
+        if not segments:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-111",
+                    "Empty data keypath",
+                    file=str(data_path),
+                    hint="Pass a dotted keypath such as 'title' or 'contact.email'.",
+                )
+            )
+        target = doc
+        for seg in segments[:-1]:
+            nxt = target.get(seg) if hasattr(target, "get") else None
+            if nxt is None:
+                nxt = CommentedMap()
+                target[seg] = nxt
+            elif not hasattr(nxt, "get"):
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-TPL-111",
+                        f"Data keypath traverses a non-mapping value at {seg!r}",
+                        file=str(data_path),
+                        keypath=keypath,
+                        hint="A keypath segment can only descend into a mapping; clear the "
+                        "scalar first, or choose a different path.",
+                    )
+                )
+            target = nxt
+        target[segments[-1]] = value
+
+    def _write_yaml_atomic(self, path: Path, data: Any) -> None:
+        """Round-trip ``data`` to YAML preserving comments and write it atomically."""
+        import io
+
+        from ruamel.yaml import YAML
+
+        buffer = io.StringIO()
+        yaml = YAML(typ="rt")
+        yaml.preserve_quotes = True
+        yaml.dump(data, buffer)
+        atomic_write_text(path, buffer.getvalue())
+
+    def _validate_project_data(self, proj: Project, locale: str | None) -> list[Diagnostic]:
+        """Compile the project over its (now-merged) data and return located diagnostics.
+
+        Compile-only validation: it surfaces the data-driven diagnostics (missing required
+        variable, type mismatch, bad expression) located against the data file. The layout pass
+        the facade's ``validate`` adds needs the render registries the orchestrator does not
+        hold, and is not what a data edit affects, so it is intentionally not run here.
+        """
+        template_dir, _ref, _is_lib = self._projects.resolve_template(proj)
+        patch_ops, patch_file = self._projects.load_project_patch(proj)
+        targets = self._projects.render_targets(proj, None, [locale] if locale else None)
+        diags: list[Diagnostic] = []
+        for fmt, loc in targets:
+            result = self._compiler.compile(
+                template_dir, proj.data_path, fmt, loc, proj.manifest.style,
+                project_patch=patch_ops, project_patch_file=patch_file,
+            )
+            for d in result.diagnostics:
+                if d not in diags:
+                    diags.append(d)
+        return diags
+
+
+def _asset_info(ref: AssetRef) -> AssetInfo:
+    """Project a service :class:`AssetRef` onto the kernel-facing :class:`AssetInfo` model."""
+    return AssetInfo(
+        sha256=ref.sha256,
+        mime=ref.mime,
+        width=ref.width,
+        height=ref.height,
+        bytes=ref.bytes,
+        annotations=dict(ref.annotations),
+    )
 
 
 def _entry_from_worker(project_dir: str, result: dict[str, Any]) -> BatchEntry:

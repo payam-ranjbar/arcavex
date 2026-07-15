@@ -489,6 +489,108 @@ class SplitResult(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class PatchOp(BaseModel):
+    """One path-addressed template mutation (spec §4.1.4), the AI authoring contract.
+
+    Exactly one of ``set``/``remove``/``insert_before``/``insert_after`` names the addressed
+    path ``nodes.<id>[.<field>...]``; ``value`` carries a ``set`` payload and ``node`` the
+    mapping an insert introduces. This is the SAME grammar the format/locale/project override
+    layers use, applied here to the template file itself so an agent edits a stable node id
+    rather than a text span.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    set: str | None = None
+    remove: str | None = None
+    insert_before: str | None = None
+    insert_after: str | None = None
+    value: Any = None
+    node: dict[str, Any] | None = None
+
+    def to_patch_dict(self) -> dict[str, Any]:
+        """Render this op as the plain ``{verb: path[, value|node]}`` mapping the patcher applies.
+
+        Only the single named verb key is emitted, so the patcher's "exactly one verb" check
+        sees one verb (a model with four optional verb fields would otherwise present four).
+        A ``set``'s ``value`` is always included — even when it is ``None`` — so setting a field
+        to null round-trips; an insert carries its ``node``.
+        """
+        for verb in ("set", "remove", "insert_before", "insert_after"):
+            path = getattr(self, verb)
+            if path is None:
+                continue
+            op: dict[str, Any] = {verb: path}
+            if verb == "set":
+                op["value"] = self.value
+            elif verb in ("insert_before", "insert_after"):
+                op["node"] = self.node
+            return op
+        return {}
+
+
+class PatchTemplateResult(BaseModel):
+    """The result of ``patch_template`` (§3.7, §4.1.4): the mutated file and its new hash.
+
+    ``sha256`` is the content hash of the template file *after* a successful patch (or the
+    current on-disk hash when a changed-on-disk check rejects the patch), so an agent can chain
+    edits by passing it as the next call's ``base_sha256`` and detect a concurrent edit (§8.3).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    path: str | None = None
+    sha256: str | None = None
+    applied: int = 0
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class DataReport(BaseModel):
+    """The result of ``set_data``/``import_data`` (§3.7): the written data file and validation.
+
+    ``diagnostics`` are the compile diagnostics of the project's template over the merged data
+    (located against the data file), so an agent that sets or imports a value learns whether the
+    project still validates without a separate call.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    path: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class AssetInfo(BaseModel):
+    """A CAS-ingested asset as reported to a client: content hash, media type, and metadata.
+
+    Mirrors the service-layer ``AssetRef`` (the kernel cannot import a service model), so the
+    facade projects the ingested reference onto this versioned kernel model at the boundary.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    sha256: str
+    mime: str
+    width: int
+    height: int
+    bytes: int
+    annotations: dict[str, Any] = Field(default_factory=dict)
+
+
+class AssetReport(BaseModel):
+    """The result of ``add_asset``/``annotate_asset`` (§4.7): the resolved asset and diagnostics."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    asset: AssetInfo | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 class PreviewResult(BaseModel):
     """The result of a single ``arcavex preview`` render (watch or one-shot)."""
 
@@ -607,6 +709,12 @@ class AuthoringProtocol(Protocol):
         """Convert a one-file template into a split directory losslessly."""
         ...
 
+    def patch_template(
+        self, template: Path, ops: list[PatchOp], base_sha256: str | None
+    ) -> PatchTemplateResult:
+        """Apply path-addressed patch ops to a template file on disk (ruamel round-trip)."""
+        ...
+
 
 # ------------------------------------------------------ projects, library, provenance (§5)
 class ProjectResult(BaseModel):
@@ -643,6 +751,49 @@ class ProjectStatusReport(BaseModel):
     data: str | None = None
     root: str | None = None
     runs: int = 0
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class LibraryTemplateInfo(BaseModel):
+    """One published library template: its name, available versions, and default alias."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    versions: list[str] = Field(default_factory=list)
+    default: str | None = None
+
+
+class TemplateListReport(BaseModel):
+    """The result of ``list_templates`` — every published library template (§5.1)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    templates: list[LibraryTemplateInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ProjectSummary(BaseModel):
+    """One discovered project's identity for ``list_projects`` output."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    path: str
+    status: str | None = None
+    template: str | None = None
+
+
+class ProjectListReport(BaseModel):
+    """The result of ``list_projects`` — projects discovered under a root directory."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    projects: list[ProjectSummary] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -924,6 +1075,26 @@ class OrchestratorProtocol(Protocol):
     ) -> PublishReport: ...
 
     def detach_template(self, start: Path | None, project: Path | None) -> DetachReport: ...
+
+    def set_data(
+        self, start: Path | None, project: Path | None, keypath: str, value: Any
+    ) -> DataReport: ...
+
+    def import_data(
+        self, start: Path | None, project: Path | None, yaml_text: str, locale: str | None
+    ) -> DataReport: ...
+
+    def add_asset(
+        self, start: Path | None, project: Path | None, source: Path
+    ) -> AssetReport: ...
+
+    def annotate_asset(
+        self, sha256: str, annotations: dict[str, Any]
+    ) -> AssetReport: ...
+
+    def list_templates(self) -> TemplateListReport: ...
+
+    def list_projects(self, root: Path | None) -> ProjectListReport: ...
 
 
 class Facade:
@@ -1446,6 +1617,28 @@ class Facade:
                 ok=False, diagnostics=[internal_error("Split failed", detail=repr(exc))]
             )
 
+    def patch_template(
+        self, template: Path, ops: list[PatchOp], base_sha256: str | None = None
+    ) -> PatchTemplateResult:
+        """Apply path-addressed patch ops to a template file on disk (§3.7, §4.1.4). Never raises.
+
+        The mutation contract for an AI author: each op addresses a stable authored node id, the
+        file is round-tripped through ruamel so comments survive, and an unknown path is a
+        located ``ARC-TPL-092`` rather than a silent no-op. When ``base_sha256`` is given and no
+        longer matches the file on disk the patch is refused (``ARC-TPL-110``) so a concurrent
+        edit is never clobbered (§8.3). Reachable via CLI/API, so MCP adds no exclusive power.
+        """
+        if self._authoring is None:  # pragma: no cover - always wired in production
+            return PatchTemplateResult(ok=False, diagnostics=[_unwired("authoring")])
+        try:
+            return self._authoring.patch_template(Path(template), ops, base_sha256)
+        except DiagnosticError as exc:
+            return PatchTemplateResult(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return PatchTemplateResult(
+                ok=False, diagnostics=[internal_error("Patch failed", detail=repr(exc))]
+            )
+
     # -------------------------------------------------------------------- preview
     def preview_path(self, template: Path, format_name: str) -> Path:
         """Return the stable preview output path for a template + format.
@@ -1854,6 +2047,74 @@ class Facade:
     ) -> DetachReport:
         """Copy the project's library template into the project (upgrades off). Never raises."""
         return self._guard_project(lambda o: o.detach_template(start, project), DetachReport)
+
+    # ------------------------------------------------------------------ data & assets (§4.7)
+    def set_data(
+        self,
+        keypath: str,
+        value: Any,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> DataReport:
+        """Set a single value at ``keypath`` in the active project's data (§3.7). Never raises.
+
+        Writes the value into the project's base data document (creating intermediate mappings),
+        then compiles the project so the returned diagnostics report whether the change still
+        validates — the located feedback an author (human or AI) needs to self-correct.
+        """
+        return self._guard_project(
+            lambda o: o.set_data(start, project, keypath, value), DataReport
+        )
+
+    def import_data(
+        self,
+        yaml_text: str,
+        locale: str | None = None,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> DataReport:
+        """Merge a YAML data document into the active project's data (§3.7). Never raises.
+
+        Uses the data-overlay merge semantics (mappings merge, scalars/lists replace, ``!delete``
+        removes) and revalidates. ``locale`` selects the template locale to compile-validate
+        against after the merge, so an author can check the merged data under a specific locale.
+        """
+        return self._guard_project(
+            lambda o: o.import_data(start, project, yaml_text, locale), DataReport
+        )
+
+    def add_asset(
+        self, source: Path, start: Path | None = None, project: Path | None = None
+    ) -> AssetReport:
+        """Ingest an image into the workspace CAS and return its reference (§4.7). Never raises.
+
+        Ingestion enforces the decode guards against the file header before any decode; the same
+        content always resolves to the same hash, so this is the ingest step a template
+        expression's asset reference and a run manifest both rely on.
+        """
+        return self._guard_project(
+            lambda o: o.add_asset(start, project, Path(source)), AssetReport
+        )
+
+    def annotate_asset(self, sha256: str, annotations: dict[str, Any]) -> AssetReport:
+        """Write sidecar annotations onto an ingested asset (§4.7). Never raises.
+
+        Annotations (facing/focal_point/tags) are stored at ingest time and consumed by template
+        expressions; render-time image analysis stays prohibited, so this is where an AI records
+        what it saw after *looking* at the image, once.
+        """
+        return self._guard_project(
+            lambda o: o.annotate_asset(sha256, annotations), AssetReport
+        )
+
+    def list_templates(self) -> TemplateListReport:
+        """List every published library template and its versions (§5.1). Never raises."""
+        return self._guard_project(lambda o: o.list_templates(), TemplateListReport)
+
+    def list_projects(self, root: Path | None = None) -> ProjectListReport:
+        """List projects discovered under ``root`` (default cwd). Never raises."""
+        resolved = Path(root) if root is not None else None
+        return self._guard_project(lambda o: o.list_projects(resolved), ProjectListReport)
 
     def _guard_project(
         self, call: Callable[[OrchestratorProtocol], _ResultT], model: type[_ResultT]

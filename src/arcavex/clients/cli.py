@@ -57,6 +57,8 @@ effects_app = typer.Typer(add_completion=False, help="Effect catalog commands.")
 app.add_typer(effects_app, name="effects")
 project_app = typer.Typer(add_completion=False, help="Project lifecycle commands.")
 app.add_typer(project_app, name="project")
+mcp_app = typer.Typer(add_completion=False, help="MCP authoring server (spec §6.2).")
+app.add_typer(mcp_app, name="mcp")
 
 
 def _engine_version() -> str:
@@ -1282,6 +1284,37 @@ def template_detach(
         if report.ok and not quiet:
             console.print(f"[green]Detached[/green] into {report.path}")
     raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
+
+
+@mcp_app.command("serve")
+def mcp_serve() -> None:
+    """Start the MCP authoring server over stdio (spec §6.2).
+
+    The server mirrors the service API as MCP tools — no capability is reachable only here — and
+    speaks stdio only (no network). It blocks until the client disconnects.
+    """
+    from arcavex.clients.mcp_server import serve
+
+    serve()
+
+
+@mcp_app.command("tools")
+def mcp_tools(
+    json_out: bool = typer.Option(False, "--json", help="Emit the tool catalog as JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+) -> None:
+    """List the MCP tool catalog (names, descriptions, and input/output schemas)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    from arcavex.clients.mcp_server import build_mcp_server, catalog_json, tool_catalog
+
+    if json_out:
+        typer.echo(catalog_json())
+    else:
+        for tool in tool_catalog(build_mcp_server()):
+            console.print(f"[cyan]{_esc(tool['name'])}[/cyan] — {_esc(tool['description'])}")
+    raise typer.Exit(EXIT_OK)
 
 
 def main() -> None:

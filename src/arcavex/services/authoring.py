@@ -15,6 +15,8 @@ from arcavex.kernel.api import (
     FormatInfo,
     FunctionInfo,
     NodeInfo,
+    PatchOp,
+    PatchTemplateResult,
     ScaffoldResult,
     SplitResult,
     TemplateInspectReport,
@@ -22,6 +24,7 @@ from arcavex.kernel.api import (
 )
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
 from arcavex.kernel.ir.units import Dim
+from arcavex.services.fsutil import sha256_bytes
 from arcavex.services.template.functions import FUNCTION_SIGNATURES
 from arcavex.services.template.loader import (
     _SIDECARS,
@@ -31,6 +34,7 @@ from arcavex.services.template.loader import (
     load_yaml,
     resolve_template_path,
 )
+from arcavex.services.template.overlays import PatchLog, apply_patches
 
 # The sections a one-file template splits into, mapped to their sidecar filename. Mirrors the
 # loader's merge so a split template loads back to identical content.
@@ -282,6 +286,69 @@ class AuthoringService:
         dump_yaml(raw, template_yaml)
         written.append("template.yaml")
         return SplitResult(ok=True, directory=str(root_dir), files=written)
+
+    # -------------------------------------------------------------------- patch
+    def patch_template(
+        self, template: Path, ops: list[PatchOp], base_sha256: str | None = None
+    ) -> PatchTemplateResult:
+        """Apply path-addressed patch ops to a template file on disk, preserving comments.
+
+        The ops reuse the exact ``set/remove/insert_*`` grammar the override layers use
+        (``services.template.overlays``), applied here to ``template.yaml``'s ``root`` AST and
+        written back through ruamel round-trip so comments and key order survive. An unknown
+        addressed path raises a located ``ARC-TPL-092``; a stale ``base_sha256`` (the file
+        changed on disk since the agent read it) is refused with ``ARC-TPL-110`` before anything
+        is written, so a concurrent edit is never overwritten (spec §8.3). Never raises.
+        """
+        try:
+            _root_dir, template_yaml = resolve_template_path(template)
+        except DiagnosticError as exc:
+            return PatchTemplateResult(ok=False, diagnostics=list(exc.diagnostics))
+        current_sha = sha256_bytes(template_yaml.read_bytes())
+        if base_sha256 is not None and base_sha256 != current_sha:
+            return PatchTemplateResult(
+                ok=False,
+                path=str(template_yaml),
+                sha256=current_sha,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-TPL-110",
+                        "Template changed on disk since it was read; patch not applied",
+                        file=str(template_yaml),
+                        hint="Re-inspect the template to get its current hash, rebase your edit "
+                        "on it, and retry — another writer changed the file.",
+                    )
+                ],
+            )
+        try:
+            raw = load_yaml(template_yaml)
+            root_map = raw.get("root") if hasattr(raw, "get") else None
+            if not hasattr(root_map, "get"):
+                return PatchTemplateResult(
+                    ok=False,
+                    path=str(template_yaml),
+                    sha256=current_sha,
+                    diagnostics=[
+                        diagnostic(
+                            "ARC-TPL-004",
+                            "Template has no 'root' node to patch",
+                            file=str(template_yaml),
+                            hint="A patchable template defines a 'root:' group node.",
+                        )
+                    ],
+                )
+            plain_ops = [op.to_patch_dict() for op in ops]
+            apply_patches(root_map, plain_ops, "patch", template_yaml, "patch", PatchLog())
+            dump_yaml(raw, template_yaml)
+        except DiagnosticError as exc:
+            return PatchTemplateResult(
+                ok=False, path=str(template_yaml), sha256=current_sha,
+                diagnostics=list(exc.diagnostics),
+            )
+        new_sha = sha256_bytes(template_yaml.read_bytes())
+        return PatchTemplateResult(
+            ok=True, path=str(template_yaml), sha256=new_sha, applied=len(ops)
+        )
 
 
 def _variable_infos(variables: Any) -> list[VariableInfo]:
