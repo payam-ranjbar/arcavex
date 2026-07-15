@@ -400,9 +400,12 @@ root:
 """
 
 
-def test_cr3_set_unknown_final_segment_errors(tmp_path: Path) -> None:
+def test_rr2_11_set_adds_field_but_typo_caught_downstream(tmp_path: Path) -> None:
+    # RR2-11: `set` may add an absent field, so a typo'd field name is no longer a patch error;
+    # instead the compiler's per-block field validation catches it (the safety net still holds).
     result = _compile(tmp_path, _PATCH_TPL, fmt="bad")
-    assert "ARC-TPL-092" in _codes(result.diagnostics)
+    assert "ARC-TPL-051" in _codes(result.diagnostics)
+    assert "ARC-TPL-092" not in _codes(result.diagnostics)
 
 
 def test_cr11_field_edit_through_if_wrapper(tmp_path: Path) -> None:
@@ -412,12 +415,12 @@ def test_cr11_field_edit_through_if_wrapper(tmp_path: Path) -> None:
     assert cond.style.fill == (1.0, 0.0, 0.0, 1.0)
 
 
-def test_cr11_root_addressable_accurate_diagnostic(tmp_path: Path) -> None:
-    # root is found (not "no node with id 'root'"); the error is that direction is not an
-    # existing field to `set` (CR-3 interaction).
+def test_cr11_root_addressable_and_field_added(tmp_path: Path) -> None:
+    # root is addressable (not "no node with id 'root'"), and RR2-11 lets the patch *add* the
+    # absent 'direction' field to the undirected root group; it compiles with direction applied.
     result = _compile(tmp_path, _PATCH_TPL, fmt="root_edit")
-    diag = next(d for d in result.diagnostics if d.code == "ARC-TPL-092")
-    assert "no node" not in diag.message and "direction" in diag.message
+    assert result.document is not None, result.diagnostics
+    assert result.document.root.direction == "rtl"
 
 
 # --------------------------------------------------------------------------- DX-6

@@ -1,0 +1,43 @@
+version: 0.1.0
+
+# Warhol-grid palettes: each is four flat, saturated inks addressable in expressions as
+# {{ palette.warhol_1[i] }}. The pop-art grid picks a palette per cell to vary the duotone.
+palettes:
+  warhol_1: ["#FF3EA5", "#FFD600", "#00C2FF", "#1A1A1A"]
+  warhol_2: ["#00E5A0", "#FF6B00", "#7B2FF7", "#111111"]
+  warhol_3: ["#FF5252", "#2979FF", "#FFEB3B", "#212121"]
+  warhol_4: ["#1DE9B6", "#F50057", "#FFC400", "#0D0D0D"]
+  paper: ["#F4F0E8", "#1A1A1A"]
+
+# Role -> family stack. Latin workhorse first, Persian-capable pairing second, so a mixed line
+# still shapes (spec §4.3). Weight is chosen by the role, not the family name.
+fonts:
+  display: [Inter, Estedad]
+  body: [Inter, Vazirmatn]
+
+# Named effect configurations nodes reference by 'effect_preset:' or '{preset: name}'.
+effect_presets:
+  halftone: {name: halftone, params: {pitch: 6pt, angle: 15}}
+  halftone_fine: {name: halftone, params: {pitch: 4pt, angle: 45}}
+  posterize: {name: posterize, params: {levels: 4}}
+  grain: {name: grain, params: {amount: 0.06}}
+
+# Per-role default style fields; a node's own style overrides these (style -> template order).
+roles:
+  heading:
+    font: display
+    font_size: 46pt
+    font_weight: 900
+    color: "#1A1A1A"
+    align: center
+  body:
+    font: body
+    font_size: 16pt
+    font_weight: 400
+    color: "#1A1A1A"
+  accent:
+    font: display
+    font_size: 22pt
+    font_weight: 800
+    color: "#FF3EA5"
+    align: center

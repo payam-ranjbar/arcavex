@@ -17,6 +17,8 @@ dependencies = [
     "ruamel.yaml",
     "rich",
     "watchfiles",
+    "numpy>=1.26",
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +29,6 @@ dev = [
     "mypy",
     "import-linter",
     "pillow",
-    "numpy",
     "mcp",
 ]
 

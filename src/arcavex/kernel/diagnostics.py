@@ -20,6 +20,7 @@ NAMESPACES: tuple[str, ...] = (
     "ARC-IR",  # schema / semantic
     "ARC-LAY",  # layout
     "ARC-FX",  # effects
+    "ARC-STY",  # style packs
     "ARC-RND",  # render
     "ARC-EXP",  # export
     "ARC-AST",  # assets

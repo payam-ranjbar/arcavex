@@ -46,6 +46,8 @@ template_app = typer.Typer(add_completion=False, help="Template authoring comman
 app.add_typer(template_app, name="template")
 layout_app = typer.Typer(add_completion=False, help="Layout inspection commands.")
 app.add_typer(layout_app, name="layout")
+style_app = typer.Typer(add_completion=False, help="Style-pack commands.")
+app.add_typer(style_app, name="style")
 
 
 def _engine_version() -> str:
@@ -547,7 +549,8 @@ def _template_inspect_resolved(
         else:
             console.print(
                 f"[bold]resolved[/bold] format={report.format} locale={report.locale or '-'} "
-                f"direction={report.direction} digits={report.digits or '-'}"
+                f"direction={report.direction} digits={report.digits or '-'} "
+                f"style={report.style or '-'}"
             )
             if not report.patches:
                 console.print("  [dim]no format/locale patches applied[/dim]")
@@ -661,6 +664,79 @@ def _print_layout_node(console: Console, node: object, depth: int) -> None:
         )
     for child in n.children:  # type: ignore[attr-defined]
         _print_layout_node(console, child, depth + 1)
+
+
+@style_app.command("list")
+def style_list(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List the installed style packs (spec §3.7)."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_styles()
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        elif not report.styles:
+            console.print("[dim]no style packs installed[/dim]")
+        else:
+            for pack in report.styles:
+                console.print(
+                    f"[cyan]{_esc(pack.name)}[/cyan]@{pack.version} "
+                    f"[dim]palettes={len(pack.palettes)} presets={len(pack.effect_presets)} "
+                    f"roles={len(pack.roles)}[/dim]"
+                )
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+@style_app.command("inspect")
+def style_inspect(
+    name: str = typer.Argument(..., help="Style reference (name or name@version)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Show a style pack's palettes, fonts, effect presets, and role defaults."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.inspect_style(name)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok or report.style is None:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            _print_style_summary(console, report.style)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+def _print_style_summary(console: Console, style: object) -> None:
+    s = style  # StyleSummary
+    console.print(f"[bold]{_esc(s.name)}[/bold]@{s.version}")  # type: ignore[attr-defined]
+    if s.palettes:  # type: ignore[attr-defined]
+        console.print("[bold]palettes[/bold]:")
+        for pname, colors in s.palettes.items():  # type: ignore[attr-defined]
+            console.print(f"  [cyan]{_esc(pname)}[/cyan]: {_esc(', '.join(colors))}")
+    if s.fonts:  # type: ignore[attr-defined]
+        console.print("[bold]fonts[/bold]:")
+        for role, families in s.fonts.items():  # type: ignore[attr-defined]
+            console.print(f"  [cyan]{_esc(role)}[/cyan]: {_esc(', '.join(families))}")
+    if s.effect_presets:  # type: ignore[attr-defined]
+        console.print("[bold]effect presets[/bold]:")
+        for pname, spec in s.effect_presets.items():  # type: ignore[attr-defined]
+            console.print(f"  [cyan]{_esc(pname)}[/cyan]: {_esc(str(spec))}")
+    if s.roles:  # type: ignore[attr-defined]
+        console.print("[bold]roles[/bold]:")
+        for role, fields in s.roles.items():  # type: ignore[attr-defined]
+            console.print(f"  [cyan]{_esc(role)}[/cyan]: {_esc(str(fields))}")
 
 
 def main() -> None:

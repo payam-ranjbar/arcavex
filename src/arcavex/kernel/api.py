@@ -109,6 +109,7 @@ class ResolvedResult:
     locale: str | None = None
     direction: str | None = None
     digits: str | None = None
+    style: str | None = None
     patches: list[ResolvedPatch] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
@@ -144,6 +145,64 @@ class CompilerProtocol(Protocol):
     def resolve_paths(self, template: Path) -> tuple[Path, Path]:
         """Return ``(root_dir, template_yaml)`` for a template path (file or directory)."""
         ...
+
+
+class StylePackProtocol(Protocol):
+    """The structural view of a loaded style pack the facade reports on."""
+
+    name: str
+    version: str
+    palettes: dict[str, list[str]]
+    fonts: dict[str, list[str]]
+    effect_presets: dict[str, dict[str, Any]]
+    shape_presets: dict[str, dict[str, Any]]
+    roles: dict[str, dict[str, Any]]
+
+
+class StyleProviderProtocol(Protocol):
+    """The style-resolver dependency injected by bootstrap (kept out of the pure kernel)."""
+
+    def list_packs(self) -> list[StylePackProtocol]:
+        """Return every discoverable style pack."""
+        ...
+
+    def inspect(self, ref: str) -> StylePackProtocol:
+        """Load a style pack by ``name@version`` reference."""
+        ...
+
+
+class StyleSummary(BaseModel):
+    """A style pack rendered for ``style list``/``inspect`` output (spec §3.7)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    version: str
+    palettes: dict[str, list[str]] = Field(default_factory=dict)
+    fonts: dict[str, list[str]] = Field(default_factory=dict)
+    effect_presets: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    shape_presets: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    roles: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+class StyleListReport(BaseModel):
+    """The result of ``arcavex style list``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ok: bool
+    styles: list[StyleSummary] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class StyleInspectReport(BaseModel):
+    """The result of ``arcavex style inspect NAME``."""
+
+    model_config = ConfigDict(frozen=True)
+
+    ok: bool
+    style: StyleSummary | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
 class RenderResult(BaseModel):
@@ -309,6 +368,7 @@ class TemplateResolvedReport(BaseModel):
     locale: str | None = None
     direction: str | None = None
     digits: str | None = None
+    style: str | None = None
     patches: list[ResolvedPatchInfo] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -471,6 +531,7 @@ class Facade:
         explain_lookup: Callable[[str], DiagnosticHelp] | None = None,
         authoring: AuthoringProtocol | None = None,
         preview_root: Path | None = None,
+        style_provider: StyleProviderProtocol | None = None,
     ) -> None:
         """Wire the facade.
 
@@ -494,6 +555,7 @@ class Facade:
         self._explain_lookup = explain_lookup
         self._authoring = authoring
         self._preview_root = preview_root
+        self._style_provider = style_provider
 
     def validate_template(
         self,
@@ -631,7 +693,10 @@ class Facade:
         except Exception:  # noqa: BLE001 - fall back to the raw path when resolution fails
             return Path(template).stem
         if template_yaml.name == "template.yaml":
-            return root_dir.name
+            # Resolve first: passing "template.yaml" from inside its own directory makes
+            # root_dir "." whose .name is empty, which would yield a hidden ".square.png"
+            # output. The absolute directory name is the intended stem (RR2-4).
+            return root_dir.resolve().name or "output"
         return template_yaml.stem
 
     def _default_output_path(
@@ -834,6 +899,35 @@ class Facade:
                 code=normalized, found=False, message=f"explain failed: {exc!r}"
             )
 
+    def list_styles(self) -> StyleListReport:
+        """List every discoverable style pack (spec §3.7). Never raises."""
+        if self._style_provider is None:  # pragma: no cover - always wired in production
+            return StyleListReport(ok=False, diagnostics=[_unwired("styles")])
+        try:
+            packs = [_style_summary(p) for p in self._style_provider.list_packs()]
+            return StyleListReport(ok=True, styles=packs)
+        except DiagnosticError as exc:
+            return StyleListReport(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return StyleListReport(
+                ok=False, diagnostics=[internal_error("style list failed", detail=repr(exc))]
+            )
+
+    def inspect_style(self, ref: str) -> StyleInspectReport:
+        """Load and report one style pack by ``name@version`` reference. Never raises."""
+        if self._style_provider is None:  # pragma: no cover - always wired in production
+            return StyleInspectReport(ok=False, diagnostics=[_unwired("styles")])
+        try:
+            return StyleInspectReport(
+                ok=True, style=_style_summary(self._style_provider.inspect(ref))
+            )
+        except DiagnosticError as exc:
+            return StyleInspectReport(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return StyleInspectReport(
+                ok=False, diagnostics=[internal_error("style inspect failed", detail=repr(exc))]
+            )
+
     def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:
         """Scaffold a new renderable one-file template directory. Never raises."""
         if self._authoring is None:  # pragma: no cover - always wired in production
@@ -889,6 +983,7 @@ class Facade:
             locale=result.locale,
             direction=result.direction,
             digits=result.digits,
+            style=result.style,
             patches=[
                 ResolvedPatchInfo(
                     layer=p.layer, op=p.op, path=p.path, value=p.value, effective=p.effective
@@ -1068,6 +1163,19 @@ def _unwired(what: str) -> Diagnostic:
     return internal_error(f"{what} service is not wired")
 
 
+def _style_summary(pack: StylePackProtocol) -> StyleSummary:
+    """Project a loaded style pack onto the reportable summary model."""
+    return StyleSummary(
+        name=pack.name,
+        version=pack.version,
+        palettes=dict(pack.palettes),
+        fonts=dict(pack.fonts),
+        effect_presets=dict(pack.effect_presets),
+        shape_presets=dict(pack.shape_presets),
+        roles=dict(pack.roles),
+    )
+
+
 # --------------------------------------------------------------- layout report builders
 def _logical_edge(edge: str, direction: str) -> str:
     if edge == "start":
@@ -1118,7 +1226,7 @@ def _build_node_report(
             children_reports.append(
                 _build_node_report(child, lchild, compiled.direction, dpi, overlaps, stack_kind)
             )
-        _collect_overlaps(layout.children, overlaps)
+        _collect_overlaps(layout.children, overlaps, layout.bounds)
 
     t = layout.absolute_transform
     return LayoutNodeReport(
@@ -1174,7 +1282,9 @@ def _derive_anchors(
     return out
 
 
-def _collect_overlaps(children: tuple[LayoutNode, ...], overlaps: list[SiblingOverlap]) -> None:
+def _collect_overlaps(
+    children: tuple[LayoutNode, ...], overlaps: list[SiblingOverlap], region: object
+) -> None:
     visible = [c for c in children if c.visible]
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
@@ -1184,14 +1294,34 @@ def _collect_overlaps(children: tuple[LayoutNode, ...], overlaps: list[SiblingOv
             rect = _intersection(ra, rb)
             if rect is None:
                 continue
-            # DX-8: a full-bleed backdrop or a parent-fill container trivially overlaps its
-            # neighbours; when one node fully contains the other the pair is suppressed as noise
-            # so the genuine partial collisions (the real bugs) rise to the top of the report.
-            if _contains(ra, rb) or _contains(rb, ra):
+            # DX-8/RR2-9: containment is suppressed as noise only when the *container* is a
+            # backdrop — a group, or a full-bleed node covering nearly the whole parent region.
+            # A regular content node that fully swallows a sibling is a genuine bug and is still
+            # reported, rather than hidden just because it happens to enclose the other.
+            if _contains(ra, rb) and _is_backdrop(a, region):
+                continue
+            if _contains(rb, ra) and _is_backdrop(b, region):
                 continue
             overlaps.append(
                 SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect)
             )
+
+
+def _is_backdrop(node: LayoutNode, region: object) -> bool:
+    """Whether ``node`` is a backdrop-like container within ``region`` (full-bleed or a group).
+
+    Groups are structural containers, not collisions; a leaf that covers ~the whole parent
+    region is a background. Either legitimately encloses siblings, so their containment is not
+    reported as an overlap bug.
+    """
+    if node.kind == "group":
+        return True
+    rw, rh = region.w, region.h  # type: ignore[attr-defined]
+    region_area = rw * rh
+    if region_area <= 0:
+        return False
+    pb = node.paint_bounds
+    return bool((pb.w * pb.h) >= 0.9 * region_area)
 
 
 def _contains(outer: object, inner: object) -> bool:

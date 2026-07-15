@@ -26,11 +26,16 @@ _DELETE = "!delete"
 
 @dataclass
 class PatchRecord:
-    """One applied patch operation and the layer that introduced it."""
+    """One applied patch operation, the layer that introduced it, and the value it set.
+
+    ``value`` is what *this* op assigned (only meaningful for ``set``), so ``--resolved`` can
+    report what a losing layer contributed rather than only the surviving final value (RR2-10).
+    """
 
     layer: str
     op: str
     path: str
+    value: Any = None
 
 
 @dataclass
@@ -39,9 +44,9 @@ class PatchLog:
 
     records: list[PatchRecord] = field(default_factory=list)
 
-    def add(self, layer: str, op: str, path: str) -> None:
-        """Append one applied-patch record."""
-        self.records.append(PatchRecord(layer=layer, op=op, path=path))
+    def add(self, layer: str, op: str, path: str, value: Any = None) -> None:
+        """Append one applied-patch record (``value`` is the value a ``set`` assigned)."""
+        self.records.append(PatchRecord(layer=layer, op=op, path=path, value=value))
 
 
 # --------------------------------------------------------------------------- data overlay
@@ -123,7 +128,7 @@ def apply_patches(
             _do_remove(root_map, node_id, segments, template_file, kp, line)
         else:
             _do_insert(root_map, node_id, op.get("node"), verb, template_file, kp, line)
-        log.add(layer, verb, path)
+        log.add(layer, verb, path, op.get("value") if verb == "set" else None)
 
 
 def _parse_path(path: str) -> tuple[str, list[str]]:
@@ -147,13 +152,10 @@ def _do_set(
         target = target[seg]
     if not isinstance(target, dict):
         raise _patch_error(file, kp, line, "patch path does not address a mapping field")
-    # CR-3: 'set' modifies an existing field; a nonexistent final segment is an unknown path
-    # (spec §4.1.4), not a silently created key.
-    if segments[-1] not in target:
-        raise _patch_error(
-            file, kp, line,
-            f"unknown patch path field {segments[-1]!r} (set modifies existing fields)",
-        )
+    # RR2-11: 'set' may add a schema-valid optional field the node omitted (e.g. a 'direction'
+    # on an undirected group). The final field is created if absent; intermediate segments must
+    # still exist (a whole sub-block is not conjured), and the compiler's per-block field
+    # validation remains the safety net that rejects a genuinely-unknown field name downstream.
     target[segments[-1]] = value
 
 

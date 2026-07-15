@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from arcavex.services.style import StylePack, StyleResolver
 
 from pydantic import BaseModel
 
@@ -37,6 +40,7 @@ from arcavex.kernel.ir.models import (
     CompiledShape,
     CompiledText,
     Constraints,
+    EffectSpec,
     FitSpec,
     MaskSpec,
     ParagraphSpec,
@@ -67,7 +71,6 @@ from arcavex.services.template.overlays import (
     PatchLog,
     apply_patches,
     merge_overlay,
-    read_path,
 )
 
 _PARENT_EDGES = {"top", "bottom", "left", "right", "center_x", "center_y"}
@@ -98,10 +101,13 @@ _LOCALE_KEYS = {"direction", "digits", "fonts", "data", "patch"}
 
 # Known field whitelists per sub-block (CR-2). An unknown key here is a located error rather
 # than a silently ignored typo, matching how the compiler treats unknown keys elsewhere.
+# ``line_height`` is deliberately absent: it is authored-but-unsupported (ARC-TPL-053), so it
+# must not appear in the ARC-TPL-051 "valid fields" hint (RR2-12). The dedicated check in
+# _parse_style runs before this whitelist so it still gets the specific rejection message.
 _STYLE_KEYS = frozenset({
     "fill", "stroke", "stroke_width", "color", "corner_radius", "opacity",
     "font", "font_size", "font_weight", "italic", "align", "direction",
-    "letter_spacing", "line_height",
+    "letter_spacing",
 })
 _PARAGRAPH_KEYS = frozenset({"align", "direction"})
 _FIT_KEYS = frozenset({"policy", "min_size", "overflow", "max_lines"})
@@ -138,6 +144,12 @@ class Compiler:
         functions: FunctionTable | None = None,
         masks: frozenset[str] | None = None,
         mask_schema: Callable[[str], type[BaseModel] | None] | None = None,
+        effects: frozenset[str] | None = None,
+        effect_schema: Callable[[str], type[BaseModel] | None] | None = None,
+        effect_kind: Callable[[str], str | None] | None = None,
+        shapes: frozenset[str] | None = None,
+        shape_schema: Callable[[str], type[BaseModel] | None] | None = None,
+        styles: StyleResolver | None = None,
     ) -> None:
         """Create a compiler.
 
@@ -152,16 +164,32 @@ class Compiler:
             masks: Registered mask-component names. When supplied, a node referencing an
                 unknown mask fails compilation. ``None`` disables the check (unit tests).
             mask_schema: Resolves a mask name to its pydantic param schema for validation.
+            effects: Registered effect names. When supplied, an unknown effect fails
+                compilation with a located error listing the registered names.
+            effect_schema: Resolves an effect name to its pydantic param schema.
+            effect_kind: Resolves an effect name to its category (``geometry``/``color``/
+                ``raster``/``composite``), used to reject geometry effects on non-path nodes.
+            shapes: Registered shape-generator names.
+            shape_schema: Resolves a shape-generator name to its pydantic param schema.
+            styles: Style-pack resolver (loads ``style:`` packs). ``None`` disables style
+                support (isolated unit tests), leaving a ``style:`` opt-in a located error.
         """
         self._available_fonts = available_fonts
         self._functions = functions
         self._masks = masks
         self._mask_schema = mask_schema
+        self._effects = effects
+        self._effect_schema = effect_schema
+        self._effect_kind = effect_kind
+        self._shapes = shapes
+        self._shape_schema = shape_schema
+        self._styles = styles
         # Per-compile state, (re)initialized at the top of ``compile``.
         self._patch_log: PatchLog = PatchLog()
         self._digits: str | None = None
         self._default_direction: str = "ltr"
         self._font_overrides: dict[str, tuple[str, ...]] = {}
+        self._style_pack: StylePack | None = None
 
     def compile(
         self,
@@ -178,12 +206,8 @@ class Compiler:
         self._digits = None
         self._default_direction = "ltr"
         self._font_overrides = {}
+        self._style_pack = None
         try:
-            if style is not None:
-                return _reject_unsupported(
-                    "ARC-TPL-090", "style packs", Path(template), "styles are Phase 3"
-                )
-
             source = load_template(template)
             template_path = source.template_path
             raw = source.raw
@@ -194,6 +218,11 @@ class Compiler:
             diags.extend(self._validate_locales_shape(source))
             if has_errors(diags):
                 return CompileResult(None, diags, inferred)
+
+            # Resolve the opted-in style pack first: it is the lowest resolution layer (its
+            # palettes feed expressions and its roles/presets feed nodes), sitting under the
+            # template's own values (§4.1.4).
+            self._style_pack = self._resolve_style(source, style)
 
             # Resolve the requested locale's settings (§4.1.4): direction default, digit policy,
             # font overrides, data overlay, and patch. An undeclared locale is an error.
@@ -270,6 +299,7 @@ class Compiler:
         self._digits = None
         self._default_direction = "ltr"
         self._font_overrides = {}
+        self._style_pack = None
         diags: list[Diagnostic] = []
         try:
             source = load_template(template)
@@ -277,6 +307,12 @@ class Compiler:
             diags.extend(self._validate_locales_shape(source))
             if has_errors(diags):
                 return ResolvedResult(ok=False, diagnostics=diags)
+            self._style_pack = self._resolve_style(source, None)
+            style_ref = (
+                f"{self._style_pack.name}@{self._style_pack.version}"
+                if self._style_pack is not None
+                else None
+            )
             loc_settings = self._resolve_locale(source, locale)
             self._digits = loc_settings.get("digits")
             self._default_direction = loc_settings.get("direction", "ltr")
@@ -297,12 +333,14 @@ class Compiler:
             last_for_path: dict[str, int] = {}
             for i, rec in enumerate(self._patch_log.records):
                 last_for_path[rec.path] = i
+            # RR2-10: report the value *each* op set (from the record), not the surviving final
+            # value — so an overridden (losing) layer shows what it contributed, not the winner's.
             patches = [
                 ResolvedPatch(
                     layer=rec.layer,
                     op=rec.op,
                     path=rec.path,
-                    value=_to_plain(read_path(root_raw, rec.path)) if rec.op == "set" else None,
+                    value=_to_plain(rec.value) if rec.op == "set" else None,
                     effective=(last_for_path[rec.path] == i),
                 )
                 for i, rec in enumerate(self._patch_log.records)
@@ -313,6 +351,7 @@ class Compiler:
                 locale=locale,
                 direction=self._default_direction,
                 digits=self._digits,
+                style=style_ref,
                 patches=patches,
                 diagnostics=diags,
             )
@@ -490,6 +529,13 @@ class Compiler:
                 )
         # Non-declared keys supplied as explicit null stay in context as None (a value), so an
         # expression may reference them; they never resurrect a declared default.
+        # Style-pack palettes are exposed under `palette` so expressions can address a colour as
+        # `{{ palette.warhol_1[0] }}` (§4.1.3). A template variable named `palette` would shadow
+        # this, so only inject when the author has not bound the name themselves.
+        if self._style_pack is not None and "palette" not in context:
+            context["palette"] = {
+                name: list(colors) for name, colors in self._style_pack.palettes.items()
+            }
         return context
 
     def _check_variable_value(
@@ -720,6 +766,41 @@ class Compiler:
             )
         settings = locales.get(locale) or {}
         return _to_plain(settings) if isinstance(settings, dict) else {}
+
+    def _resolve_style(
+        self, source: TemplateSource, style_cli: str | None
+    ) -> StylePack | None:
+        """Resolve the effective style pack from the CLI ``--style`` or the template ``style:``.
+
+        The CLI reference overrides the template's opt-in. When a style is requested but this
+        build has no style resolver wired (isolated tests), it is a located ``ARC-TPL-090``.
+        """
+        template_ref = source.raw.get("style")
+        ref = style_cli if style_cli is not None else template_ref
+        if ref is None:
+            return None
+        if not isinstance(ref, str) or not ref:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-STY-001",
+                    "The 'style' reference must be a 'name@version' or './file.yaml' string",
+                    file=str(source.template_path),
+                    keypath="style",
+                    line=line_of(source.raw, "style"),
+                    hint="Write e.g. 'style: pop-art@0.1' or 'style: ./pop-art.yaml'.",
+                )
+            )
+        if self._styles is None:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-090",
+                    "Style packs are not available in this build",
+                    file=str(source.template_path),
+                    keypath="style",
+                    hint="Run through the full engine (bootstrap) to use style packs.",
+                )
+            )
+        return self._styles.resolve(ref, source.root_dir)
 
     @staticmethod
     def _font_override_map(fonts: Any) -> dict[str, tuple[str, ...]]:
@@ -957,6 +1038,9 @@ class Compiler:
             "constraints": constraints,
             "style": style,
             "mask": self._parse_mask(raw, template, node_id, keypath),
+            "effects": self._parse_effects(
+                raw, node_type, context, template, node_id, keypath
+            ),
             "visible": visible,
             "z": z,
             # Carry the authoring location so layout/render-time diagnostics can locate the
@@ -1068,6 +1152,12 @@ class Compiler:
                 )
             return CompiledImage(**common, asset_path=asset_path, fit=fit)
         if node_type == "shape":
+            generator = raw.get("generator")
+            if generator is not None:
+                gen, params = self._parse_shape_generator(
+                    raw, context, template, node_id, keypath
+                )
+                return CompiledShape(**common, generator=gen, generator_params=params)
             shape = raw.get("shape", "rect")
             if shape not in {"rect", "rrect", "circle"}:
                 raise DiagnosticError(
@@ -1076,7 +1166,8 @@ class Compiler:
                         f"Shape node {node_id!r} has unsupported shape {shape!r}",
                         file=str(template),
                         keypath=f"{keypath}.shape",
-                        hint="Phase 0 shapes are 'rect', 'rrect', or 'circle'.",
+                        hint="Use 'rect', 'rrect', 'circle', or a 'generator:' (starburst, "
+                        "speech_bubble, qr_code).",
                     )
                 )
             return CompiledShape(**common, shape=shape)
@@ -1401,17 +1492,249 @@ class Compiler:
     def _reject_unsupported_constructs(
         self, raw: dict[str, Any], template: Path, keypath: str
     ) -> None:
-        if raw.get("effects"):
+        # All Phase-0 node-level constructs are now supported; effects/masks/shapes are parsed.
+        return None
+
+    def _parse_effects(
+        self,
+        raw: dict[str, Any],
+        node_type: str,
+        context: dict[str, Any],
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> tuple[EffectSpec, ...]:
+        """Parse a node's ``effect_preset``/``effects`` into validated, ordered effect specs.
+
+        The authoring model is a linear list (spec §4.4). Entries are inline ``{name, params}``
+        or ``{preset: X}`` references into the style pack's ``effect_presets``. A shorthand
+        ``effect_preset: X`` prepends one preset. Unknown effect names and invalid params are
+        located errors; a geometry effect on a non-path node (text/image/group) is rejected.
+        """
+        entries: list[Any] = []
+        preset_key = raw.get("effect_preset")
+        if preset_key is not None:
+            entries.append({"preset": preset_key})
+        raw_effects = raw.get("effects")
+        if raw_effects is not None:
+            if not isinstance(raw_effects, list):
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-FX-903",
+                        f"Node {node_id!r} 'effects' must be a list",
+                        file=str(template),
+                        keypath=f"{keypath}.effects",
+                        line=line_of(raw, "effects"),
+                        hint="Write 'effects:' as a YAML list of {name, params} entries.",
+                    )
+                )
+            entries.extend(raw_effects)
+        if not entries:
+            return ()
+        if self._effects is None:
+            return ()  # isolated unit tests without a registry: effects are not enforced
+
+        specs: list[EffectSpec] = []
+        fx_kp = f"{keypath}.effects"
+        for entry in entries:
+            name, params = self._effect_name_params(entry, template, node_id, fx_kp)
+            params = self._eval_params(params, context, template, node_id, fx_kp)
+            specs.append(
+                self._validate_effect(name, params, node_type, template, node_id, fx_kp)
+            )
+        return tuple(specs)
+
+    def _eval_params(
+        self,
+        params: Any,
+        context: dict[str, Any],
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> Any:
+        """Recursively evaluate ``{{ … }}`` expressions in effect/shape parameter values.
+
+        Component params may vary per node (the pop-art grid drives per-cell effect strengths
+        and QR data from expressions, §4.4). String values are resolved with the node context;
+        an exact single expression keeps its native type so a numeric param stays numeric.
+        """
+        if isinstance(params, dict):
+            return {
+                k: self._eval_params(v, context, template, node_id, keypath)
+                for k, v in params.items()
+            }
+        if isinstance(params, list):
+            return [
+                self._eval_params(v, context, template, node_id, keypath) for v in params
+            ]
+        if isinstance(params, str) and "{{" in params:
+            try:
+                return render_value(params, context, self._functions, self._digits)
+            except (ExpressionError, UnknownFunctionError) as exc:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-TPL-060",
+                        f"Node {node_id!r} parameter expression failed: {exc}",
+                        file=str(template), keypath=keypath,
+                        hint="Check the expression references declared variables/palette entries.",
+                    )
+                ) from exc
+        return params
+
+    def _effect_name_params(
+        self, entry: Any, template: Path, node_id: str, keypath: str
+    ) -> tuple[str, dict[str, Any]]:
+        if isinstance(entry, str):
+            return entry, {}
+        if not isinstance(entry, dict):
             raise DiagnosticError(
                 diagnostic(
-                    "ARC-FX-900",
-                    "Effects are not supported in this build",
-                    file=str(template),
-                    keypath=f"{keypath}.effects",
-                    line=line_of(raw, "effects"),
-                    hint="Effects arrive in Phase 3.",
+                    "ARC-FX-903",
+                    f"Node {node_id!r} has an effect entry that is not a name or mapping",
+                    file=str(template), keypath=keypath, line=node_line(entry),
+                    hint="Each effect is a name, '{name, params}', or '{preset: name}'.",
                 )
             )
+        preset = entry.get("preset")
+        if preset is not None:
+            if self._style_pack is None:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-STY-010",
+                        f"Node {node_id!r} references effect preset {preset!r} but no style is set",
+                        file=str(template), keypath=keypath, line=line_of(entry, "preset"),
+                        hint="Add 'style:' to the template (or --style) to use effect presets.",
+                    )
+                )
+            spec = self._style_pack.preset(
+                str(preset), file=str(template), keypath=keypath, line=line_of(entry, "preset")
+            )
+            overrides = _to_plain(entry.get("params") or {})
+            params = {**_to_plain(spec.get("params") or {}), **overrides}
+            return str(spec.get("name", preset)), params
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-FX-903",
+                    f"Node {node_id!r} has an effect without a 'name'",
+                    file=str(template), keypath=keypath, line=node_line(entry),
+                    hint="Give each effect a 'name:' (or a 'preset:' reference).",
+                )
+            )
+        return name, _to_plain(entry.get("params") or {})
+
+    def _validate_effect(
+        self,
+        name: str,
+        params: dict[str, Any],
+        node_type: str,
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> EffectSpec:
+        assert self._effects is not None
+        if name not in self._effects:
+            available = ", ".join(sorted(self._effects)) or "(none)"
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-FX-910",
+                    f"Node {node_id!r} references unknown effect {name!r}",
+                    file=str(template), keypath=keypath,
+                    hint=f"Registered effects: {available}.",
+                )
+            )
+        kind = self._effect_kind(name) if self._effect_kind is not None else None
+        if kind == "geometry" and node_type not in {"shape", "path"}:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-FX-911",
+                    f"Geometry effect {name!r} cannot apply to a {node_type!r} node "
+                    f"({node_id!r})",
+                    file=str(template), keypath=keypath,
+                    hint="Geometry effects need a path; use them on 'shape' or 'path' nodes.",
+                )
+            )
+        validated = params
+        if self._effect_schema is not None:
+            schema = self._effect_schema(name)
+            if schema is not None:
+                try:
+                    validated = schema(**params).model_dump(mode="json")
+                except Exception as exc:  # noqa: BLE001 - pydantic error -> located diagnostic
+                    raise DiagnosticError(
+                        diagnostic(
+                            "ARC-FX-902",
+                            f"Node {node_id!r} effect {name!r} has invalid parameters: "
+                            f"{_first_error(exc)}",
+                            file=str(template), keypath=keypath,
+                            hint="Check each parameter's name, type, and range for this effect.",
+                        )
+                    ) from exc
+        return EffectSpec(name=name, category=kind or "raster", params=validated)
+
+    def _parse_shape_generator(
+        self,
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> tuple[str, dict[str, Any]]:
+        """Parse and validate a shape ``generator``/``params`` (e.g. starburst, qr_code)."""
+        generator = raw.get("generator")
+        if not isinstance(generator, str) or not generator:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-036",
+                    f"Shape node {node_id!r} 'generator' must be a name",
+                    file=str(template), keypath=f"{keypath}.generator",
+                    line=line_of(raw, "generator"),
+                    hint="Use a registered generator: starburst, speech_bubble, qr_code.",
+                )
+            )
+        if self._shapes is not None and generator not in self._shapes:
+            available = ", ".join(sorted(self._shapes)) or "(none)"
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-FX-913",
+                    f"Shape node {node_id!r} references unknown generator {generator!r}",
+                    file=str(template), keypath=f"{keypath}.generator",
+                    line=line_of(raw, "generator"),
+                    hint=f"Registered shape generators: {available}.",
+                )
+            )
+        params = _to_plain(raw.get("params") or {})
+        if not isinstance(params, dict):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-036",
+                    f"Shape node {node_id!r} 'params' must be a mapping",
+                    file=str(template), keypath=f"{keypath}.params",
+                    line=line_of(raw, "params"),
+                    hint="Write 'params: {points: 12, inner_ratio: 0.5}'.",
+                )
+            )
+        params = self._eval_params(
+            params, context, template, node_id, f"{keypath}.params"
+        )
+        if self._shape_schema is not None:
+            schema = self._shape_schema(generator)
+            if schema is not None:
+                try:
+                    params = schema(**params).model_dump(mode="json")
+                except Exception as exc:  # noqa: BLE001 - pydantic error -> located diagnostic
+                    raise DiagnosticError(
+                        diagnostic(
+                            "ARC-FX-912",
+                            f"Shape node {node_id!r} generator {generator!r} has invalid "
+                            f"params: {_first_error(exc)}",
+                            file=str(template), keypath=f"{keypath}.params",
+                            line=line_of(raw, "params"),
+                            hint="Check each parameter's name, type, and range for this generator.",
+                        )
+                    ) from exc
+        return generator, params
 
     def _parse_mask(
         self, raw: dict[str, Any], template: Path, node_id: str, keypath: str
@@ -2078,20 +2401,20 @@ class Compiler:
         keypath: str,
     ) -> Style:
         s = raw.get("style")
+        # A style_role pulls default fields from the style pack; the node's own style overrides
+        # them (style defaults -> template values, §4.1.4).
+        role_defaults = self._role_style(raw, template, node_id, keypath)
+        if role_defaults:
+            merged = dict(role_defaults)
+            if isinstance(s, dict):
+                merged.update(s)
+            s = merged
         if not isinstance(s, dict):
             return Style()
         dpi = canvas.dpi
         style_kp = f"{keypath}.style"
-        self._reject_unknown_keys(s, _STYLE_KEYS, "style", template, node_id, style_kp)
-        fill = self._color(
-            s.get("fill"), context, template, node_id, keypath, "fill", line_of(s, "fill")
-        )
-        stroke = self._color(
-            s.get("stroke"), context, template, node_id, keypath, "stroke", line_of(s, "stroke")
-        )
-        text_color = self._color(
-            s.get("color"), context, template, node_id, keypath, "color", line_of(s, "color")
-        )
+        # ``line_height`` is authored-but-unsupported: reject it with its specific message
+        # *before* the generic whitelist so the two diagnostics stay consistent (RR2-12).
         if "line_height" in s:
             # Accepted end-to-end but unsupported by the skia-python 144 text stack (its
             # StrutStyle exposes no height override), so reject it rather than silently drop
@@ -2106,6 +2429,16 @@ class Compiler:
                     hint="Line-height control arrives when the text stack gains strut support.",
                 )
             )
+        self._reject_unknown_keys(s, _STYLE_KEYS, "style", template, node_id, style_kp)
+        fill = self._color(
+            s.get("fill"), context, template, node_id, keypath, "fill", line_of(s, "fill")
+        )
+        stroke = self._color(
+            s.get("stroke"), context, template, node_id, keypath, "stroke", line_of(s, "stroke")
+        )
+        text_color = self._color(
+            s.get("color"), context, template, node_id, keypath, "color", line_of(s, "color")
+        )
         font = s.get("font")
         if isinstance(font, str):
             families: tuple[str, ...] = (font,)
@@ -2188,6 +2521,39 @@ class Compiler:
                 else 0.0
             ),
         )
+
+    def _role_style(
+        self, raw: dict[str, Any], template: Path, node_id: str, keypath: str
+    ) -> dict[str, Any]:
+        """Return the style defaults for a node's ``style_role`` from the active style pack.
+
+        A role's ``font`` may name a font stack declared under the pack's ``fonts:`` (e.g.
+        ``font: display``), which is resolved to that family list. Referencing a role without a
+        style, or an undefined role, is a located error.
+        """
+        role_name = raw.get("style_role")
+        if role_name is None:
+            return {}
+        line = line_of(raw, "style_role")
+        if self._style_pack is None:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-STY-011",
+                    f"Node {node_id!r} sets style_role {role_name!r} but no style is set",
+                    file=str(template), keypath=f"{keypath}.style_role", line=line,
+                    hint="Add 'style:' to the template (or --style) to use style roles.",
+                )
+            )
+        defaults = dict(
+            self._style_pack.role(
+                str(role_name), file=str(template),
+                keypath=f"{keypath}.style_role", line=line,
+            )
+        )
+        font_ref = defaults.get("font")
+        if isinstance(font_ref, str) and font_ref in self._style_pack.fonts:
+            defaults["font"] = list(self._style_pack.fonts[font_ref])
+        return defaults
 
     def _override_fonts(self, families: tuple[str, ...]) -> tuple[str, ...]:
         """Substitute any family the active locale overrides (spec §4.1.4 font overrides).
@@ -2341,9 +2707,10 @@ _UNCHANGED = object()
 
 # Template-level sections still deferred to later phases. Authoring one is a located error,
 # not a silent no-op. Per RR-4 these are collected together rather than raised on the first.
+# Defining style packs *inline* in a template is still unsupported — packs are external files a
+# template opts into with a scalar ``style:`` reference (handled during compile, not rejected).
 _UNSUPPORTED_SECTIONS: tuple[tuple[str, str, str], ...] = (
-    ("styles", "ARC-TPL-093", "Style-pack definitions arrive in Phase 3."),
-    ("style", "ARC-TPL-094", "Opting into a style pack arrives in Phase 3."),
+    ("styles", "ARC-TPL-093", "Define palettes/presets in a style pack file and reference it."),
 )
 
 

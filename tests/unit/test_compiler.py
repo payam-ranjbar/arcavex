@@ -131,7 +131,8 @@ def test_unknown_format(tmp_path: Path) -> None:
     assert any(d.code == "ARC-TPL-022" for d in result.diagnostics)
 
 
-def test_effects_rejected_located(tmp_path: Path) -> None:
+def test_effects_compile_when_present(tmp_path: Path) -> None:
+    """Effects are no longer rejected: an authored effect list compiles into the IR."""
     template = _write(
         tmp_path,
         """
@@ -145,16 +146,17 @@ root:
     - id: s
       type: shape
       shape: rect
-      effects: [{name: blur, category: raster, params: {}}]
+      effects: [{name: blur, params: {radius: 3pt}}]
       constraints:
         anchor: {top: parent.top, left: parent.left}
         size: {w: fill, h: fill}
 """,
     )
+    # A bare compiler has no effect registry, so it accepts the list without enforcing names;
+    # the enforcement path (unknown effect / bad params) is covered by the effects test module.
     result = Compiler().compile(template, None, "square", None, None)
-    diag = next(d for d in result.diagnostics if d.code == "ARC-FX-900")
-    assert diag.source is not None
-    assert diag.source.keypath is not None
+    assert not any(d.code == "ARC-FX-900" for d in result.diagnostics)
+    assert result.document is not None
 
 
 def test_list_formats(tmp_path: Path) -> None:

@@ -19,7 +19,7 @@ import unicodedata
 from collections.abc import Sequence
 from typing import Any, ClassVar
 
-from arcavex.kernel.contracts.spi import LayoutSolver
+from arcavex.kernel.contracts.spi import Effect, LayoutSolver
 from arcavex.kernel.contracts.types import MeasureFn, MeasureRequest, MeasureResult
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic
 from arcavex.kernel.ir.models import (
@@ -30,6 +30,7 @@ from arcavex.kernel.ir.models import (
     CompiledNode,
     CompiledShape,
     CompiledText,
+    EffectSpec,
     LayoutDocument,
     LayoutNode,
     OverflowState,
@@ -42,13 +43,16 @@ from arcavex.kernel.ir.models import (
     StackSpec,
     TextRun,
 )
-from arcavex.kernel.ir.units import Matrix3, Rect
+from arcavex.kernel.ir.units import Insets, Matrix3, Rect
 
 _QUANT = 1024.0
 _HORIZONTAL = ("left", "right", "center_x")
 _VERTICAL = ("top", "bottom", "center_y")
-# Sub-point safety margin added to a fit_content *width* so quantization rounding can never
-# leave the box narrower than the measured text (which would force a spurious character wrap).
+# Safety margin added to a fit_content *width*. It is NOT about 1/1024pt geometry quantization
+# (that step is ~0.001pt — three orders of magnitude smaller than this cushion). The real cause
+# is SkParagraph re-layout sensitivity: the longest-line width reported by a measurement pass,
+# fed straight back as the layout max-width, can leave the same line a hair too wide to fit and
+# re-wrap it. Half a point reliably absorbs that boundary jitter without visibly widening boxes.
 _FIT_WIDTH_MARGIN = 0.5
 
 
@@ -64,6 +68,16 @@ class AnchorLayoutSolver(LayoutSolver):
     """Absolute-anchor and stack layout solver."""
 
     name: ClassVar[str] = "anchors"
+
+    def __init__(self, effects: dict[str, Effect] | None = None) -> None:
+        """Bind the solver to the effect registry so ``paint_bounds`` reflects effect growth.
+
+        Layout bounds always exclude visual effect expansion (spec §4.2); the effects are used
+        only to grow ``paint_bounds``/``render_bounds`` so the renderer allocates room for a
+        drop-shadow or blur. When no registry is supplied (isolated unit tests), effect
+        expansion is treated as zero.
+        """
+        self._effects = effects or {}
 
     def solve(self, doc: CompiledDocument, measure: MeasureFn) -> LayoutDocument:
         """Resolve geometry for every node into a new layout document."""
@@ -102,13 +116,19 @@ class AnchorLayoutSolver(LayoutSolver):
                 for child, rect in child_rects
             )
 
-        paint_bounds = self._paint_bounds(bounds, rotate_deg, origin)
+        # Effect expansion grows the node-local render rectangle (pre-rotation); paint_bounds is
+        # that expanded rectangle's post-rotation AABB. Layout/anchoring still use `bounds`.
+        expansion = self._effect_expansion(node.effects)
+        render_bounds = bounds.expanded(expansion)
+        paint_bounds = self._paint_bounds(render_bounds, rotate_deg, origin)
         return LayoutNode(
             source_node_id=node.id,
             kind=node.type,
             bounds=bounds,
             absolute_transform=self._transform(rotate_deg, origin),
             paint_bounds=paint_bounds,
+            render_bounds=render_bounds,
+            effects=node.effects,
             overflow=overflow,
             rotate_deg=rotate_deg,
             rotate_origin=origin,
@@ -250,15 +270,20 @@ class AnchorLayoutSolver(LayoutSolver):
         fixed_main = sum(m for m, _, is_fill, _, _ in sizes if not is_fill)
         fill_count = sum(1 for _, _, is_fill, _, _ in sizes if is_fill)
         free = max(0.0, main_extent - fixed_main - gaps_total)
-        fill_size = free / fill_count if fill_count else 0.0
-        leftover = free if fill_count == 0 else 0.0
+        # Resolve fill shares with min/max clamps, redistributing freed space to the other fill
+        # children (RR2-8): a fill child capped by its own max/min no longer starves or hogs its
+        # siblings. Iterate to a fixed point, removing each newly clamped child from the pool.
+        fill_sizes = self._resolve_fill_sizes(sizes, free)
+        fill_used = sum(fill_sizes.values())
+        # Any space the fill children could not absorb (all clamped) becomes alignable leftover.
+        leftover = free if fill_count == 0 else max(0.0, free - fill_used)
 
         cursor, gap = self._stack_start(stack.main_align, leftover, stack.gap_pt, n)
         out: list[tuple[CompiledNode, Rect]] = []
-        for child, (main, cross, is_fill, main_spec, cross_spec) in zip(
-            group.children, sizes, strict=True
+        for idx, (child, (main, cross, is_fill, _main_spec, cross_spec)) in enumerate(
+            zip(group.children, sizes, strict=True)
         ):
-            m = _clamp(fill_size, main_spec) if is_fill else main
+            m = fill_sizes[idx] if is_fill else main
             cross_pos, cross_len = self._cross_place(stack.cross_align, cross, cross_extent)
             cross_len = _clamp(cross_len, cross_spec)
             if horizontal:
@@ -273,6 +298,40 @@ class AnchorLayoutSolver(LayoutSolver):
             # flips cross-axis start/end. The vertical (reading) axis is never mirrored (DX-1).
             out = [(child, _mirror_x(rect, content)) for child, rect in out]
         return out
+
+    def _resolve_fill_sizes(
+        self,
+        sizes: list[tuple[float, float, bool, SizeSpec, SizeSpec]],
+        free: float,
+    ) -> dict[int, float]:
+        """Return the resolved main size for each fill child, redistributing clamp overflow.
+
+        Fill children split the free main-axis space equally; a child whose ``min``/``max``
+        clamps its share is fixed at the clamped value and dropped from the pool, and the
+        remaining space is re-split among the rest. Repeats to a fixed point (RR2-8), so a
+        capped sibling gives its surplus (or takes its deficit) from the others rather than
+        leaving them starved.
+        """
+        unresolved = {i for i, s in enumerate(sizes) if s[2]}
+        resolved: dict[int, float] = {}
+        remaining = free
+        while unresolved:
+            share = remaining / len(unresolved)
+            newly_clamped: list[int] = []
+            for i in unresolved:
+                clamped = _clamp(share, sizes[i][3])
+                if abs(clamped - share) > 1e-9:
+                    resolved[i] = clamped
+                    newly_clamped.append(i)
+            if not newly_clamped:
+                for i in unresolved:
+                    resolved[i] = share
+                break
+            for i in newly_clamped:
+                unresolved.discard(i)
+                remaining -= resolved[i]
+            remaining = max(0.0, remaining)
+        return resolved
 
     def _stack_child_sizes(
         self,
@@ -435,9 +494,9 @@ class AnchorLayoutSolver(LayoutSolver):
         # fit_content — text intrinsic (width when width is None, else height at that width).
         result = self._measure_text(node, width, None, measure)
         if width is None:
-            # Add a sub-point margin so 1/1024pt quantization can never round the box narrower
-            # than the measured longest line, which would make the painter character-wrap an
-            # otherwise-unbroken word (e.g. a fit_content wordmark).
+            # Cushion the measured longest-line width so feeding it back as the paint-time
+            # max-width does not re-wrap the same line (SkParagraph re-layout sensitivity, not
+            # geometry quantization — see _FIT_WIDTH_MARGIN).
             return result.width_pt + _FIT_WIDTH_MARGIN
         height = result.height_pt
         # DX-7: a fit_content box that also sets max_lines caps its height at that many lines,
@@ -522,6 +581,8 @@ class AnchorLayoutSolver(LayoutSolver):
                     stroke=node.style.stroke,
                     stroke_width_pt=node.style.stroke_width_pt,
                     corner_radius_pt=node.style.corner_radius_pt,
+                    generator=node.generator,
+                    generator_params=node.generator_params,
                 ),
                 OverflowState(),
             )
@@ -571,8 +632,8 @@ class AnchorLayoutSolver(LayoutSolver):
                 warnings.append(
                     diagnostic(
                         "ARC-LAY-051",
-                        f"Text node {node.id!r} box is shorter than one line "
-                        f"({bounds.h:.1f}pt tall, one line is {result.height_pt:.1f}pt); "
+                        f"Text node {node.id!r} box is shorter than its text needs "
+                        f"({bounds.h:.1f}pt tall, the fitted text is {result.height_pt:.1f}pt); "
                         f"truncation left only the ellipsis",
                         severity="warning",
                         hint="Give the box at least one line's height, or reduce the font size.",
@@ -685,6 +746,25 @@ class AnchorLayoutSolver(LayoutSolver):
             e=ox - ox * cos + oy * sin,
             f=oy - ox * sin - oy * cos,
         )
+
+    def _effect_expansion(self, effects: tuple[EffectSpec, ...]) -> Insets:
+        """Sum every effect's declared outward growth per side (spec §4.4).
+
+        Effects apply in sequence and each grows relative to its input, so the safe paint
+        region is the per-side sum of their declared expansions. With one effect this is exact,
+        which is what the per-effect bounds-honesty test relies on.
+        """
+        top = right = bottom = left = 0.0
+        for spec in effects:
+            effect = self._effects.get(spec.name)
+            if effect is None:
+                continue
+            insets = effect.bounds_expansion(effect.param_schema(**spec.params))
+            top += insets.top
+            right += insets.right
+            bottom += insets.bottom
+            left += insets.left
+        return Insets(top=top, right=right, bottom=bottom, left=left)
 
     def _paint_bounds(
         self, bounds: Rect, deg: float, origin: tuple[float, float] | None

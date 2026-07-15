@@ -1,12 +1,19 @@
 """Skia renderer backend.
 
-Renders a :class:`LayoutDocument` onto a raster surface sized in device pixels. The canvas
-is scaled by ``dpi/72`` so all drawing happens in point coordinates, keeping geometry and
-text measurement in the same unit. Traversal is document order with ``z`` already applied by
-the layout solver. A node may rotate about its origin, clip its subtree to a mask path, and a
-text node may clip to its box; ``--debug`` overlays node bounds, ids, baselines, and the
-safe-area margin deterministically without touching the non-debug scene. Randomness,
-wall-clock, and system fonts are never consulted, so repeated renders are byte-identical.
+Renders a :class:`LayoutDocument` onto a raster surface sized in device pixels. The canvas is
+scaled by ``dpi/72`` so all drawing happens in point coordinates, keeping geometry and text
+measurement in the same unit. Traversal is document order with ``z`` already applied by the
+layout solver.
+
+A node with no effects takes the direct path: draw its content (and, for a group, its
+children) straight onto the canvas, optionally rotated, masked, and faded. A node **with**
+effects is rendered offscreen: its content (or subtree) is rasterized into a pooled element
+surface covering the node's ``render_bounds`` (layout bounds grown by declared effect
+expansion), the category-aware effect plan runs on that raster — geometry rewrites the path
+pre-raster, a fused color filter recolors in one pass, raster passes and composite passes
+follow (spec §4.4) — and the result is composited back at the right offset, so a drop-shadow or
+blur is never clipped. Raster allocations come only from a per-render surface pool (spec §4.5).
+Randomness flows exclusively from the seeded effect RNG, so repeated renders are byte-identical.
 """
 
 from __future__ import annotations
@@ -15,7 +22,19 @@ from typing import Any, ClassVar
 
 import skia  # type: ignore[import-untyped]
 
-from arcavex.kernel.contracts.spi import MaskGenerator, RendererBackend
+from arcavex.builtin.backend_skia.pipeline import (
+    EffectPlan,
+    build_color_filter,
+    compile_effect_plan,
+)
+from arcavex.builtin.effects_core.context import (
+    CompositeContext,
+    GeometryContext,
+    RasterContext,
+    SurfacePool,
+    effect_rng,
+)
+from arcavex.kernel.contracts.spi import Effect, MaskGenerator, RendererBackend, ShapeGenerator
 from arcavex.kernel.contracts.types import MeasureRequest, RenderOptions, Surface
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
 from arcavex.kernel.ir.models import (
@@ -41,6 +60,7 @@ _DEBUG_COLORS: dict[str, tuple[float, float, float, float]] = {
 _DEBUG_SAFE_AREA = (0.55, 0.55, 0.60, 1.0)
 _SAFE_MARGIN_FRAC = 0.05
 _DEBUG_LABEL_PT = 9.0
+_EMPTY_PLAN = EffectPlan()
 
 
 class SkiaBackend(RendererBackend):
@@ -49,17 +69,37 @@ class SkiaBackend(RendererBackend):
     name: ClassVar[str] = "skia"
 
     def __init__(
-        self, text_service: TextService, masks: dict[str, MaskGenerator] | None = None
+        self,
+        text_service: TextService,
+        masks: dict[str, MaskGenerator] | None = None,
+        effects: dict[str, Effect] | None = None,
+        shapes: dict[str, ShapeGenerator] | None = None,
     ) -> None:
-        """Bind the backend to the shared text service and the mask-generator registry."""
+        """Bind the backend to the shared text service and the component registries."""
         self._text = text_service
         self._masks = masks or {}
+        self._effects = effects or {}
+        self._shapes = shapes or {}
+        # Populated during a render when ``RenderOptions.collect_plan`` is set (debug hook for
+        # the fusion test); each entry is ``(node_id, EffectPlan)`` in traversal order.
+        self.collected_plans: list[tuple[str, EffectPlan]] = []
+        # Per-render scratch, set at the top of ``render`` (no intra-job parallelism, v1).
+        self._pool = SurfacePool()
+        self._dpi = 72.0
+        self._seed = 0
+        self._collect = False
 
     def render(self, doc: LayoutDocument, opts: RenderOptions) -> Surface:
         """Render ``doc`` and return the raster surface."""
         dpi = opts.dpi or doc.canvas.dpi
         width_px = max(1, round(doc.canvas.width_pt * dpi / 72.0))
         height_px = max(1, round(doc.canvas.height_pt * dpi / 72.0))
+        self._pool = SurfacePool()
+        self._dpi = float(dpi)
+        self._seed = doc.seed
+        self._collect = opts.collect_plan
+        self.collected_plans = []
+
         surface = skia.Surface(width_px, height_px)
         canvas = surface.getCanvas()
         canvas.clear(skia.Color4f(0, 0, 0, 0))
@@ -69,12 +109,35 @@ class SkiaBackend(RendererBackend):
         if opts.debug:
             self._draw_debug(canvas, doc)
         canvas.restore()
+        # Leak guard (spec §4.5): every pooled surface acquired by a raster effect is released.
+        assert self._pool.outstanding == 0, "surface pool leak: unreleased effect surfaces"
         return surface  # type: ignore[return-value]
 
-    # ------------------------------------------------------------------ internals
+    def pool_stats(self) -> dict[str, int]:
+        """Return surface-pool counters from the last render (for the reuse/leak test)."""
+        return self._pool.stats()
+
+    # ------------------------------------------------------------------ dispatch
     def _draw_node(self, canvas: object, node: LayoutNode) -> None:
         if not _visible(node):
             return
+        plan = self._plan_for(node)
+        if plan.is_empty:
+            self._draw_plain(canvas, node)
+        else:
+            self._draw_with_effects(canvas, node, plan)
+
+    def _plan_for(self, node: LayoutNode) -> EffectPlan:
+        if not node.effects:
+            return _EMPTY_PLAN
+        plan = compile_effect_plan(node.effects, self._effects)
+        if self._collect:
+            self.collected_plans.append((node.source_node_id, plan))
+        return plan
+
+    # ------------------------------------------------------------------ plain path
+    def _draw_plain(self, canvas: object, node: LayoutNode) -> None:
+        """Draw a node with no effects directly (rotation, mask, content, then children)."""
         saves = 0
         if node.rotate_deg and node.rotate_origin is not None:
             canvas.save()  # type: ignore[attr-defined]
@@ -87,13 +150,7 @@ class SkiaBackend(RendererBackend):
                 canvas.clipPath(path, skia.ClipOp.kIntersect, True)  # type: ignore[attr-defined]
                 saves += 1
 
-        content = node.resolved_content
-        if isinstance(content, ResolvedShape):
-            self._draw_shape(canvas, node.bounds, content, node.opacity)
-        elif isinstance(content, ResolvedText):
-            self._draw_text(canvas, node.bounds, content)
-        elif isinstance(content, ResolvedImage):
-            self._draw_image(canvas, node.bounds, content, node.opacity, node.source)
+        self._paint_content(canvas, node, node.opacity)
 
         if node.kind == "group" and node.children:
             did_clip = False
@@ -109,6 +166,114 @@ class SkiaBackend(RendererBackend):
         for _ in range(saves):
             canvas.restore()  # type: ignore[attr-defined]
 
+    # ------------------------------------------------------------------ effect path
+    def _draw_with_effects(self, canvas: object, node: LayoutNode, plan: EffectPlan) -> None:
+        """Rasterize the node offscreen, run its effect plan, then composite it back."""
+        rb = node.render_bounds
+        scale = self._dpi / 72.0
+        w_px = max(1, int(round(rb.w * scale)))
+        h_px = max(1, int(round(rb.h * scale)))
+
+        element = self._pool.acquire(w_px, h_px)
+        ecanvas = element.getCanvas()
+        ecanvas.save()
+        ecanvas.scale(scale, scale)
+        ecanvas.translate(-rb.x, -rb.y)
+        if node.mask is not None:
+            mask_path = self._mask_path(node.mask, node.bounds, node.source)
+            if mask_path is not None:
+                ecanvas.clipPath(mask_path, skia.ClipOp.kIntersect, True)
+        self._paint_element_content(ecanvas, node, plan)
+        ecanvas.restore()
+        image = element.makeImageSnapshot()
+        self._pool.release(element)
+
+        # Color stage: one fused, composed color filter applied in a single pass.
+        color_filter = build_color_filter(plan.color_ops)
+        if color_filter is not None:
+            image = self._apply_color(image, color_filter)
+        # Raster stage, then composite stage — each an image-in/image-out pass.
+        for planned in plan.raster:
+            rng = effect_rng(self._seed, node.source_node_id, planned.index)
+            ctx = RasterContext(image, planned.params, rng, self._pool, self._dpi)
+            image = planned.effect.apply(ctx)
+        for planned in plan.composite:
+            rng = effect_rng(self._seed, node.source_node_id, planned.index)
+            cctx = CompositeContext(image, None, planned.params, rng, self._pool, self._dpi)
+            image = planned.effect.apply(cctx)
+
+        self._composite_back(canvas, node, image, rb)
+
+    def _paint_element_content(
+        self, ecanvas: object, node: LayoutNode, plan: EffectPlan
+    ) -> None:
+        """Paint the node's own content (and children) into the element surface, full opacity."""
+        content = node.resolved_content
+        if isinstance(content, ResolvedShape) and plan.geometry:
+            self._paint_geometry_shape(ecanvas, node, content, plan)
+        else:
+            self._paint_content(ecanvas, node, 1.0)
+        if node.kind == "group" and node.children:
+            did_clip = False
+            if node.clip:
+                ecanvas.save()  # type: ignore[attr-defined]
+                ecanvas.clipRect(_skrect(node.bounds))  # type: ignore[attr-defined]
+                did_clip = True
+            for child in node.children:
+                self._draw_node(ecanvas, child)
+            if did_clip:
+                ecanvas.restore()  # type: ignore[attr-defined]
+
+    def _paint_geometry_shape(
+        self, canvas: object, node: LayoutNode, shape: ResolvedShape, plan: EffectPlan
+    ) -> None:
+        """Apply geometry effects to the shape's path pre-raster, then fill/stroke the result."""
+        path = self._shape_path(shape, node.bounds, node.source)
+        for planned in plan.geometry:
+            rng = effect_rng(self._seed, node.source_node_id, planned.index)
+            path = planned.effect.apply(GeometryContext(path, planned.params, rng, node.bounds))
+        if shape.fill is not None:
+            canvas.drawPath(path, _fill_paint(shape.fill, 1.0))  # type: ignore[attr-defined]
+        if shape.stroke is not None and shape.stroke_width_pt > 0:
+            canvas.drawPath(  # type: ignore[attr-defined]
+                path, _stroke_paint(shape.stroke, shape.stroke_width_pt, 1.0)
+            )
+
+    def _apply_color(self, image: object, color_filter: object) -> object:
+        paint = skia.Paint()
+        paint.setColorFilter(color_filter)
+        surface = self._pool.acquire(image.width(), image.height())  # type: ignore[attr-defined]
+        surface.getCanvas().drawImage(image, 0, 0, skia.SamplingOptions(), paint)
+        out = surface.makeImageSnapshot()
+        self._pool.release(surface)
+        return out
+
+    def _composite_back(
+        self, canvas: object, node: LayoutNode, image: object, rb: Rect
+    ) -> None:
+        """Draw the finished element image back onto the parent canvas at ``rb`` (points)."""
+        canvas.save()  # type: ignore[attr-defined]
+        if node.rotate_deg and node.rotate_origin is not None:
+            canvas.rotate(node.rotate_deg, node.rotate_origin[0], node.rotate_origin[1])  # type: ignore[attr-defined]
+        paint = skia.Paint()
+        if node.opacity < 1.0:
+            paint.setAlphaf(node.opacity)
+        dst = skia.Rect.MakeXYWH(rb.x, rb.y, rb.w, rb.h)
+        canvas.drawImageRect(  # type: ignore[attr-defined]
+            image, dst, skia.SamplingOptions(), paint
+        )
+        canvas.restore()  # type: ignore[attr-defined]
+
+    # ------------------------------------------------------------------ content
+    def _paint_content(self, canvas: object, node: LayoutNode, opacity: float) -> None:
+        content = node.resolved_content
+        if isinstance(content, ResolvedShape):
+            self._draw_shape(canvas, node.bounds, content, opacity, node.source)
+        elif isinstance(content, ResolvedText):
+            self._draw_text(canvas, node.bounds, content)
+        elif isinstance(content, ResolvedImage):
+            self._draw_image(canvas, node.bounds, content, opacity, node.source)
+
     def _mask_path(
         self, mask: MaskSpec, bounds: Rect, source: SourceRef | None
     ) -> object | None:
@@ -120,30 +285,60 @@ class SkiaBackend(RendererBackend):
             params = generator.param_schema(**mask.params)
             return generator.build(params, bounds)
         except Exception as exc:  # noqa: BLE001 - surface a located diagnostic, never a leak
-            kwargs: dict[str, Any] = {}
-            if source is not None:
-                kwargs = {"file": source.file, "keypath": source.keypath, "line": source.line}
-            raise DiagnosticError(
-                diagnostic(
-                    "ARC-FX-902",
-                    f"Mask {mask.component!r} failed to build: {exc}",
-                    hint="Check the mask parameters against its schema.",
-                    **kwargs,
-                )
-            ) from exc
+            raise _component_error("ARC-FX-902", "Mask", mask.component, exc, source) from exc
+
+    def _shape_path(
+        self, shape: ResolvedShape, bounds: Rect, source: SourceRef | None
+    ) -> skia.Path:
+        """Return the node's shape as a Skia path (generator path or primitive-as-path)."""
+        if shape.generator is not None:
+            generator = self._shapes.get(shape.generator)
+            if generator is None:
+                return skia.Path()
+            try:
+                params = generator.param_schema(**shape.generator_params)
+                return generator.build(params, bounds)
+            except Exception as exc:  # noqa: BLE001 - located diagnostic, never a leak
+                raise _component_error(
+                    "ARC-FX-912", "Shape", shape.generator, exc, source
+                ) from exc
+        path = skia.Path()
+        if shape.shape == "circle":
+            radius = min(bounds.w, bounds.h) / 2.0
+            path.addCircle(bounds.center_x, bounds.center_y, radius)
+        elif shape.shape == "rrect" or shape.corner_radius_pt > 0:
+            r = shape.corner_radius_pt
+            path.addRoundRect(_skrect(bounds), r, r)
+        else:
+            path.addRect(_skrect(bounds))
+        return path
 
     def _draw_shape(
-        self, canvas: object, bounds: Rect, shape: ResolvedShape, opacity: float
+        self,
+        canvas: object,
+        bounds: Rect,
+        shape: ResolvedShape,
+        opacity: float,
+        source: SourceRef | None,
     ) -> None:
+        if shape.generator is not None:
+            path = self._shape_path(shape, bounds, source)
+            if shape.fill is not None:
+                canvas.drawPath(path, _fill_paint(shape.fill, opacity))  # type: ignore[attr-defined]
+            if shape.stroke is not None and shape.stroke_width_pt > 0:
+                canvas.drawPath(  # type: ignore[attr-defined]
+                    path, _stroke_paint(shape.stroke, shape.stroke_width_pt, opacity)
+                )
+            return
         rect = _skrect(bounds)
         if shape.fill is not None:
             paint = _fill_paint(shape.fill, opacity)
-            self._paint_shape(canvas, shape, rect, bounds, paint)
+            self._paint_primitive(canvas, shape, rect, bounds, paint)
         if shape.stroke is not None and shape.stroke_width_pt > 0:
             paint = _stroke_paint(shape.stroke, shape.stroke_width_pt, opacity)
-            self._paint_shape(canvas, shape, rect, bounds, paint)
+            self._paint_primitive(canvas, shape, rect, bounds, paint)
 
-    def _paint_shape(
+    def _paint_primitive(
         self, canvas: object, shape: ResolvedShape, rect: object, bounds: Rect, paint: object
     ) -> None:
         if shape.shape == "circle":
@@ -323,6 +518,22 @@ def _rects_overlap(
         and a[0] + a[2] > b[0]
         and a[1] < b[1] + b[3]
         and a[1] + a[3] > b[1]
+    )
+
+
+def _component_error(
+    code: str, kind: str, name: str, exc: Exception, source: SourceRef | None
+) -> DiagnosticError:
+    kwargs: dict[str, Any] = {}
+    if source is not None:
+        kwargs = {"file": source.file, "keypath": source.keypath, "line": source.line}
+    return DiagnosticError(
+        diagnostic(
+            code,
+            f"{kind} {name!r} failed to build: {exc}",
+            hint=f"Check the {kind.lower()} parameters against its schema.",
+            **kwargs,
+        )
     )
 
 

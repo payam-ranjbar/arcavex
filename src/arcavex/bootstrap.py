@@ -12,16 +12,19 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from arcavex.builtin.backend_skia import SkiaBackend
+from arcavex.builtin.effects_core import builtin_effects
 from arcavex.builtin.export_raster import PngExporter
 from arcavex.builtin.layout_anchors import AnchorLayoutSolver
 from arcavex.builtin.masks_core import builtin_masks
+from arcavex.builtin.shapes_core import builtin_shapes
 from arcavex.builtin.template_fns import builtin_template_functions
 from arcavex.kernel.api import Facade
-from arcavex.kernel.contracts.spi import MaskGenerator
+from arcavex.kernel.contracts.spi import Effect, MaskGenerator, ShapeGenerator
 from arcavex.kernel.registry import Registries
 from arcavex.services.authoring import AuthoringService
 from arcavex.services.doctor import run_doctor
 from arcavex.services.explain import explain_code
+from arcavex.services.style import StyleResolver
 from arcavex.services.template import Compiler
 from arcavex.services.template.expressions import FunctionTable, UnknownFunctionError, Value
 from arcavex.services.text import TextService
@@ -32,8 +35,18 @@ def build_registries(text_service: TextService) -> Registries:
     registries = Registries()
     for mask in builtin_masks():
         registries.masks.register(mask.name, mask)
-    registries.layouts.register("anchors", AnchorLayoutSolver())
-    registries.backends.register("skia", SkiaBackend(text_service, _mask_map(registries)))
+    for name, effect in builtin_effects().items():
+        registries.effects.register(name, effect)
+    for shape in builtin_shapes():
+        registries.shapes.register(shape.name, shape)
+    effect_map = _effect_map(registries)
+    shape_map = _shape_map(registries)
+    # The solver grows paint_bounds from effect declarations; the backend applies effects and
+    # builds shape-generator paths. Both resolve only through the registry (spec §4.4).
+    registries.layouts.register("anchors", AnchorLayoutSolver(effect_map))
+    registries.backends.register(
+        "skia", SkiaBackend(text_service, _mask_map(registries), effect_map, shape_map)
+    )
     registries.exporters.register("png", PngExporter())
     for fn in builtin_template_functions():
         registries.template_fns.register(fn.name, fn)
@@ -43,6 +56,16 @@ def build_registries(text_service: TextService) -> Registries:
 def _mask_map(registries: Registries) -> dict[str, MaskGenerator]:
     """Materialize the mask registry as a name -> generator dict for the backend."""
     return {name: registries.masks.get(name) for name in registries.masks.names()}
+
+
+def _effect_map(registries: Registries) -> dict[str, Effect]:
+    """Materialize the effect registry as a name -> effect dict for the solver/backend."""
+    return {name: registries.effects.get(name) for name in registries.effects.names()}
+
+
+def _shape_map(registries: Registries) -> dict[str, ShapeGenerator]:
+    """Materialize the shape registry as a name -> generator dict for the backend."""
+    return {name: registries.shapes.get(name) for name in registries.shapes.names()}
 
 
 def build_function_table(registries: Registries) -> FunctionTable:
@@ -78,11 +101,27 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
     def mask_schema(name: str) -> type[BaseModel] | None:
         return registries.masks.get(name).param_schema if registries.masks.has(name) else None
 
+    def effect_schema(name: str) -> type[BaseModel] | None:
+        return registries.effects.get(name).param_schema if registries.effects.has(name) else None
+
+    def effect_kind(name: str) -> str | None:
+        return registries.effects.get(name).kind.value if registries.effects.has(name) else None
+
+    def shape_schema(name: str) -> type[BaseModel] | None:
+        return registries.shapes.get(name).param_schema if registries.shapes.has(name) else None
+
+    style_resolver = StyleResolver()
     compiler = Compiler(
         available_fonts=frozenset(text_service.families),
         functions=build_function_table(registries),
         masks=mask_names,
         mask_schema=mask_schema,
+        effects=frozenset(registries.effects.names()),
+        effect_schema=effect_schema,
+        effect_kind=effect_kind,
+        shapes=frozenset(registries.shapes.names()),
+        shape_schema=shape_schema,
+        styles=style_resolver,
     )
     authoring = AuthoringService(compiler, registries.template_fns.names())
     return Facade(
@@ -92,4 +131,5 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         doctor_probe=lambda: run_doctor(text_service),
         explain_lookup=explain_code,
         authoring=authoring,
+        style_provider=style_resolver,
     )

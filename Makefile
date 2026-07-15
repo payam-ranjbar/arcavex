@@ -1,6 +1,6 @@
 PY := .venv/Scripts/python.exe
 
-.PHONY: test lint typecheck contracts
+.PHONY: test lint typecheck contracts golden-update
 
 test:
 	$(PY) -m pytest tests -q
@@ -13,3 +13,7 @@ typecheck:
 
 contracts:
 	$(PY) -m importlinter.cli lint
+
+# Regenerate the per-platform golden images, then review the diff before committing.
+golden-update:
+	ARCAVEX_UPDATE_GOLDENS=1 $(PY) -m pytest tests/golden -q

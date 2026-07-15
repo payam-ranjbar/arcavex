@@ -617,9 +617,10 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-FX-900",
-            "Effects not supported yet",
-            "Effect declarations are not available in this build.",
-            "Remove the 'effects'; effects arrive in Phase 3.",
+            "Effect declaration rejected",
+            "A legacy code retained for compatibility; effects now compile, so real effect "
+            "problems report a more specific ARC-FX-9xx code.",
+            "Check the specific effect diagnostic reported alongside this one, if any.",
         ),
         _e(
             "ARC-FX-901",
@@ -630,11 +631,78 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-FX-902",
-            "Invalid mask parameters",
-            "A mask's parameters failed validation against the mask component's parameter "
+            "Invalid mask or effect parameters",
+            "A mask's or effect's parameters failed validation against the component's parameter "
             "schema (wrong name, type, or out-of-range value).",
-            "Check each parameter against the mask's documented schema; the message names the "
-            "first offending field.",
+            "Check each parameter against the component's documented schema; the message names "
+            "the first offending field.",
+        ),
+        _e(
+            "ARC-FX-903",
+            "Malformed effect list",
+            "A node's 'effects' is not a list, or an entry is neither a name, a "
+            "'{name, params}' mapping, nor a '{preset: name}' reference.",
+            "Write 'effects:' as a list where each item is a name, '{name, params}', or "
+            "'{preset: name}'.",
+        ),
+        _e(
+            "ARC-FX-910",
+            "Unknown effect",
+            "A node references an effect name that is not registered.",
+            "Use a registered effect (the message lists them), or add it as an extension.",
+        ),
+        _e(
+            "ARC-FX-911",
+            "Geometry effect on an unsupported node",
+            "A geometry effect (e.g. torn-paper) rewrites a node's path, so it applies only to "
+            "'shape' and 'path' nodes; it was placed on a text, image, or group node.",
+            "Move the geometry effect onto a shape or path node, or remove it.",
+        ),
+        _e(
+            "ARC-FX-912",
+            "Invalid shape-generator parameters",
+            "A shape generator's parameters failed validation against its schema, or the "
+            "generator raised while building its path.",
+            "Check each parameter against the generator's documented schema; the message names "
+            "the first offending field.",
+        ),
+        _e(
+            "ARC-FX-913",
+            "Unknown shape generator",
+            "A shape node references a generator name that is not registered.",
+            "Use a registered generator (starburst, speech_bubble, qr_code), or add it as an "
+            "extension.",
+        ),
+        _e(
+            "ARC-STY-001",
+            "Unknown or missing style pack",
+            "The template's 'style:' reference names a library pack that is not installed, a "
+            "version that does not exist, or a local file that is missing.",
+            "Use 'style: name@version' matching an installed pack, or a './file.yaml' path "
+            "relative to the template; the message lists what is available.",
+        ),
+        _e(
+            "ARC-STY-002",
+            "Invalid style pack",
+            "A style pack file is not a mapping, or contains keys outside the supported set "
+            "(version, palettes, fonts, effect_presets, shape_presets, roles).",
+            "Fix the pack so it is a YAML mapping using only the supported top-level keys.",
+        ),
+        _e(
+            "ARC-STY-010",
+            "Unknown effect preset",
+            "A node references an effect preset that the active style pack does not define, or "
+            "references a preset without opting into a style.",
+            "Add 'style:' to the template and use a preset the pack defines; the message lists "
+            "the available presets.",
+        ),
+        _e(
+            "ARC-STY-011",
+            "Unknown style role",
+            "A node's 'style_role' names a role the active style pack does not define, or is "
+            "used without opting into a style.",
+            "Add 'style:' to the template and use a role the pack defines (e.g. heading, body, "
+            "accent); the message lists the available roles.",
         ),
         _e(
             "ARC-AST-001",

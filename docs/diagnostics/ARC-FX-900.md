@@ -1,5 +1,5 @@
-# ARC-FX-900 — Effects not supported yet
+# ARC-FX-900 — Effect declaration rejected
 
-Effect declarations are not available in this build.
+A legacy code retained for compatibility; effects now compile, so real effect problems report a more specific ARC-FX-9xx code.
 
-**Typical fix:** Remove the 'effects'; effects arrive in Phase 3.
+**Typical fix:** Check the specific effect diagnostic reported alongside this one, if any.

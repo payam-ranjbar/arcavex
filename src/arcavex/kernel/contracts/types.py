@@ -113,6 +113,9 @@ class RenderOptions(BaseModel):
 
     dpi: int | None = None
     debug: bool = False
+    # Debug hook: when set, the backend records each node's compiled effect plan (post-fusion)
+    # so a test can assert that consecutive color effects actually collapsed (spec §4.4).
+    collect_plan: bool = False
 
 
 class ExportOptions(BaseModel):

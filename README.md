@@ -9,11 +9,13 @@ arcavex render examples/hello-poster/template.yaml \
     --data examples/hello-poster/data.yaml --format square -o out.png
 ```
 
-Rendering without `-o` writes a deterministic default file, `<template-stem>.<format>.png`,
-in the current directory and reports the chosen name before rendering (on failure too, so you
-always learn what would have been written). When a template declares exactly one format, or
-when no `--data` is passed and `preview_data` exists, Arcavex infers the value and reports it
-(human output and the `inferred` object in `--json`).
+Rendering without `-o` writes a deterministic default file,
+`<template-stem>.<format>[.<locale>].png`, in the current directory and reports the chosen name
+before rendering (on failure too, so you always learn what would have been written). The
+`.<locale>` segment is present only when `--locale` is applied, so a `fa` render never
+overwrites the `en` one. When a template declares exactly one format, or when no `--data` is
+passed and `preview_data` exists, Arcavex infers the value and reports it (human output and the
+`inferred` object in `--json`).
 
 ## Commands
 
@@ -26,6 +28,8 @@ when no `--data` is passed and `preview_data` exists, Arcavex infers the value a
 | `template check PATH [--format F] [--locale L]` | Validate a template without data (schema + structure + preview_data). |
 | `template inspect PATH [--json]` | Report the authored contract: variables, formats, nodes, functions, example data. |
 | `template split PATH` | Convert a one-file template into a split directory, losslessly. |
+| `style list [--json]` | List installed style packs (palettes, presets, roles). |
+| `style inspect NAME [--json]` | Show a style pack's palettes, fonts, effect presets, and role defaults. |
 | `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, temp dir, paths) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
@@ -53,7 +57,18 @@ A one-file template is a YAML mapping with these top-level sections:
   path-addressed `set`/`remove`/`insert_before`/`insert_after` operations to the node tree.
 - `preview_data:` — values used **only** when no `--data` file is supplied (a preview
   fallback). Supplied data is never back-filled from `preview_data`.
-- `root:` — the node tree (a `group`).
+- `style:` — opt into a style pack (`name@version` or `./file.yaml`). It supplies palettes
+  addressable in expressions as `{{ palette.<name>[i] }}`, `effect_presets` a node references
+  with `effect_preset:` (or `{preset: name}` in its `effects` list), and per-role defaults a
+  text node pulls in with `style_role: heading|body|accent`. A node's own values override the
+  role. `--style` on the CLI overrides the template's opt-in.
+- `root:` — the node tree (a `group`). Any node may carry an ordered `effects:` list — the v1
+  built-ins are blur, drop-shadow, glow, duotone, threshold, grade, posterize, palette-map,
+  grain, noise, ink-bleed, halftone (a real SkSL dot-screen), channel-offset, torn-paper, and
+  edge-wear. The renderer compiles the list into `geometry → fused color → raster → composite`;
+  consecutive color effects fuse into one pass, and every effect declares the bounds expansion
+  it needs so a shadow or blur is never clipped. Shape nodes may use a `generator:` (`starburst`,
+  `speech_bubble`, `qr_code`). See `examples/pop-art-grid` for a Warhol grid using all of this.
 
 ### Split templates
 

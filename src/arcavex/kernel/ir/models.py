@@ -305,10 +305,18 @@ class CompiledImage(_CompiledNodeBase):
 
 
 class CompiledShape(_CompiledNodeBase):
-    """A primitive shape node."""
+    """A shape node: a primitive (``rect``/``rrect``/``circle``) or a registered generator.
+
+    When ``generator`` is set (e.g. ``starburst``, ``qr_code``), the renderer resolves it
+    through the shape-generator registry and builds a parametric path within the node bounds;
+    ``shape`` is then ignored. Generator ``params`` are validated at compile time against the
+    generator's schema, mirroring how masks are handled.
+    """
 
     type: Literal["shape"] = "shape"
     shape: Literal["rect", "rrect", "circle"] = "rect"
+    generator: str | None = None
+    generator_params: dict[str, object] = Field(default_factory=dict)
 
 
 class CompiledPath(_CompiledNodeBase):
@@ -431,7 +439,7 @@ class ResolvedImage(BaseModel):
 
 
 class ResolvedShape(BaseModel):
-    """Resolved shape content."""
+    """Resolved shape content: a primitive or a generator reference the backend builds."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -440,6 +448,8 @@ class ResolvedShape(BaseModel):
     stroke: RGBA | None
     stroke_width_pt: float
     corner_radius_pt: float
+    generator: str | None = None
+    generator_params: dict[str, object] = Field(default_factory=dict)
 
 
 ResolvedContent = ResolvedText | ResolvedImage | ResolvedShape | None
@@ -454,7 +464,13 @@ class LayoutNode(BaseModel):
     kind: Literal["group", "text", "image", "shape", "path"]
     bounds: Rect
     absolute_transform: Matrix3
+    # ``paint_bounds`` is the canvas-space AABB of the node after rotation *and* effect growth
+    # (used for inspection/debug/clipping). ``render_bounds`` is the node-local (pre-rotation)
+    # rectangle the renderer allocates the element surface for — bounds grown by the effects'
+    # declared expansion, so a drop-shadow or blur is not clipped (spec §4.2/§4.4).
     paint_bounds: Rect
+    render_bounds: Rect
+    effects: tuple[EffectSpec, ...] = ()
     overflow: OverflowState = OverflowState()
     rotate_deg: float = 0.0
     rotate_origin: tuple[float, float] | None = None  # absolute pt centre of rotation
