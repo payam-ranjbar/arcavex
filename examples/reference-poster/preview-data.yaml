@@ -1,0 +1,20 @@
+# Preview data (top-level mapping IS the template's `preview_data` section) so the template
+# renders standalone (`arcavex render examples/reference-poster --format portrait`) without an
+# external data file. Mirrors the English deployment data.
+org_caption: "Iranian Professional and\nEducational Network"
+headline: "A Cup of Experience"
+subtitle: "A gathering to share the experience of Iranian professionals active in industry and education"
+day: 15
+month: "June"
+time: "17:00"
+venue: "Hunter Student Commons — Collision Space"
+guests_heading: "Guests:"
+guests:
+  - id: samavati
+    name: "Faramarz Samavati"
+    title: "Professor, Computer Science, University of Calgary"
+    photo: "assets/guest-samavati.png"
+  - id: ahmadinejad
+    name: "Hossein Ahmadinejad"
+    title: "Engineering Leader and Chief Architect at Humanix"
+    photo: "assets/guest-ahmadinejad.png"

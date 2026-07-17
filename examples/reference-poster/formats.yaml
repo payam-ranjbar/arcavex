@@ -1,0 +1,167 @@
+# Format sidecar (top-level mapping IS the template's `formats` section). portrait 4:5 is the
+# native ratio the node tree is authored against (matching the reference); the other ratios
+# reflow through minimal, understandable patches — every op below is a `set` that retunes a
+# size, gap, or anchor for the new frame, never an arbitrary offset hiding a layout bug.
+
+portrait:
+  canvas: {width: 1080px, height: 1350px, dpi: 96}
+  # Even the native ratio needs a hair of breathing room at the band: the diagonal's left-high
+  # edge would otherwise kiss the venue box's bottom-left corner.
+  patch:
+    - set: nodes.date-value.constraints.anchor.top
+      value: subtitle.bottom+22pt
+    - set: nodes.venue-box.constraints.anchor.top
+      value: date-value.bottom+18pt
+    - set: nodes.guests-band-base.constraints.size.h
+      value: 28%
+
+square:
+  canvas: {width: 1080px, height: 1080px, dpi: 96}
+  # The short canvas can't hold the portrait's full vertical stack: the hero gives up a little
+  # height, the column's gaps tighten, and the venue box moves BESIDE the date boxes (one row)
+  # so the content clears both the hero and the band's left-high diagonal.
+  patch:
+    - set: nodes.hero.constraints.size.h
+      value: 46%
+    - set: nodes.headline.constraints.anchor.top
+      value: org-caption.bottom+24pt
+    - set: nodes.subtitle.constraints.anchor.top
+      value: headline.bottom+10pt
+    - set: nodes.date-value.constraints.anchor.top
+      value: subtitle.bottom+16pt
+    - set: nodes.venue-box.constraints.anchor.left
+      value: date-value.right+14pt
+    - set: nodes.venue-box.constraints.anchor.top
+      value: date-value.top+16pt
+    - set: nodes.venue-box.constraints.size.w
+      value: 280pt
+    - set: nodes.guests-band-base.constraints.size.h
+      value: 26%
+    - set: nodes.guests-row.constraints.size.h
+      value: 235pt
+    # The centre above the band is crowded here; the heading tucks toward the right edge of
+    # the diagonal, on the white field — so it flips to the reference's dark ink.
+    - set: nodes.guests-heading.constraints.anchor
+      value: {right: parent.right-60pt, bottom: guests-row.top-8pt}
+    - set: nodes.guests-heading.constraints.size.w
+      value: 200pt
+    - set: nodes.guests-heading.paragraph.align
+      value: end
+    - set: nodes.guests-heading.style.color
+      value: "#141414"
+
+story:
+  canvas: {width: 1080px, height: 1920px, dpi: 96}
+  # The tall story frame gets a bigger hero, larger display type and a deeper band so the
+  # composition fills the height instead of leaving a dead white belt above the band.
+  patch:
+    - set: nodes.hero.constraints.size.h
+      value: 52%
+    - set: nodes.headline.style.font_size
+      value: 80pt
+    - set: nodes.headline.fit.max_lines
+      value: 2
+    - set: nodes.headline.constraints.anchor.top
+      value: org-caption.bottom+64pt
+    - set: nodes.subtitle.style.font_size
+      value: 24pt
+    # The larger story type needs a 4th line for the long English subtitle.
+    - set: nodes.subtitle.fit.max_lines
+      value: 4
+    - set: nodes.subtitle.constraints.anchor.top
+      value: headline.bottom+24pt
+    - set: nodes.date-value.constraints.anchor.top
+      value: subtitle.bottom+44pt
+    - set: nodes.venue-box.constraints.anchor.top
+      value: date-value.bottom+30pt
+    - set: nodes.guests-band-base.constraints.size.h
+      value: 30%
+    - set: nodes.guests-band-accent.constraints.size.h
+      value: 190pt
+    - set: nodes.guests-band-accent.constraints.anchor.top
+      value: guests-band-base.top-95pt
+    - set: nodes.guests-row.constraints.anchor.bottom
+      value: parent.bottom-70pt
+    - set: nodes.guests-heading.style.font_size
+      value: 40pt
+
+landscape:
+  canvas: {width: 1920px, height: 1080px, dpi: 96}
+  # The wide frame keeps the hero beside the content but narrower and taller; the left column
+  # compresses (venue beside the date boxes) to clear the band on the short canvas. The guest
+  # hstack recentres across the full width on its own.
+  patch:
+    - set: nodes.hero.constraints.size.w
+      value: 36%
+    - set: nodes.hero.constraints.size.h
+      value: 64%
+    - set: nodes.headline.constraints.anchor.top
+      value: org-caption.bottom+30pt
+    - set: nodes.subtitle.constraints.anchor.top
+      value: headline.bottom+14pt
+    - set: nodes.date-value.constraints.anchor.top
+      value: subtitle.bottom+22pt
+    - set: nodes.venue-box.constraints.anchor.left
+      value: date-value.right+14pt
+    - set: nodes.venue-box.constraints.anchor.top
+      value: date-value.top+16pt
+    - set: nodes.guests-band-base.constraints.size.h
+      value: 32%
+    - set: nodes.guests-row.constraints.size.h
+      value: 235pt
+    - set: nodes.guests-row.constraints.anchor.bottom
+      value: parent.bottom-18pt
+
+a4:
+  canvas: {width: 210mm, height: 297mm, dpi: 300}
+  # A4 is a PHYSICAL page: its canvas is only 595pt wide (vs the 810pt screen formats), so the
+  # screen point sizes are retuned to print scale. Same composition, print-metric type.
+  patch:
+    - set: nodes.logo.constraints.size.w
+      value: 110pt
+    - set: nodes.logo.constraints.size.h
+      value: 46pt
+    - set: nodes.org-caption.style.font_size
+      value: 15pt
+    - set: nodes.org-caption.constraints.size.w
+      value: 220pt
+    - set: nodes.headline.style.font_size
+      value: 46pt
+    - set: nodes.headline.fit.min_size
+      value: 26pt
+    - set: nodes.headline.constraints.anchor.top
+      value: org-caption.bottom+30pt
+    - set: nodes.headline.constraints.size.w
+      value: 44%
+    - set: nodes.subtitle.style.font_size
+      value: 15pt
+    - set: nodes.subtitle.constraints.anchor.top
+      value: headline.bottom+12pt
+    - set: nodes.subtitle.constraints.size.w
+      value: 42%
+    - set: nodes.date-value.constraints.anchor.top
+      value: subtitle.bottom+20pt
+    - set: nodes.date-value.constraints.size.w
+      value: 150pt
+    - set: nodes.date-value.constraints.size.h
+      value: 80pt
+    - set: nodes.date-value-day.style.font_size
+      value: 18pt
+    - set: nodes.date-value-time.style.font_size
+      value: 17pt
+    - set: nodes.venue-box.constraints.anchor.top
+      value: date-value.bottom+16pt
+    - set: nodes.venue-box.constraints.size.w
+      value: 230pt
+    - set: nodes.venue-box.constraints.size.h
+      value: 54pt
+    - set: nodes.venue-text.style.font_size
+      value: 14pt
+    - set: nodes.guests-band-accent.constraints.size.h
+      value: 120pt
+    - set: nodes.guests-band-accent.constraints.anchor.top
+      value: guests-band-base.top-60pt
+    - set: nodes.guests-row.constraints.size.h
+      value: 225pt
+    - set: nodes.guests-heading.style.font_size
+      value: 26pt

@@ -1,0 +1,69 @@
+# Variable contract for the IPEN reference poster (split-template `schema.yaml` sidecar: this
+# file's top-level mapping IS the template's `variables` section). Every piece of content the
+# poster shows is a declared variable, so a real deployment swaps text, dates, venue, guests
+# and photos through data files alone — never by editing the node tree. Localised strings come
+# from data/poster.fa.yaml (the fa overlay); the numeric `day` localises its digits through the
+# fa locale's digit policy.
+
+# --- Brand block (top-left; English in both locales) ---
+org_caption:
+  type: string
+  required: false
+  default: "Iranian Professional and\nEducational Network"
+  doc: "Organisation name under the logo (two lines; kept English in both locales)."
+logo:
+  type: image
+  required: false
+  default: "assets/logo.png"
+  doc: "Brand mark, top-left. The one supplied (non-placeholder) asset."
+
+# --- Headline block (left column) ---
+headline:
+  type: string
+  required: true
+  doc: "Display headline (localised). fa: RTL, en: LTR — alignment follows the text."
+subtitle:
+  type: string
+  required: true
+  doc: "Supporting line under the headline (localised)."
+
+# --- Hero (upper-right, diamond-grid masked) ---
+hero:
+  type: image
+  required: false
+  default: "assets/hero.png"
+  doc: "Hero photo, re-masked into the diamond_grid lattice. Configurable per deployment."
+
+# --- Date box (زمان) ---
+day:
+  type: number
+  required: true
+  doc: "Event day of month. Renders with Persian digits under the fa locale."
+month:
+  type: string
+  required: true
+  doc: "Event month name (localised)."
+time:
+  type: string
+  required: true
+  doc: "Event start time, e.g. 17:00 (localised digits written in the fa overlay)."
+
+# --- Venue box (English run, LTR, in both locales) ---
+venue:
+  type: string
+  required: true
+  doc: "Venue line (two lines). Long values wrap/shrink to fit the box."
+
+# --- Guest band ---
+guests_heading:
+  type: string
+  required: false
+  default: "Guests:"
+  doc: "Heading above the guest band (localised)."
+guests:
+  type: list
+  required: true
+  doc: >
+    Ordered guest list. Each item is a mapping {id, name, title, photo}: `id` is a stable key
+    for the repeat, `name` is the (localised) display name, `title` the (localised, often long)
+    role line, `photo` a template-relative image path re-masked into a circle.

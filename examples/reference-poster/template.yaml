@@ -1,0 +1,237 @@
+version: 0.1.0
+
+# IPEN reference poster — the flagship bilingual template (task §9). One node tree renders
+# Farsi (rtl) and English (ltr) across square / portrait / story / landscape / A4, driven only
+# by data + locale + format sidecars (schema.yaml, formats.yaml, locales.yaml, preview-data.yaml).
+# It reproduces the reference's visual identity through the REAL engine: IPEN mark + caption,
+# a diamond-grid-masked hero, a Farsi display headline, red date/venue cards, and a diagonal
+# blue guest band with circular portraits driven by a keyed `repeat`. See README.md.
+#
+# Composition is locale-stable (hero upper-right, content column on the left in both locales);
+# only the text direction, digits and font stacks flip per locale. Positions use absolute
+# left/right/top/bottom anchors so the frame stays recognizable; text boxes are fit_content or
+# fitted so realistic long values wrap/shrink instead of overflowing.
+
+root:
+  type: group
+  id: root
+  children:
+    # White field behind everything (the reference is a light poster).
+    - id: background
+      type: shape
+      shape: rect
+      style: {fill: "#ffffff"}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: fill, h: fill}
+
+    # --- Hero (upper-right), re-masked into the signature diamond-grid lattice. The white
+    # gutters let the background show through, matching the reference's tiled treatment.
+    - id: hero
+      type: image
+      asset: "{{ hero }}"
+      fit: cover
+      mask: {component: diamond_grid, params: {cell: 96pt, gutter: 6pt, angle: 45}}
+      constraints:
+        anchor: {top: parent.top, right: parent.right}
+        size: {w: 47%, h: 56%}
+
+    # --- Brand block (top-left) ---
+    - id: logo
+      type: image
+      asset: "{{ logo }}"
+      fit: contain
+      constraints:
+        anchor: {left: parent.left+42pt, top: parent.top+34pt}
+        size: {w: 150pt, h: 62pt}
+    - id: org-caption
+      type: text
+      text: "{{ org_caption }}"
+      style: {font: [Inter, Vazirmatn], font_size: 20pt, font_weight: 800, color: "#141414"}
+      paragraph: {align: start, direction: ltr}
+      fit: {policy: wrap, max_lines: 2}
+      constraints:
+        anchor: {left: parent.left+42pt, top: logo.bottom+10pt}
+        size: {w: 330pt, h: fit_content}
+
+    # --- Display headline (left column) ---
+    - id: headline
+      type: text
+      text: "{{ headline }}"
+      # One bold display line, like the reference: shrink_to_fit absorbs the longer English
+      # headline instead of wrapping it (story re-enables 2 lines for its tall frame).
+      style: {font: [Lalezar, Estedad, Inter], font_size: 68pt, font_weight: 900, color: "#141414"}
+      paragraph: {align: start, direction: auto}
+      fit: {policy: shrink_to_fit, min_size: 34pt, max_lines: 1}
+      constraints:
+        anchor: {left: parent.left+42pt, top: org-caption.bottom+44pt}
+        size: {w: 46%, h: fit_content}
+    - id: subtitle
+      type: text
+      text: "{{ subtitle }}"
+      style: {font: [Vazirmatn, Inter], font_size: 21pt, font_weight: 600, color: "#3a3a3a"}
+      paragraph: {align: start, direction: auto}
+      fit: {policy: wrap, overflow: clip, max_lines: 3}
+      constraints:
+        anchor: {left: parent.left+42pt, top: headline.bottom+16pt}
+        size: {w: 45%, h: fit_content}
+
+    # --- Date box (زمان): the pink red-framed card holding date + time, centred both ways.
+    # Exactly two info blocks on the poster: this one and the venue box (مکان) below it.
+    - id: date-value
+      type: group
+      constraints:
+        anchor: {left: parent.left+42pt, top: subtitle.bottom+28pt}
+        size: {w: 190pt, h: 104pt}
+      children:
+        - id: date-value-frame
+          type: shape
+          shape: rrect
+          style: {fill: "#f7d7d3", stroke: "#e12b1c", stroke_width: 2.5pt, corner_radius: 8pt}
+          constraints:
+            anchor: {top: parent.top, left: parent.left}
+            size: {w: fill, h: fill}
+        - id: date-value-lines
+          type: group
+          layout: vstack
+          gap: 4pt
+          padding: 10pt
+          main_align: center
+          cross_align: center
+          constraints:
+            anchor: {top: parent.top, left: parent.left}
+            size: {w: fill, h: fill}
+          children:
+            - id: date-value-day
+              type: text
+              text: "{{ day }} {{ month }}"
+              # Vazirmatn-first: bold Persian digits for fa AND a clean Latin for en (Lalezar's
+              # Latin reads poorly at box sizes).
+              style: {font: [Vazirmatn, Inter], font_size: 26pt, font_weight: 800, color: "#e12b1c"}
+              paragraph: {align: center, direction: auto}
+              fit: {policy: shrink_to_fit, min_size: 16pt, max_lines: 1}
+              constraints:
+                size: {w: fill, h: fit_content}
+            - id: date-value-time
+              type: text
+              text: "{{ time }}"
+              style: {font: [Vazirmatn, Inter], font_size: 24pt, font_weight: 800, color: "#e12b1c"}
+              paragraph: {align: center, direction: auto}
+              constraints:
+                size: {w: fill, h: fit_content}
+
+    # --- Venue box (مکان): red-framed, English run (LTR) in both locales, centred both ways;
+    # long values wrap or shrink inside the frame.
+    - id: venue-box
+      type: group
+      constraints:
+        anchor: {left: parent.left+42pt, top: date-value.bottom+22pt}
+        size: {w: 300pt, h: 72pt}
+      children:
+        - id: venue-frame
+          type: shape
+          shape: rrect
+          style: {fill: "#ffffff", stroke: "#e12b1c", stroke_width: 2.5pt, corner_radius: 8pt}
+          constraints:
+            anchor: {top: parent.top, left: parent.left}
+            size: {w: fill, h: fill}
+        - id: venue-lines
+          type: group
+          layout: vstack
+          padding: 8pt
+          main_align: center
+          cross_align: stretch
+          constraints:
+            anchor: {top: parent.top, left: parent.left}
+            size: {w: fill, h: fill}
+          children:
+            - id: venue-text
+              type: text
+              text: "{{ venue }}"
+              style: {font: [Inter, Vazirmatn], font_size: 20pt, font_weight: 700, color: "#141414"}
+              paragraph: {align: center, direction: ltr}
+              fit: {policy: shrink_to_fit, min_size: 13pt, max_lines: 2}
+              constraints:
+                size: {w: fill, h: fit_content}
+
+    # --- Guest band (diagonal blue strip across the bottom) -----------------------------------
+    # The straight base rect covers the bottom; the rotated accent rect is centred on the base's
+    # TOP EDGE (not a fixed offset from the canvas bottom), so the diagonal cut lands correctly
+    # on every canvas height without format-specific retuning.
+    - id: guests-band-base
+      type: shape
+      shape: rect
+      style: {fill: "#1c3a80"}
+      constraints:
+        anchor: {left: parent.left, bottom: parent.bottom}
+        size: {w: fill, h: 30%}
+    - id: guests-band-accent
+      type: shape
+      shape: rect
+      style: {fill: "#2a4c9b"}
+      transform: {rotate: -5, origin: center}
+      constraints:
+        anchor: {center_x: parent.center_x, top: guests-band-base.top-75pt}
+        size: {w: 128%, h: 150pt}
+
+    # Guests flow in a centred hstack, so any canvas width (square through 16:9) distributes
+    # them evenly with no per-item offsets; the stack also owns the collision-free spacing.
+    - id: guests-row
+      type: group
+      layout: hstack
+      gap: 34pt
+      main_align: center
+      cross_align: stretch
+      constraints:
+        anchor: {center_x: parent.center_x, bottom: parent.bottom-24pt}
+        size: {w: 92%, h: 250pt}
+      children:
+        - repeat: "{{ guests }}"
+          as: guest
+          key: "{{ guest.id }}"
+          node:
+            id: guest
+            type: group
+            constraints:
+              size: {w: 190pt, h: fill}
+            children:
+              - id: guest-photo
+                type: image
+                asset: "{{ guest.photo }}"
+                fit: cover
+                mask: {component: circle}
+                constraints:
+                  anchor: {top: parent.top, center_x: parent.center_x}
+                  size: {w: 118pt, h: 118pt}
+              - id: guest-name
+                type: text
+                text: "{{ guest.name }}"
+                # Vazirmatn-first: display-bold for Farsi names AND a clean, readable Latin for
+                # the English names (Lalezar's Latin reads poorly at this size on blue).
+                style: {font: [Vazirmatn, Inter], font_size: 21pt, font_weight: 800, color: "#ffffff"}
+                paragraph: {align: center, direction: auto}
+                fit: {policy: shrink_to_fit, min_size: 14pt, max_lines: 1}
+                constraints:
+                  anchor: {top: guest-photo.bottom+10pt, center_x: parent.center_x}
+                  size: {w: fill, h: fit_content}
+              - id: guest-title
+                type: text
+                text: "{{ guest.title }}"
+                style: {font: [Inter, Vazirmatn], font_size: 15pt, font_weight: 500, color: "#dce4fb"}
+                paragraph: {align: center, direction: auto}
+                fit: {policy: wrap, overflow: clip, max_lines: 3}
+                constraints:
+                  anchor: {top: guest-name.bottom+4pt, center_x: parent.center_x}
+                  size: {w: fill, h: fit_content}
+
+    # Heading rides just above the portrait row (white on the blue band). Declared after the
+    # row so its sibling anchor references an already-defined node, matching engine convention.
+    - id: guests-heading
+      type: text
+      text: "{{ guests_heading }}"
+      style: {font: [Lalezar, Estedad, Inter], font_size: 32pt, font_weight: 900, color: "#ffffff"}
+      paragraph: {align: center, direction: auto}
+      fit: {policy: shrink_to_fit, min_size: 18pt, max_lines: 1}
+      constraints:
+        anchor: {center_x: parent.center_x, bottom: guests-row.top-10pt}
+        size: {w: 60%, h: fit_content}
