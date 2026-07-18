@@ -103,6 +103,30 @@ arcavex ext list                          # every added extension and its state
 arcavex ext disable  my-effect            # inactive on the next run
 ```
 
+### A scaffold walkthrough
+
+`ext scaffold` writes a directory that is valid on the first try — a real component plus its golden
+test — so you can run the gates before writing a line:
+
+```console
+$ arcavex ext scaffold effect ./myfx
+Created ./myfx (effect 'myfx') — validate, test, then add it
+
+$ ls ./myfx
+README.md  component.py  extension.toml  golden_test.py
+
+$ arcavex ext validate ./myfx
+OK myfx — components: myfx
+```
+
+Then implement your component in `component.py`, re-run `ext validate` and `ext test`, and
+`ext add`/`ext enable` when it passes. `arcavex ext list` shows every added extension and its state:
+
+```console
+$ arcavex ext list
+paper-texture 0.1.0 disabled — effect:paper-texture
+```
+
 `ext scaffold` writes a working starter for **every** kind (`effect`, `mask`, `shape`,
 `exporter`, `template_function`, `decoder`, `backend`, `layout_solver`): each ships a real,
 deterministic component and a matching `golden_test.py`, so a fresh scaffold passes `ext validate`
