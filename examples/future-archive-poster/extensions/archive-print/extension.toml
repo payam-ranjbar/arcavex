@@ -1,0 +1,9 @@
+name = "archive-print"
+version = "0.1.0"
+ir_min = "1.0"
+engine_min = "0.1"
+
+[[components]]
+kind = "effect"
+name = "archive-print"
+entry = "component:ArchivePrint"

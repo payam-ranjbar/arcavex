@@ -1,0 +1,517 @@
+version: 0.1.0
+style: ./future-archive.yaml
+
+variables:
+  kicker: {type: string, required: true, doc: "Series or organizer line; 42 characters max"}
+  title_primary: {type: string, required: true, doc: "First display line; 18 characters max"}
+  title_secondary: {type: string, required: true, doc: "Second display line; 18 characters max"}
+  subtitle: {type: string, required: true, doc: "Event promise; 110 characters max"}
+  speaker_name: {type: string, required: true, doc: "Speaker or featured subject"}
+  speaker_role: {type: string, required: true, doc: "Speaker role"}
+  date_caption: {type: string, required: true}
+  date_value: {type: string, required: true}
+  time_value: {type: string, required: true}
+  venue_caption: {type: string, required: true}
+  venue_value: {type: string, required: true}
+  badge: {type: string, required: true, doc: "Short badge; 18 characters max"}
+  cta: {type: string, required: true, doc: "Short call to action; 24 characters max"}
+  series: {type: string, required: true, doc: "Two-character series marker"}
+  footer: {type: string, required: false}
+  main_image: {type: image, required: true}
+  accent_image: {type: image, required: true}
+
+formats:
+  square:
+    canvas: {width: 1080px, height: 1080px, dpi: 96}
+  portrait:
+    canvas: {width: 1080px, height: 1350px, dpi: 96}
+    patch:
+    - {set: nodes.photo-field.constraints.size.w, value: 540px}
+    - {set: nodes.main-photo.constraints.size.w, value: 540px}
+    - {set: nodes.kicker.constraints.anchor.top, value: "parent.top+102px"}
+    - {set: nodes.kicker.constraints.size.w, value: 420px}
+    - {set: nodes.title-primary.constraints.anchor.top, value: "parent.top+260px"}
+    - {set: nodes.title-primary.constraints.size.w, value: 430px}
+    - {set: nodes.title-primary.style.font_size, value: 126px}
+    - {set: nodes.title-secondary.constraints.anchor.top, value: "parent.top+375px"}
+    - {set: nodes.title-secondary.constraints.size.w, value: 430px}
+    - {set: nodes.title-secondary.style.font_size, value: 126px}
+    - {set: nodes.subtitle.constraints.anchor.top, value: "parent.top+515px"}
+    - {set: nodes.speaker-rule.constraints.anchor.top, value: "parent.top+680px"}
+    - {set: nodes.speaker-name.constraints.anchor.top, value: "parent.top+710px"}
+    - {set: nodes.speaker-role.constraints.anchor.top, value: "parent.top+754px"}
+    - {set: nodes.date-caption.constraints.anchor.top, value: "parent.top+855px"}
+    - {set: nodes.date-value.constraints.anchor.top, value: "parent.top+890px"}
+    - {set: nodes.time-value.constraints.anchor.top, value: "parent.top+930px"}
+    - {set: nodes.time-value.constraints.anchor.start, value: "parent.start+72px"}
+    - {set: nodes.venue-caption.constraints.anchor.top, value: "parent.top+982px"}
+    - {set: nodes.venue-value.constraints.anchor.top, value: "parent.top+1017px"}
+    - {set: nodes.cta-pill.constraints.anchor.top, value: "parent.top+1148px"}
+    - {set: nodes.cta-text.constraints.anchor.center_y, value: "cta-pill.center_y"}
+    - {set: nodes.accent-ring.constraints.anchor.top, value: "parent.top+1010px"}
+    - {set: nodes.accent-image.constraints.anchor.top, value: "parent.top+1024px"}
+    - {set: nodes.coord.constraints.anchor.bottom, value: "parent.bottom-48px"}
+  story:
+    canvas: {width: 1080px, height: 1920px, dpi: 96}
+    patch:
+    - {set: nodes.photo-field.constraints.size.w, value: fill}
+    - {set: nodes.photo-field.constraints.size.h, value: 980px}
+    - {set: nodes.main-photo.constraints.size.w, value: fill}
+    - {set: nodes.main-photo.constraints.size.h, value: 980px}
+    - {set: nodes.main-photo.fit, value: contain}
+    - {set: nodes.photo-divider.constraints.anchor.start, value: "parent.start"}
+    - {set: nodes.photo-divider.constraints.anchor.top, value: "main-photo.bottom"}
+    - {set: nodes.photo-divider.constraints.size.w, value: fill}
+    - {set: nodes.photo-divider.constraints.size.h, value: 10px}
+    - {set: nodes.series-number.constraints.anchor.top, value: "parent.top+14px"}
+    - {set: nodes.series-number.style.font_size, value: 252px}
+    - {set: nodes.series-number.style.color, value: "#F4EAD230"}
+    - {set: nodes.kicker.constraints.anchor.top, value: "parent.top+1060px"}
+    - {set: nodes.kicker.constraints.size.w, value: 936px}
+    - {set: nodes.title-primary.constraints.anchor.top, value: "parent.top+1112px"}
+    - {set: nodes.title-primary.constraints.size.w, value: 936px}
+    - {set: nodes.title-primary.style.font_size, value: 132px}
+    - {set: nodes.title-secondary.constraints.anchor.top, value: "parent.top+1232px"}
+    - {set: nodes.title-secondary.constraints.size.w, value: 936px}
+    - {set: nodes.title-secondary.style.font_size, value: 132px}
+    - {set: nodes.subtitle.constraints.anchor.top, value: "parent.top+1362px"}
+    - {set: nodes.subtitle.constraints.size.w, value: 936px}
+    - {set: nodes.subtitle.constraints.size.h, value: 82px}
+    - {set: nodes.speaker-rule.constraints.anchor.top, value: "parent.top+1460px"}
+    - {set: nodes.speaker-name.constraints.anchor.top, value: "parent.top+1488px"}
+    - {set: nodes.speaker-role.constraints.anchor.top, value: "parent.top+1530px"}
+    - {set: nodes.date-caption.constraints.anchor.top, value: "parent.top+1600px"}
+    - {set: nodes.date-value.constraints.anchor.top, value: "parent.top+1632px"}
+    - {set: nodes.time-value.constraints.anchor.top, value: "parent.top+1632px"}
+    - {set: nodes.time-value.constraints.anchor.start, value: "parent.start+520px"}
+    - {set: nodes.time-value.constraints.size.w, value: 300px}
+    - {set: nodes.venue-caption.constraints.anchor.top, value: "parent.top+1698px"}
+    - {set: nodes.venue-value.constraints.anchor.top, value: "parent.top+1730px"}
+    - {set: nodes.cta-pill.constraints.anchor.top, value: "parent.top+1790px"}
+    - {set: nodes.cta-pill.constraints.size.w, value: 330px}
+    - {set: nodes.cta-text.constraints.size.w, value: 290px}
+    - {set: nodes.accent-ring.constraints.anchor.top, value: "parent.top+752px"}
+    - {set: nodes.accent-ring.constraints.anchor.end, value: "parent.end-62px"}
+    - {set: nodes.accent-ring.constraints.size.w, value: 210px}
+    - {set: nodes.accent-ring.constraints.size.h, value: 210px}
+    - {set: nodes.accent-image.constraints.anchor.top, value: "parent.top+766px"}
+    - {set: nodes.accent-image.constraints.anchor.end, value: "parent.end-76px"}
+    - {set: nodes.accent-image.constraints.size.w, value: 182px}
+    - {set: nodes.accent-image.constraints.size.h, value: 182px}
+    - {remove: nodes.coord.constraints.anchor.bottom}
+    - {set: nodes.coord.constraints.anchor.top, value: "parent.top+922px"}
+    - {remove: nodes.coord.constraints.anchor.end}
+    - {set: nodes.coord.constraints.anchor.start, value: "parent.start+40px"}
+    - {set: nodes.coord.style.align, value: start}
+    - {set: nodes.coord.paragraph.align, value: start}
+    - {set: nodes.footer.constraints.size.w, value: 936px}
+  landscape:
+    canvas: {width: 1920px, height: 1080px, dpi: 96}
+    patch:
+    - {set: nodes.photo-field.constraints.size.w, value: 830px}
+    - {set: nodes.main-photo.constraints.size.w, value: 830px}
+    - {set: nodes.photo-divider.constraints.size.w, value: 14px}
+    - {set: nodes.series-number.constraints.anchor.start, value: "parent.start+108px"}
+    - {set: nodes.series-number.constraints.anchor.top, value: "parent.top+16px"}
+    - {set: nodes.series-number.style.font_size, value: 268px}
+    - {set: nodes.kicker.constraints.anchor.start, value: "parent.start+112px"}
+    - {set: nodes.kicker.constraints.anchor.top, value: "parent.top+90px"}
+    - {set: nodes.kicker.constraints.size.w, value: 760px}
+    - {set: nodes.title-primary.constraints.anchor.start, value: "parent.start+108px"}
+    - {set: nodes.title-primary.constraints.anchor.top, value: "parent.top+220px"}
+    - {set: nodes.title-primary.constraints.size.w, value: 790px}
+    - {set: nodes.title-primary.style.font_size, value: 162px}
+    - {set: nodes.title-secondary.constraints.anchor.start, value: "parent.start+108px"}
+    - {set: nodes.title-secondary.constraints.anchor.top, value: "parent.top+360px"}
+    - {set: nodes.title-secondary.constraints.size.w, value: 790px}
+    - {set: nodes.title-secondary.style.font_size, value: 162px}
+    - {set: nodes.subtitle.constraints.anchor.start, value: "parent.start+114px"}
+    - {set: nodes.subtitle.constraints.anchor.top, value: "parent.top+520px"}
+    - {set: nodes.subtitle.constraints.size.w, value: 720px}
+    - {set: nodes.subtitle.constraints.size.h, value: 84px}
+    - {set: nodes.speaker-rule.constraints.anchor.start, value: "parent.start+114px"}
+    - {set: nodes.speaker-rule.constraints.anchor.top, value: "parent.top+630px"}
+    - {set: nodes.speaker-name.constraints.anchor.start, value: "parent.start+114px"}
+    - {set: nodes.speaker-name.constraints.anchor.top, value: "parent.top+660px"}
+    - {set: nodes.speaker-role.constraints.anchor.start, value: "parent.start+114px"}
+    - {set: nodes.speaker-role.constraints.anchor.top, value: "parent.top+704px"}
+    - {set: nodes.date-caption.constraints.anchor.start, value: "parent.start+114px"}
+    - {set: nodes.date-caption.constraints.anchor.top, value: "parent.top+780px"}
+    - {set: nodes.date-value.constraints.anchor.start, value: "parent.start+114px"}
+    - {set: nodes.date-value.constraints.anchor.top, value: "parent.top+814px"}
+    - {set: nodes.date-value.constraints.size.w, value: 330px}
+    - {set: nodes.time-value.constraints.anchor.start, value: "parent.start+480px"}
+    - {set: nodes.time-value.constraints.anchor.top, value: "parent.top+814px"}
+    - {set: nodes.time-value.constraints.size.w, value: 170px}
+    - {set: nodes.venue-caption.constraints.anchor.start, value: "parent.start+680px"}
+    - {set: nodes.venue-caption.constraints.anchor.top, value: "parent.top+780px"}
+    - {set: nodes.venue-value.constraints.anchor.start, value: "parent.start+680px"}
+    - {set: nodes.venue-value.constraints.anchor.top, value: "parent.top+814px"}
+    - {set: nodes.venue-value.constraints.size.w, value: 360px}
+    - {set: nodes.cta-pill.constraints.anchor.start, value: "parent.start+112px"}
+    - {set: nodes.cta-pill.constraints.anchor.top, value: "parent.top+936px"}
+    - {set: nodes.cta-pill.constraints.size.w, value: 330px}
+    - {set: nodes.cta-text.constraints.size.w, value: 290px}
+    - {set: nodes.accent-ring.constraints.anchor.top, value: "parent.top+700px"}
+    - {set: nodes.accent-ring.constraints.anchor.end, value: "parent.end-62px"}
+    - {set: nodes.accent-ring.constraints.size.w, value: 246px}
+    - {set: nodes.accent-ring.constraints.size.h, value: 246px}
+    - {set: nodes.accent-image.constraints.anchor.top, value: "parent.top+716px"}
+    - {set: nodes.accent-image.constraints.anchor.end, value: "parent.end-78px"}
+    - {set: nodes.accent-image.constraints.size.w, value: 214px}
+    - {set: nodes.accent-image.constraints.size.h, value: 214px}
+    - {set: nodes.coord.constraints.anchor.end, value: "parent.end-58px"}
+    - {set: nodes.footer.constraints.anchor.start, value: "parent.start+520px"}
+    - {set: nodes.footer.constraints.size.w, value: 520px}
+
+locales:
+  en:
+    direction: ltr
+    digits: latn
+    fonts:
+      Inter: [Inter, Vazirmatn]
+  fa:
+    direction: rtl
+    digits: fa
+    fonts:
+      Inter: [Vazirmatn, Inter]
+      Lalezar: [Lalezar, Vazirmatn, Inter]
+      Estedad: [Estedad, Vazirmatn, Inter]
+    patch:
+    - {set: nodes.kicker.paragraph.direction, value: rtl}
+    - {set: nodes.kicker.style.letter_spacing, value: 0px}
+    - {set: nodes.title-primary.paragraph.direction, value: rtl}
+    - {set: nodes.title-primary.style.letter_spacing, value: 0px}
+    - {set: nodes.title-secondary.paragraph.direction, value: rtl}
+    - {set: nodes.title-secondary.style.letter_spacing, value: 0px}
+    - {set: nodes.subtitle.paragraph.direction, value: rtl}
+    - {set: nodes.speaker-name.paragraph.direction, value: rtl}
+    - {set: nodes.speaker-name.style.letter_spacing, value: 0px}
+    - {set: nodes.speaker-role.paragraph.direction, value: rtl}
+    - {set: nodes.speaker-role.style.letter_spacing, value: 0px}
+    - {set: nodes.date-caption.paragraph.direction, value: rtl}
+    - {set: nodes.date-caption.style.letter_spacing, value: 0px}
+    - {set: nodes.date-value.paragraph.direction, value: rtl}
+    - {set: nodes.time-value.paragraph.direction, value: rtl}
+    - {set: nodes.venue-caption.paragraph.direction, value: rtl}
+    - {set: nodes.venue-caption.style.letter_spacing, value: 0px}
+    - {set: nodes.venue-value.paragraph.direction, value: rtl}
+    - {set: nodes.badge-text.paragraph.direction, value: rtl}
+    - {set: nodes.badge-text.style.letter_spacing, value: 0px}
+    - {set: nodes.cta-text.paragraph.direction, value: rtl}
+    - {set: nodes.cta-text.style.letter_spacing, value: 0px}
+    - {set: nodes.footer.paragraph.direction, value: rtl}
+    - {set: nodes.footer.style.letter_spacing, value: 0px}
+
+preview_data:
+  kicker: "ARCAVEX / CREATIVE SYSTEMS SALON"
+  title_primary: "FUTURE"
+  title_secondary: "ARCHIVE"
+  subtitle: "Designing cultural memory with code, image, and collective intelligence."
+  speaker_name: "NEDA FARAHANI"
+  speaker_role: "CREATIVE TECHNOLOGIST"
+  date_caption: "DATE / TIME"
+  date_value: "14 SEP 2026"
+  time_value: "18:30—20:30"
+  venue_caption: "LOCATION"
+  venue_value: "CENTRAL LIBRARY · CALGARY"
+  badge: "OPEN STUDIO"
+  cta: "RESERVE A SEAT"
+  series: "01"
+  footer: "FICTIONAL ARCAVEX CAPABILITY POSTER / ORIGINAL GENERATED ART"
+  main_image: "assets/portrait-source.png"
+  accent_image: "assets/data-relic-source.png"
+
+root:
+  type: group
+  id: root
+  children:
+  - id: background
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.archive[0] }}"}
+    effect_preset: paper-grain
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: fill, h: fill}
+
+  - id: photo-field
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.archive[1] }}"}
+    constraints:
+      anchor: {top: parent.top, end: parent.end}
+      size: {w: 505px, h: fill}
+
+  - id: main-photo
+    type: image
+    asset: "{{ main_image }}"
+    fit: cover
+    effect_preset: archive-photo
+    constraints:
+      anchor: {top: parent.top, end: parent.end}
+      size: {w: 505px, h: fill}
+
+  - id: photo-divider
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.archive[2] }}"}
+    effects:
+    - {preset: signal-glow, params: {radius: 8px}}
+    constraints:
+      anchor: {top: parent.top, start: "main-photo.start-10px"}
+      size: {w: 10px, h: fill}
+
+  - id: series-number
+    type: text
+    text: "{{ series }}"
+    style:
+      font: Lalezar
+      font_size: 236px
+      font_weight: 800
+      color: "#143FA34A"
+      align: start
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 140px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+18px, start: parent.start+56px}
+      size: {w: 320px, h: 230px}
+
+  - id: kicker
+    type: text
+    text: "{{ kicker }}"
+    style_role: meta
+    style: {font_size: 18px, letter_spacing: 1.9px}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 13px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+82px, start: parent.start+72px}
+      size: {w: 438px, h: 26px}
+
+  - id: title-primary
+    type: text
+    text: "{{ title_primary }}"
+    style_role: display
+    style: {font_size: 116px, letter_spacing: -1.5px}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 42px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+205px, start: parent.start+66px}
+      size: {w: 450px, h: 112px}
+
+  - id: title-secondary
+    type: text
+    text: "{{ title_secondary }}"
+    style_role: display
+    style: {font_size: 116px, color: "{{ palette.archive[2] }}", letter_spacing: -1.5px}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 42px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+318px, start: parent.start+66px}
+      size: {w: 450px, h: 112px}
+
+  - id: subtitle
+    type: text
+    text: "{{ subtitle }}"
+    style_role: body
+    style: {font_size: 27px, color: "#B8C5D6"}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 19px, max_lines: 3, overflow: error}
+    constraints:
+      anchor: {top: parent.top+440px, start: parent.start+72px}
+      size: {w: 420px, h: 102px}
+
+  - id: speaker-rule
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.archive[4] }}"}
+    constraints:
+      anchor: {top: parent.top+586px, start: parent.start+72px}
+      size: {w: 58px, h: 5px}
+
+  - id: speaker-name
+    type: text
+    text: "{{ speaker_name }}"
+    style_role: body
+    style: {font_size: 25px, font_weight: 800, letter_spacing: 0.8px}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 17px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+612px, start: parent.start+72px}
+      size: {w: 390px, h: 32px}
+
+  - id: speaker-role
+    type: text
+    text: "{{ speaker_role }}"
+    style_role: meta
+    style: {font_size: 15px, letter_spacing: 1.6px}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 12px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+651px, start: parent.start+72px}
+      size: {w: 390px, h: 24px}
+
+  - id: date-caption
+    type: text
+    text: "{{ date_caption }}"
+    style_role: meta
+    style: {font_size: 13px, letter_spacing: 1.8px}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 10px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+728px, start: parent.start+72px}
+      size: {w: 260px, h: 20px}
+
+  - id: date-value
+    type: text
+    text: "{{ date_value }}"
+    style_role: body
+    style: {font_size: 23px, font_weight: 800}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 16px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+758px, start: parent.start+72px}
+      size: {w: 420px, h: 30px}
+
+  - id: time-value
+    type: text
+    text: "{{ time_value }}"
+    style_role: body
+    style: {font_size: 20px, font_weight: 700, color: "#B8C5D6"}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 14px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+794px, start: parent.start+72px}
+      size: {w: 420px, h: 28px}
+
+  - id: venue-caption
+    type: text
+    text: "{{ venue_caption }}"
+    style_role: meta
+    style: {font_size: 13px, letter_spacing: 1.8px}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 10px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+832px, start: parent.start+72px}
+      size: {w: 260px, h: 20px}
+
+  - id: venue-value
+    type: text
+    text: "{{ venue_value }}"
+    style_role: body
+    style: {font_size: 21px, font_weight: 750}
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 15px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+862px, start: parent.start+72px}
+      size: {w: 420px, h: 30px}
+
+  - id: cta-pill
+    type: shape
+    shape: rrect
+    style:
+      fill: "{{ palette.archive[2] }}"
+      corner_radius: 29px
+    effects:
+    - {preset: signal-glow, params: {radius: 10px}}
+    constraints:
+      anchor: {top: parent.top+936px, start: parent.start+72px}
+      size: {w: 300px, h: 58px}
+
+  - id: cta-text
+    type: text
+    text: "{{ cta }}"
+    style:
+      font: [Inter, Vazirmatn]
+      font_size: 16px
+      font_weight: 850
+      color: "{{ palette.archive[0] }}"
+      align: center
+      letter_spacing: 1.2px
+    paragraph: {align: center, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 12px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {center_x: cta-pill.center_x, center_y: cta-pill.center_y}
+      size: {w: 260px, h: 24px}
+
+  - id: badge-pill
+    type: shape
+    shape: rrect
+    style: {fill: "#F4EAD2E8", corner_radius: 22px}
+    effects:
+    - {name: drop-shadow, params: {dx: 0px, dy: 5px, blur: 8px, color: "#07142E66"}}
+    constraints:
+      anchor: {top: parent.top+54px, end: parent.end-48px}
+      size: {w: 178px, h: 44px}
+
+  - id: badge-text
+    type: text
+    text: "{{ badge }}"
+    style:
+      font: [Inter, Vazirmatn]
+      font_size: 13px
+      font_weight: 850
+      color: "{{ palette.archive[0] }}"
+      align: center
+      letter_spacing: 1.1px
+    paragraph: {align: center, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 10px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {center_x: badge-pill.center_x, center_y: badge-pill.center_y}
+      size: {w: 146px, h: 20px}
+
+  - id: accent-ring
+    type: shape
+    shape: circle
+    style:
+      fill: "{{ palette.archive[0] }}"
+      stroke: "{{ palette.archive[2] }}"
+      stroke_width: 3px
+    effects:
+    - {preset: signal-glow, params: {radius: 12px}}
+    constraints:
+      anchor: {top: parent.top+752px, end: parent.end-38px}
+      size: {w: 224px, h: 224px}
+
+  - id: accent-image
+    type: image
+    asset: "{{ accent_image }}"
+    fit: cover
+    mask: {component: circle, params: {}}
+    effects:
+    - {preset: archive-object}
+    - {name: channel-offset, params: {distance: 1px, angle: 22}}
+    constraints:
+      anchor: {top: parent.top+766px, end: parent.end-52px}
+      size: {w: 196px, h: 196px}
+
+  - id: coord
+    type: text
+    text: "IMG / GEN-02 / FILTER-01"
+    style:
+      font: Inter
+      font_size: 11px
+      font_weight: 700
+      color: "#F4EAD2B0"
+      align: end
+      letter_spacing: 1.4px
+    paragraph: {align: end, direction: ltr}
+    constraints:
+      anchor: {bottom: parent.bottom-34px, end: parent.end-46px}
+      size: {w: 280px, h: 18px}
+
+  - id: footer
+    type: text
+    text: "{{ footer | default('ARCAVEX / FUTURE ARCHIVE') }}"
+    style:
+      font: [Inter, Vazirmatn]
+      font_size: 10px
+      font_weight: 650
+      color: "#8EA0B8"
+      align: start
+      letter_spacing: 1.0px
+    paragraph: {align: start, direction: auto}
+    fit: {policy: shrink_to_fit, min_size: 8px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {bottom: parent.bottom-24px, start: parent.start+72px}
+      size: {w: 420px, h: 18px}

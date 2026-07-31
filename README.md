@@ -85,6 +85,55 @@ worked example. Other examples: `examples/hello-poster` (the minimal render),
 `examples/ipen-bilingual` (locales, stacks, masks, rotation, fit policies), and
 `examples/pop-art-grid` (a Warhol grid using effects, loops, and style packs).
 
+## Showcase — Future Archive, authored through MCP
+
+[`examples/future-archive-poster/`](examples/future-archive-poster/) is a production-style proof
+that an AI client can author and verify an Arcavex template through MCP. It combines original
+generated source art, a reusable style pack, a custom deterministic `archive-print` effect, and
+separate composition rules for each ratio and writing direction.
+
+| English — LTR | Farsi — RTL |
+|---|---|
+| ![Future Archive in four English ratios](examples/future-archive-poster/output/en-ratio-board-readme.jpg) | ![Future Archive in four Farsi ratios](examples/future-archive-poster/output/fa-ratio-board-readme.jpg) |
+
+One template renders square (`1080×1080`), portrait (`1080×1350`), story (`1080×1920`), and
+landscape (`1920×1080`) output in English or Farsi. The locale layer changes direction, alignment,
+font fallback, and digits; format patches recompose the design rather than stretching it. The
+[English](examples/future-archive-poster/data/en.yaml),
+[Farsi](examples/future-archive-poster/data/fa.yaml), and
+[boundary-test](examples/future-archive-poster/data/) data are included with the example.
+
+Arcavex is style-agnostic. Its typography, layout, shapes, masks, images, effects, style packs, and
+extension API can encode essentially any 2D visual language taught or practiced in graphic design—from
+International Typographic Style and Bauhaus to editorial, constructivist, brutalist, pop, and
+experimental systems. The style still has to be deliberately defined in a template; Arcavex makes
+that system reusable and deterministic.
+
+### How the MCP workflow works
+
+An MCP client starts `arcavex mcp serve` over stdio and discovers the same operations exposed by
+the CLI. An agent can then inspect the template contract and available effects, apply
+path-addressed edits, validate the result, receive a rendered preview as an image, inspect resolved
+layout, and produce final outputs. MCP does not use a separate renderer: every call goes through
+the same Arcavex service layer as the CLI and Python API.
+
+This example was tested through the real MCP server:
+
+| Coverage | Result |
+|---|---:|
+| Normal + boundary content | 16/16 passed |
+| Ratios | 4 |
+| Locales | English + Farsi |
+| MCP tools discovered | 24 |
+| Effects discovered | 16, including `archive-print` |
+| Validation, preview, layout inspection, render | All passed |
+| Warnings and diagnostics | 0 |
+| Repeat render | Byte-identical |
+
+See the [template and authoring notes](examples/future-archive-poster/),
+[custom effect](examples/future-archive-poster/extensions/archive-print/), and
+[MCP test report](examples/future-archive-poster/output/mcp-report.json).
+
 ## Commands
 
 Full flags and verified examples are in the [CLI reference](docs/cli.md); this is the overview.

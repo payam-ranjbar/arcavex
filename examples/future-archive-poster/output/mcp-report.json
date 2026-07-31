@@ -1,0 +1,3385 @@
+{
+  "cases": [
+    {
+      "profile": "normal",
+      "locale": "en",
+      "format": "square",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            405.75,
+            0.0,
+            43.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            431.25,
+            0.0,
+            378.75,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            431.25,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            431.25,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            54.0,
+            61.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            49.5,
+            153.75,
+            232.5,
+            32.25
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            69.0,
+            714.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "a5ab6a17c760f085007bd34a9ad6b2a2214d4093e4085fcaa31ea139b855c768",
+      "diagnostics": [],
+      "output": "output/en-square.png"
+    },
+    {
+      "profile": "normal",
+      "locale": "en",
+      "format": "portrait",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            379.5,
+            0.0,
+            43.5,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            405.0,
+            0.0,
+            405.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            405.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            405.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            54.0,
+            76.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            69.0,
+            873.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "e5b483c3c06944481ad9e242629467a2faba5e968fc981517167a367294f4d74",
+      "diagnostics": [],
+      "output": "output/en-portrait.png"
+    },
+    {
+      "profile": "normal",
+      "locale": "en",
+      "format": "story",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            43.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            810.0,
+            735.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "series-number",
+          "rect_pt": [
+            42.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            579.0,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            615.75,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            30.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "series-number",
+          "rect_pt": [
+            42.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            579.0,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            615.75,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            30.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "photo-divider",
+          "b": "accent-ring",
+          "rect_pt": [
+            579.0,
+            717.0,
+            211.5,
+            31.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            69.0,
+            1355.25,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            615.75,
+            573.75,
+            138.0,
+            138.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "a260b99f723b8906e4a2f9184ab02bd1b5017d7ad9544d5f3e5d5136c3bc7097",
+      "diagnostics": [],
+      "output": "output/en-story.png"
+    },
+    {
+      "profile": "normal",
+      "locale": "en",
+      "format": "landscape",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            792.0,
+            0.0,
+            46.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            817.5,
+            0.0,
+            622.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            817.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            1252.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            1282.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            1182.0,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            1220.25,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            1186.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            817.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            1252.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            1282.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            1182.0,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            1220.25,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            1186.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            84.0,
+            67.5,
+            237.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            81.0,
+            165.0,
+            240.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            99.0,
+            714.75,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            1282.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            1220.25,
+            536.25,
+            162.0,
+            162.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "9b978c5fc593e1c5d2cb4cf58f1b89c68e33ece9decc7169a8b6ab4d5641a3ca",
+      "diagnostics": [],
+      "output": "output/en-landscape.png"
+    },
+    {
+      "profile": "normal",
+      "locale": "fa",
+      "format": "square",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            360.75,
+            0.0,
+            43.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            378.75,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            360.75,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            360.75,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            528.0,
+            61.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            528.0,
+            153.75,
+            232.5,
+            32.25
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            546.0,
+            714.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "69b46cb1999025f21640d73b59f2f01d2a92410a509c03c62ff7134c6d2f063f",
+      "diagnostics": [],
+      "output": "output/fa-square.png"
+    },
+    {
+      "profile": "normal",
+      "locale": "fa",
+      "format": "portrait",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            387.0,
+            0.0,
+            43.5,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            405.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            387.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            387.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            528.0,
+            76.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            546.0,
+            873.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "8898bb19f3cd9754b8f919311497a1d4a793d7c91d2655cba5368602991cacb7",
+      "diagnostics": [],
+      "output": "output/fa-portrait.png"
+    },
+    {
+      "profile": "normal",
+      "locale": "fa",
+      "format": "story",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            43.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            810.0,
+            735.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "series-number",
+          "rect_pt": [
+            528.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            56.25,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            570.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "series-number",
+          "rect_pt": [
+            528.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            56.25,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            570.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "photo-divider",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            717.0,
+            211.5,
+            31.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            523.5,
+            1355.25,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            56.25,
+            573.75,
+            138.0,
+            138.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "5fccd1a83cfac85770c01b0858c67eff6fb771bbd53f64f8e49b8b8d7ea831c1",
+      "diagnostics": [],
+      "output": "output/fa-story.png"
+    },
+    {
+      "profile": "normal",
+      "locale": "fa",
+      "format": "landscape",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            601.5,
+            0.0,
+            46.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            622.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            601.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            57.75,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            43.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            601.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            57.75,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            43.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            1119.0,
+            67.5,
+            237.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            1119.0,
+            165.0,
+            240.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            1123.5,
+            714.75,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            57.75,
+            536.25,
+            162.0,
+            162.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "5f6b91f1fcf4325896c36519b6798c84a5439d10a2dc449074ed1070deda5ede",
+      "diagnostics": [],
+      "output": "output/fa-landscape.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "en",
+      "format": "square",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            405.75,
+            0.0,
+            43.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            431.25,
+            0.0,
+            378.75,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            431.25,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            431.25,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            54.0,
+            61.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            49.5,
+            153.75,
+            232.5,
+            32.25
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            69.0,
+            714.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "0374d9ec429002b891e24885e1b8dbd223fd0af1af1123c4492b9f82117cd80d",
+      "diagnostics": [],
+      "output": "output/stress-en-square.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "en",
+      "format": "portrait",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            379.5,
+            0.0,
+            43.5,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            405.0,
+            0.0,
+            405.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            405.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            405.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            586.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            565.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            54.0,
+            76.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            69.0,
+            873.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            623.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "309ff306cadd40ca86282b76c7b038bfdee72fdffb8f019b8e4c0c6f778abdfb",
+      "diagnostics": [],
+      "output": "output/stress-en-portrait.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "en",
+      "format": "story",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            43.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            810.0,
+            735.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "series-number",
+          "rect_pt": [
+            42.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            579.0,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            615.75,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            30.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "series-number",
+          "rect_pt": [
+            42.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            622.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            579.0,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            615.75,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            30.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "photo-divider",
+          "b": "accent-ring",
+          "rect_pt": [
+            579.0,
+            717.0,
+            211.5,
+            31.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            69.0,
+            1355.25,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            652.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            615.75,
+            573.75,
+            138.0,
+            138.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "aefd89a8341684ab923038b38ebcdf3cde1cf015724026af7ff7b081a07e2965",
+      "diagnostics": [],
+      "output": "output/stress-en-story.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "en",
+      "format": "landscape",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            792.0,
+            0.0,
+            46.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            817.5,
+            0.0,
+            622.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            817.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            1252.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            1282.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            1182.0,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            1220.25,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            1186.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            817.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            1252.5,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            1282.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            1182.0,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            1220.25,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            1186.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            84.0,
+            67.5,
+            237.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            81.0,
+            165.0,
+            240.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            99.0,
+            714.75,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            1282.5,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            1220.25,
+            536.25,
+            162.0,
+            162.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "c0b1f48a3f6bad5f9d8346ef8f3fd500c437ff573dbcb8a160c603d66bf40cd4",
+      "diagnostics": [],
+      "output": "output/stress-en-landscape.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "fa",
+      "format": "square",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            360.75,
+            0.0,
+            43.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            378.75,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            360.75,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            360.75,
+            0.0,
+            18.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            537.0,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            528.0,
+            61.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            528.0,
+            153.75,
+            232.5,
+            32.25
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            546.0,
+            714.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            573.75,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "f20bfc7794ae86ba4101bea6c2d7b0e299c839ec10b2dfa271342e0f76e08187",
+      "diagnostics": [],
+      "output": "output/stress-fa-square.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "fa",
+      "format": "portrait",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            387.0,
+            0.0,
+            43.5,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            405.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            387.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            387.0,
+            0.0,
+            18.0,
+            1012.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            1.5,
+            730.5,
+            222.0,
+            222.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            34.5,
+            963.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            528.0,
+            76.5,
+            228.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            546.0,
+            873.75,
+            195.0,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            38.25,
+            767.25,
+            148.5,
+            148.5
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "0550df298905b2376a8f92f4bf639a144f97c29400727616adc89b08c9e7158e",
+      "diagnostics": [],
+      "output": "output/stress-fa-portrait.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "fa",
+      "format": "story",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            43.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            810.0,
+            735.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "series-number",
+          "rect_pt": [
+            528.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            56.25,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            570.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            0.0,
+            717.0,
+            810.0,
+            18.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "series-number",
+          "rect_pt": [
+            528.0,
+            10.5,
+            240.0,
+            172.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            537.0,
+            211.5,
+            198.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            56.25,
+            573.75,
+            138.0,
+            138.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            570.0,
+            691.5,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "photo-divider",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            717.0,
+            211.5,
+            31.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            523.5,
+            1355.25,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            56.25,
+            573.75,
+            138.0,
+            138.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "ca4768a9f6316b2fb289138e813501986c617469d0d2b55c85ac8b03f2a6274a",
+      "diagnostics": [],
+      "output": "output/stress-fa-story.png"
+    },
+    {
+      "profile": "boundary",
+      "locale": "fa",
+      "format": "landscape",
+      "validate_ok": true,
+      "preview_ok": true,
+      "preview_image_blocks": 1,
+      "layout_ok": true,
+      "layout_nodes": 26,
+      "overlaps": [
+        {
+          "a": "background",
+          "b": "photo-divider",
+          "rect_pt": [
+            601.5,
+            0.0,
+            46.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "main-photo",
+          "rect_pt": [
+            0.0,
+            0.0,
+            622.5,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "photo-divider",
+          "rect_pt": [
+            601.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "accent-image",
+          "rect_pt": [
+            57.75,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "photo-field",
+          "b": "coord",
+          "rect_pt": [
+            43.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "photo-divider",
+          "rect_pt": [
+            601.5,
+            0.0,
+            21.0,
+            810.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-pill",
+          "rect_pt": [
+            18.0,
+            22.5,
+            169.5,
+            72.75
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-ring",
+          "rect_pt": [
+            19.5,
+            498.0,
+            238.5,
+            238.5
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "accent-image",
+          "rect_pt": [
+            57.75,
+            536.25,
+            162.0,
+            162.0
+          ]
+        },
+        {
+          "a": "main-photo",
+          "b": "coord",
+          "rect_pt": [
+            43.5,
+            771.0,
+            210.0,
+            13.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "kicker",
+          "rect_pt": [
+            1119.0,
+            67.5,
+            237.0,
+            19.5
+          ]
+        },
+        {
+          "a": "series-number",
+          "b": "title-primary",
+          "rect_pt": [
+            1119.0,
+            165.0,
+            240.0,
+            19.5
+          ]
+        },
+        {
+          "a": "cta-pill",
+          "b": "cta-text",
+          "rect_pt": [
+            1123.5,
+            714.75,
+            217.5,
+            18.0
+          ]
+        },
+        {
+          "a": "badge-pill",
+          "b": "badge-text",
+          "rect_pt": [
+            48.0,
+            49.5,
+            109.5,
+            15.0
+          ]
+        },
+        {
+          "a": "accent-ring",
+          "b": "accent-image",
+          "rect_pt": [
+            57.75,
+            536.25,
+            162.0,
+            162.0
+          ]
+        }
+      ],
+      "warnings": [],
+      "render_ok": true,
+      "content_sha256": "a1b8f824ce1c6722584952d6a7bc7d189c35cbc06238292701f28af7d0205dce",
+      "diagnostics": [],
+      "output": "output/stress-fa-landscape.png"
+    }
+  ],
+  "server": {
+    "name": "arcavex",
+    "title": null,
+    "version": "1.29.0",
+    "websiteUrl": null,
+    "icons": null
+  },
+  "tool_count": 24,
+  "effects": {
+    "count": 16,
+    "archive_print_discovered": true
+  },
+  "inspect": {
+    "ok": true,
+    "sha256": null,
+    "formats": [
+      {
+        "name": "square",
+        "width": "1080px",
+        "height": "1080px",
+        "width_pt": 810.0,
+        "height_pt": 810.0,
+        "dpi": 96
+      },
+      {
+        "name": "portrait",
+        "width": "1080px",
+        "height": "1350px",
+        "width_pt": 810.0,
+        "height_pt": 1012.5,
+        "dpi": 96
+      },
+      {
+        "name": "story",
+        "width": "1080px",
+        "height": "1920px",
+        "width_pt": 810.0,
+        "height_pt": 1440.0,
+        "dpi": 96
+      },
+      {
+        "name": "landscape",
+        "width": "1920px",
+        "height": "1080px",
+        "width_pt": 1440.0,
+        "height_pt": 810.0,
+        "dpi": 96
+      }
+    ],
+    "locales": [
+      {
+        "name": "en",
+        "direction": "ltr",
+        "digits": "latn",
+        "has_fonts": true,
+        "has_patch": false
+      },
+      {
+        "name": "fa",
+        "direction": "rtl",
+        "digits": "fa",
+        "has_fonts": true,
+        "has_patch": true
+      }
+    ],
+    "node_count": 26
+  },
+  "deterministic": true,
+  "repeat_sha256": "a5ab6a17c760f085007bd34a9ad6b2a2214d4093e4085fcaa31ea139b855c768"
+}

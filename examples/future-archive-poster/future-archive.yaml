@@ -1,0 +1,70 @@
+version: 0.1.0
+
+palettes:
+  archive:
+  - "#07142E"
+  - "#143FA3"
+  - "#00D9FF"
+  - "#F4EAD2"
+  - "#D8A43A"
+  muted:
+  - "#8EA0B8"
+  - "#536783"
+  - "#263C5E"
+
+fonts:
+  display: [Lalezar, Estedad, Vazirmatn, Inter]
+  body: [Inter, Vazirmatn, Estedad]
+  meta: [Inter, Vazirmatn]
+
+effect_presets:
+  archive-photo:
+    name: archive-print
+    params:
+      shadow: "{{ palette.archive[0] }}"
+      paper: "{{ palette.archive[3] }}"
+      accent: "{{ palette.archive[2] }}"
+      levels: 5
+      contrast: 1.22
+      screen: 0.13
+      texture: 0.045
+      accent_strength: 0.54
+      misregister: 1.6px
+      scan_pitch: 5px
+  archive-object:
+    name: archive-print
+    params:
+      shadow: "{{ palette.archive[0] }}"
+      paper: "{{ palette.archive[3] }}"
+      accent: "{{ palette.archive[4] }}"
+      levels: 6
+      contrast: 1.12
+      screen: 0.09
+      texture: 0.035
+      accent_strength: 0.36
+      misregister: 0.8px
+      scan_pitch: 7px
+  paper-grain:
+    name: grain
+    params: {amount: 0.018}
+  signal-glow:
+    name: glow
+    params: {radius: 14px, color: "#00D9FF99"}
+
+roles:
+  display:
+    font: display
+    font_weight: 800
+    color: "{{ palette.archive[3] }}"
+    align: start
+  body:
+    font: body
+    font_weight: 500
+    color: "{{ palette.archive[3] }}"
+    align: start
+  meta:
+    font: meta
+    font_weight: 700
+    color: "{{ palette.archive[2] }}"
+    align: start
+
