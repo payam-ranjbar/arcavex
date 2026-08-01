@@ -1,0 +1,24 @@
+name = "style-lab-filters"
+version = "0.1.0"
+ir_min = "1.0"
+engine_min = "0.1"
+
+[[components]]
+kind = "effect"
+name = "swiss-cut"
+entry = "component:SwissCut"
+
+[[components]]
+kind = "effect"
+name = "xerox-pulse"
+entry = "component:XeroxPulse"
+
+[[components]]
+kind = "effect"
+name = "cinema-emulsion"
+entry = "component:CinemaEmulsion"
+
+[[components]]
+kind = "effect"
+name = "riso-register"
+entry = "component:RisoRegister"

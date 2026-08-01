@@ -1,0 +1,211 @@
+version: 0.1.0
+style: ./style-lab.yaml
+
+variables:
+  eyebrow: {type: string, required: true}
+  title_1: {type: string, required: true}
+  title_2: {type: string, required: true}
+  title_3: {type: string, required: true}
+  episode: {type: string, required: true}
+  channel: {type: string, required: true}
+  duration: {type: string, required: true}
+  source_image: {type: image, required: true}
+
+formats:
+  thumbnail:
+    canvas: {width: 1280px, height: 720px, dpi: 96}
+
+preview_data:
+  eyebrow: "DESIGN SYSTEMS / FIELD NOTES"
+  title_1: "WHY DOES"
+  title_2: "IT ALL LOOK"
+  title_3: "THE SAME?"
+  episode: "EP. 08"
+  channel: "OBJECT / IMAGE"
+  duration: "12:48"
+  source_image: "assets/video-hosts-source.jpg"
+
+root:
+  type: group
+  id: root
+  children:
+  - id: base
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[2] }}"}
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: fill, h: fill}
+
+  - id: photo
+    type: image
+    asset: "{{ source_image }}"
+    fit: cover
+    effect_preset: xerox-photo
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: 790px, h: fill}
+
+  - id: photo-magenta
+    type: shape
+    shape: rect
+    style: {fill: "#FF3FB466"}
+    constraints:
+      anchor: {top: parent.top, start: parent.start+610px}
+      size: {w: 180px, h: fill}
+
+  - id: black-slash
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[1] }}"}
+    transform: {rotate: -8}
+    constraints:
+      anchor: {top: parent.top-85px, start: parent.start+736px}
+      size: {w: 86px, h: 910px}
+
+  - id: torn-card
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[3] }}"}
+    effects:
+    - {name: torn-paper, params: {amplitude: 8px, segment: 19px}}
+    - {preset: hard-shadow}
+    transform: {rotate: -1.7}
+    constraints:
+      anchor: {top: parent.top+52px, end: parent.end-42px}
+      size: {w: 470px, h: 590px}
+
+  - id: eyebrow-strip
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[1] }}"}
+    transform: {rotate: 2.2}
+    constraints:
+      anchor: {top: parent.top+40px, end: parent.end-56px}
+      size: {w: 432px, h: 52px}
+
+  - id: eyebrow
+    type: text
+    text: "{{ eyebrow }}"
+    style: {font: Inter, font_size: 15px, font_weight: 900, color: "{{ palette.xerox[2] }}", letter_spacing: 1.2px}
+    transform: {rotate: 2.2}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 11px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+55px, end: parent.end-72px}
+      size: {w: 400px, h: 24px}
+
+  - id: title-1
+    type: text
+    text: "{{ title_1 }}"
+    style: {font: Inter, font_size: 62px, font_weight: 900, color: "{{ palette.xerox[0] }}", letter_spacing: -3px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 40px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+160px, start: parent.start+842px}
+      size: {w: 382px, h: 68px}
+
+  - id: title-2-paper
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[0] }}"}
+    effects:
+    - {name: torn-paper, params: {amplitude: 5px, segment: 15px}}
+    transform: {rotate: 1.8}
+    constraints:
+      anchor: {top: parent.top+238px, start: parent.start+824px}
+      size: {w: 414px, h: 91px}
+
+  - id: title-2
+    type: text
+    text: "{{ title_2 }}"
+    style: {font: Inter, font_size: 58px, font_weight: 900, color: "{{ palette.xerox[1] }}", letter_spacing: -3px}
+    transform: {rotate: 1.8}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 38px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+252px, start: parent.start+838px}
+      size: {w: 386px, h: 64px}
+
+  - id: title-3
+    type: text
+    text: "{{ title_3 }}"
+    style: {font: Inter, font_size: 67px, font_weight: 900, color: "{{ palette.xerox[2] }}", letter_spacing: -4px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 43px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+350px, start: parent.start+842px}
+      size: {w: 382px, h: 76px}
+
+  - id: scribble-rule-a
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[1] }}"}
+    transform: {rotate: -4}
+    constraints:
+      anchor: {top: parent.top+447px, start: parent.start+846px}
+      size: {w: 270px, h: 11px}
+
+  - id: scribble-rule-b
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[2] }}"}
+    transform: {rotate: 3}
+    constraints:
+      anchor: {top: parent.top+469px, start: parent.start+930px}
+      size: {w: 245px, h: 9px}
+
+  - id: episode-badge
+    type: shape
+    shape: circle
+    style: {fill: "{{ palette.xerox[1] }}", stroke: "{{ palette.xerox[2] }}", stroke_width: 7px}
+    effects:
+    - {name: edge-wear, params: {amount: 0.28}}
+    constraints:
+      anchor: {top: parent.top+500px, start: parent.start+848px}
+      size: {w: 112px, h: 112px}
+
+  - id: episode
+    type: text
+    text: "{{ episode }}"
+    style: {font: Inter, font_size: 25px, font_weight: 900, color: "{{ palette.xerox[2] }}", letter_spacing: -0.8px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 18px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {center_x: episode-badge.center_x, center_y: episode-badge.center_y}
+      size: {w: 92px, h: 32px}
+
+  - id: duration-pill
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[1] }}"}
+    constraints:
+      anchor: {bottom: parent.bottom-24px, start: parent.start+34px}
+      size: {w: 98px, h: 42px}
+
+  - id: duration
+    type: text
+    text: "{{ duration }}"
+    style: {font: Inter, font_size: 19px, font_weight: 850, color: "{{ palette.xerox[0] }}"}
+    paragraph: {align: center, direction: ltr}
+    constraints:
+      anchor: {center_x: duration-pill.center_x, center_y: duration-pill.center_y}
+      size: {w: 82px, h: 26px}
+
+  - id: channel-strip
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.xerox[0] }}"}
+    constraints:
+      anchor: {bottom: parent.bottom-25px, end: parent.end-40px}
+      size: {w: 284px, h: 42px}
+
+  - id: channel
+    type: text
+    text: "{{ channel }}"
+    style: {font: Inter, font_size: 16px, font_weight: 900, color: "{{ palette.xerox[1] }}", letter_spacing: 1.6px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 12px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {center_x: channel-strip.center_x, center_y: channel-strip.center_y}
+      size: {w: 254px, h: 24px}

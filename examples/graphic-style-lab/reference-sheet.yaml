@@ -1,0 +1,329 @@
+version: 0.1.0
+style: ./style-lab.yaml
+
+variables:
+  number: {type: string, required: true}
+  style_name: {type: string, required: true}
+  school: {type: string, required: true}
+  context: {type: string, required: true}
+  native_format: {type: string, required: true}
+  dimensions: {type: string, required: true}
+  effect_name: {type: string, required: true}
+  filter_recipe: {type: string, required: true}
+  layout_recipe: {type: string, required: true}
+  proof: {type: string, required: true}
+  file_line: {type: string, required: true}
+  final_image: {type: image, required: true}
+  source_image: {type: image, required: true}
+  palette_1: {type: string, required: true}
+  palette_2: {type: string, required: true}
+  palette_3: {type: string, required: true}
+  palette_4: {type: string, required: true}
+  palette_5: {type: string, required: true}
+
+formats:
+  sheet:
+    canvas: {width: 1920px, height: 1200px, dpi: 96}
+
+preview_data:
+  number: "01"
+  style_name: "SIGNAL GRID"
+  school: "INTERNATIONAL TYPOGRAPHIC STYLE"
+  context: "EVENT ANNOUNCEMENT POSTER"
+  native_format: "PORTRAIT / 4:5"
+  dimensions: "1080 × 1350"
+  effect_name: "swiss-cut"
+  filter_recipe: "4 tonal steps · edge-derived signal ink · clean registration drift"
+  layout_recipe: "Asymmetric modular grid · fixed safe column · strict one-line display contract"
+  proof: "The source is neutral. Arcavex creates the limited-ink portrait, grid, hierarchy, and reusable content contract."
+  file_line: "announcement-poster.yaml / data/announcement.yaml"
+  final_image: "output/01-swiss-announcement.jpg"
+  source_image: "assets/announcement-portrait-source.jpg"
+  palette_1: "#F3F0E8"
+  palette_2: "#111111"
+  palette_3: "#FF3B30"
+  palette_4: "#1A48FF"
+  palette_5: "#B9B6AE"
+
+root:
+  type: group
+  id: root
+  children:
+  - id: background
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.sheet[0] }}"}
+    effect_preset: subtle-grain
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: fill, h: fill}
+
+  - id: accent-rail
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette_3 }}"}
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: 18px, h: fill}
+
+  - id: number-ring
+    type: shape
+    shape: circle
+    style: {fill: "#10111500", stroke: "{{ palette_3 }}", stroke_width: 3px}
+    constraints:
+      anchor: {top: parent.top+54px, start: parent.start+62px}
+      size: {w: 68px, h: 68px}
+
+  - id: number
+    type: text
+    text: "{{ number }}"
+    style: {font: Inter, font_size: 24px, font_weight: 850, color: "{{ palette.sheet[1] }}"}
+    paragraph: {align: center, direction: ltr}
+    constraints:
+      anchor: {center_x: number-ring.center_x, center_y: number-ring.center_y}
+      size: {w: 52px, h: 30px}
+
+  - id: lab-label
+    type: text
+    text: "ARCAVEX / GRAPHIC STYLE LAB"
+    style: {font: Inter, font_size: 15px, font_weight: 800, color: "{{ palette.sheet[4] }}", letter_spacing: 2.1px}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+61px, start: parent.start+158px}
+      size: {w: 500px, h: 24px}
+
+  - id: style-name
+    type: text
+    text: "{{ style_name }}"
+    style: {font: Inter, font_size: 49px, font_weight: 900, color: "{{ palette.sheet[1] }}", letter_spacing: -1.6px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 34px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+91px, start: parent.start+158px}
+      size: {w: 760px, h: 58px}
+
+  - id: school
+    type: text
+    text: "{{ school }}"
+    style: {font: Inter, font_size: 14px, font_weight: 700, color: "{{ palette.sheet[2] }}", letter_spacing: 1.5px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 10px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+145px, start: parent.start+160px}
+      size: {w: 750px, h: 23px}
+
+  - id: context-label
+    type: text
+    text: "{{ context }}"
+    style: {font: Inter, font_size: 15px, font_weight: 850, color: "{{ palette_3 }}", letter_spacing: 1.7px}
+    paragraph: {align: end, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 11px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+69px, end: parent.end-66px}
+      size: {w: 720px, h: 24px}
+
+  - id: format-label
+    type: text
+    text: "{{ native_format }} / {{ dimensions }}"
+    style: {font: Inter, font_size: 14px, font_weight: 650, color: "{{ palette.sheet[2] }}", letter_spacing: 1px}
+    paragraph: {align: end, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 10px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+110px, end: parent.end-66px}
+      size: {w: 720px, h: 24px}
+
+  - id: header-rule
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.sheet[3] }}"}
+    constraints:
+      anchor: {top: parent.top+184px, start: parent.start+62px}
+      size: {w: 1792px, h: 2px}
+
+  - id: final-frame
+    type: shape
+    shape: rect
+    style: {fill: "#202229", stroke: "#3A3D47", stroke_width: 2px}
+    constraints:
+      anchor: {top: parent.top+235px, start: parent.start+62px}
+      size: {w: 805px, h: 875px}
+
+  - id: final-image
+    type: image
+    asset: "{{ final_image }}"
+    fit: contain
+    constraints:
+      anchor: {top: parent.top+258px, start: parent.start+85px}
+      size: {w: 759px, h: 829px}
+
+  - id: final-label-bg
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette_3 }}"}
+    constraints:
+      anchor: {top: parent.top+214px, start: parent.start+84px}
+      size: {w: 264px, h: 43px}
+
+  - id: final-label
+    type: text
+    text: "FINAL / ARCAVEX OUTPUT"
+    style: {font: Inter, font_size: 13px, font_weight: 900, color: "{{ palette.sheet[0] }}", letter_spacing: 1.1px}
+    paragraph: {align: center, direction: ltr}
+    constraints:
+      anchor: {center_x: final-label-bg.center_x, center_y: final-label-bg.center_y}
+      size: {w: 242px, h: 20px}
+
+  - id: source-field
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.sheet[3] }}"}
+    constraints:
+      anchor: {top: parent.top+235px, start: parent.start+925px}
+      size: {w: 520px, h: 332px}
+
+  - id: source-image
+    type: image
+    asset: "{{ source_image }}"
+    fit: contain
+    constraints:
+      anchor: {top: parent.top+252px, start: parent.start+942px}
+      size: {w: 486px, h: 298px}
+
+  - id: source-label
+    type: text
+    text: "NEUTRAL SOURCE / NO STYLE"
+    style: {font: Inter, font_size: 13px, font_weight: 850, color: "{{ palette.sheet[1] }}", letter_spacing: 1.2px}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+585px, start: parent.start+925px}
+      size: {w: 390px, h: 22px}
+
+  - id: process
+    type: text
+    text: "SOURCE  →  CUSTOM FILTER  →  TEMPLATE SYSTEM  →  OUTPUT"
+    style: {font: Inter, font_size: 14px, font_weight: 750, color: "{{ palette.sheet[4] }}", letter_spacing: 1px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 10px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+626px, start: parent.start+925px}
+      size: {w: 900px, h: 24px}
+
+  - id: palette-title
+    type: text
+    text: "PALETTE"
+    style: {font: Inter, font_size: 12px, font_weight: 800, color: "{{ palette.sheet[2] }}", letter_spacing: 1.5px}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+238px, start: parent.start+1500px}
+      size: {w: 180px, h: 20px}
+
+  - id: swatch-1
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette_1 }}", stroke: "#FFFFFF33", stroke_width: 1px}
+    constraints: {anchor: {top: parent.top+276px, start: parent.start+1500px}, size: {w: 64px, h: 64px}}
+  - id: swatch-2
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette_2 }}", stroke: "#FFFFFF33", stroke_width: 1px}
+    constraints: {anchor: {top: parent.top+276px, start: parent.start+1576px}, size: {w: 64px, h: 64px}}
+  - id: swatch-3
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette_3 }}", stroke: "#FFFFFF33", stroke_width: 1px}
+    constraints: {anchor: {top: parent.top+276px, start: parent.start+1652px}, size: {w: 64px, h: 64px}}
+  - id: swatch-4
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette_4 }}", stroke: "#FFFFFF33", stroke_width: 1px}
+    constraints: {anchor: {top: parent.top+276px, start: parent.start+1728px}, size: {w: 64px, h: 64px}}
+  - id: swatch-5
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette_5 }}", stroke: "#FFFFFF33", stroke_width: 1px}
+    constraints: {anchor: {top: parent.top+276px, start: parent.start+1804px}, size: {w: 50px, h: 64px}}
+
+  - id: effect-caption
+    type: text
+    text: "CUSTOM EFFECT"
+    style: {font: Inter, font_size: 12px, font_weight: 800, color: "{{ palette.sheet[2] }}", letter_spacing: 1.5px}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+694px, start: parent.start+925px}
+      size: {w: 300px, h: 20px}
+
+  - id: effect-name
+    type: text
+    text: "{{ effect_name }}"
+    style: {font: Inter, font_size: 34px, font_weight: 900, color: "{{ palette_3 }}", letter_spacing: -0.8px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 24px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+720px, start: parent.start+925px}
+      size: {w: 850px, h: 42px}
+
+  - id: filter-recipe
+    type: text
+    text: "{{ filter_recipe }}"
+    style: {font: Inter, font_size: 18px, font_weight: 500, color: "{{ palette.sheet[1] }}"}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 14px, max_lines: 2, overflow: error}
+    constraints:
+      anchor: {top: parent.top+775px, start: parent.start+925px}
+      size: {w: 900px, h: 58px}
+
+  - id: template-caption
+    type: text
+    text: "TEMPLATE SYSTEM"
+    style: {font: Inter, font_size: 12px, font_weight: 800, color: "{{ palette.sheet[2] }}", letter_spacing: 1.5px}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+862px, start: parent.start+925px}
+      size: {w: 300px, h: 20px}
+
+  - id: layout-recipe
+    type: text
+    text: "{{ layout_recipe }}"
+    style: {font: Inter, font_size: 20px, font_weight: 700, color: "{{ palette.sheet[1] }}"}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 15px, max_lines: 3, overflow: error}
+    constraints:
+      anchor: {top: parent.top+892px, start: parent.start+925px}
+      size: {w: 900px, h: 86px}
+
+  - id: proof-caption
+    type: text
+    text: "WHAT THIS PROVES"
+    style: {font: Inter, font_size: 12px, font_weight: 800, color: "{{ palette.sheet[2] }}", letter_spacing: 1.5px}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+1002px, start: parent.start+925px}
+      size: {w: 300px, h: 20px}
+
+  - id: proof
+    type: text
+    text: "{{ proof }}"
+    style: {font: Inter, font_size: 17px, font_weight: 500, color: "{{ palette.sheet[1] }}"}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 13px, max_lines: 3, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1032px, start: parent.start+925px}
+      size: {w: 900px, h: 72px}
+
+  - id: footer-rule
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.sheet[3] }}"}
+    constraints:
+      anchor: {bottom: parent.bottom-52px, start: parent.start+925px}
+      size: {w: 929px, h: 2px}
+
+  - id: file-line
+    type: text
+    text: "{{ file_line }}"
+    style: {font: Inter, font_size: 12px, font_weight: 650, color: "{{ palette.sheet[2] }}", letter_spacing: 0.8px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 9px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {bottom: parent.bottom-27px, start: parent.start+925px}
+      size: {w: 920px, h: 20px}

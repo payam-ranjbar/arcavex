@@ -1,0 +1,222 @@
+version: 0.1.0
+style: ./style-lab.yaml
+
+variables:
+  series: {type: string, required: true, doc: "Two-digit series marker"}
+  kicker: {type: string, required: true, doc: "One line, 44 characters max"}
+  title_a: {type: string, required: true, doc: "One display line, 10 characters max"}
+  title_b: {type: string, required: true, doc: "One display line, 10 characters max"}
+  subtitle: {type: string, required: true, doc: "Up to three short lines"}
+  speaker: {type: string, required: true}
+  role: {type: string, required: true}
+  date: {type: string, required: true}
+  time: {type: string, required: true}
+  venue: {type: string, required: true}
+  cta: {type: string, required: true}
+  source_image: {type: image, required: true}
+
+formats:
+  portrait:
+    canvas: {width: 1080px, height: 1350px, dpi: 96}
+
+preview_data:
+  series: "01"
+  kicker: "CITY FORM / PUBLIC LECTURE SERIES"
+  title_a: "PUBLIC"
+  title_b: "SPACE"
+  subtitle: "Who gets to shape the places we share—and what changes when more voices enter the plan?"
+  speaker: "DR. LEILA RAHIMI"
+  role: "ARCHITECT + URBAN RESEARCHER"
+  date: "17 OCT 2026"
+  time: "18:30"
+  venue: "CENTRAL LIBRARY · HALL B"
+  cta: "FREE ENTRY / REGISTER"
+  source_image: "assets/announcement-portrait-source.jpg"
+
+root:
+  type: group
+  id: root
+  children:
+  - id: background
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.swiss[0] }}"}
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: fill, h: fill}
+
+  - id: signal-rail
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.swiss[2] }}"}
+    constraints:
+      anchor: {top: parent.top, end: parent.end}
+      size: {w: 104px, h: fill}
+
+  - id: photo
+    type: image
+    asset: "{{ source_image }}"
+    fit: cover
+    effect_preset: swiss-photo
+    constraints:
+      anchor: {top: parent.top+198px, end: parent.end-104px}
+      size: {w: 552px, h: 890px}
+
+  - id: photo-rule
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.swiss[3] }}"}
+    constraints:
+      anchor: {top: parent.top+198px, start: photo.start-12px}
+      size: {w: 12px, h: 890px}
+
+  - id: series
+    type: text
+    text: "{{ series }}"
+    style: {font: Inter, font_size: 250px, font_weight: 900, color: "#B9B6AE66", letter_spacing: -12px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 180px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+142px, start: parent.start+54px}
+      size: {w: 390px, h: 245px}
+
+  - id: kicker
+    type: text
+    text: "{{ kicker }}"
+    style: {font: Inter, font_size: 17px, font_weight: 800, color: "{{ palette.swiss[1] }}", letter_spacing: 2px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 12px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+70px, start: parent.start+64px}
+      size: {w: 680px, h: 28px}
+
+  - id: top-index
+    type: text
+    text: "ARCAVEX / TEMPLATE 01"
+    style: {font: Inter, font_size: 13px, font_weight: 800, color: "{{ palette.swiss[0] }}", letter_spacing: 1.3px}
+    transform: {rotate: 90}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+92px, end: parent.end-13px}
+      size: {w: 260px, h: 20px}
+
+  - id: title-a
+    type: text
+    text: "{{ title_a }}"
+    style: {font: Inter, font_size: 93px, font_weight: 900, color: "{{ palette.swiss[1] }}", letter_spacing: -4px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 58px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+412px, start: parent.start+62px}
+      size: {w: 385px, h: 100px}
+
+  - id: title-b
+    type: text
+    text: "{{ title_b }}"
+    style: {font: Inter, font_size: 93px, font_weight: 900, color: "{{ palette.swiss[2] }}", letter_spacing: -4px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 58px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+500px, start: parent.start+62px}
+      size: {w: 385px, h: 100px}
+
+  - id: blue-dot
+    type: shape
+    shape: circle
+    style: {fill: "{{ palette.swiss[3] }}"}
+    constraints:
+      anchor: {top: parent.top+620px, start: parent.start+64px}
+      size: {w: 34px, h: 34px}
+
+  - id: subtitle
+    type: text
+    text: "{{ subtitle }}"
+    style: {font: Inter, font_size: 23px, font_weight: 550, color: "{{ palette.swiss[1] }}"}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 17px, max_lines: 4, overflow: error}
+    constraints:
+      anchor: {top: parent.top+680px, start: parent.start+64px}
+      size: {w: 330px, h: 150px}
+
+  - id: speaker-rule
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.swiss[1] }}"}
+    constraints:
+      anchor: {top: parent.top+864px, start: parent.start+64px}
+      size: {w: 338px, h: 5px}
+
+  - id: speaker
+    type: text
+    text: "{{ speaker }}"
+    style: {font: Inter, font_size: 25px, font_weight: 850, color: "{{ palette.swiss[1] }}", letter_spacing: 0.8px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 18px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+892px, start: parent.start+64px}
+      size: {w: 365px, h: 34px}
+
+  - id: role
+    type: text
+    text: "{{ role }}"
+    style: {font: Inter, font_size: 14px, font_weight: 750, color: "{{ palette.swiss[4] }}", letter_spacing: 1.4px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 10px, max_lines: 2, overflow: error}
+    constraints:
+      anchor: {top: parent.top+932px, start: parent.start+64px}
+      size: {w: 365px, h: 44px}
+
+  - id: info-field
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.swiss[1] }}"}
+    constraints:
+      anchor: {top: parent.top+1088px, start: parent.start}
+      size: {w: 976px, h: 262px}
+
+  - id: date
+    type: text
+    text: "{{ date }}"
+    style: {font: Inter, font_size: 37px, font_weight: 900, color: "{{ palette.swiss[0] }}", letter_spacing: -0.6px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 26px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1140px, start: parent.start+64px}
+      size: {w: 320px, h: 48px}
+
+  - id: time
+    type: text
+    text: "{{ time }}"
+    style: {font: Inter, font_size: 36px, font_weight: 500, color: "{{ palette.swiss[2] }}"}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+1140px, start: parent.start+405px}
+      size: {w: 180px, h: 48px}
+
+  - id: venue
+    type: text
+    text: "{{ venue }}"
+    style: {font: Inter, font_size: 18px, font_weight: 700, color: "{{ palette.swiss[0] }}", letter_spacing: 0.5px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 13px, max_lines: 2, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1210px, start: parent.start+64px}
+      size: {w: 520px, h: 55px}
+
+  - id: cta
+    type: text
+    text: "{{ cta }}"
+    style: {font: Inter, font_size: 17px, font_weight: 850, color: "{{ palette.swiss[2] }}", letter_spacing: 1.1px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 12px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1280px, start: parent.start+64px}
+      size: {w: 520px, h: 24px}
+
+  - id: footer-grid
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.swiss[3] }}"}
+    constraints:
+      anchor: {top: parent.top+1088px, end: parent.end-104px}
+      size: {w: 18px, h: 262px}

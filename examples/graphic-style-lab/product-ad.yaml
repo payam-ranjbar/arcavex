@@ -1,0 +1,203 @@
+version: 0.1.0
+style: ./style-lab.yaml
+
+variables:
+  collection: {type: string, required: true}
+  product: {type: string, required: true}
+  model: {type: string, required: true}
+  descriptor: {type: string, required: true}
+  feature_a: {type: string, required: true}
+  feature_b: {type: string, required: true}
+  cta: {type: string, required: true}
+  source_image: {type: image, required: true}
+
+formats:
+  square:
+    canvas: {width: 1080px, height: 1080px, dpi: 96}
+
+preview_data:
+  collection: "OBJECTS FOR SMALL HOURS / 2026"
+  product: "LUMA"
+  model: "01"
+  descriptor: "PORTABLE LIGHT / QUIET POWER"
+  feature_a: "12 HOUR GLOW"
+  feature_b: "WARM / COOL"
+  cta: "DISCOVER THE SERIES"
+  source_image: "assets/product-lamp-crop-source.jpg"
+
+root:
+  type: group
+  id: root
+  children:
+  - id: paper
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.riso[0] }}"}
+    effect_preset: subtle-grain
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: fill, h: fill}
+
+  - id: blue-field
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.riso[2] }}"}
+    transform: {rotate: -8}
+    constraints:
+      anchor: {top: parent.top+236px, start: parent.start+165px}
+      size: {w: 760px, h: 610px}
+
+  - id: red-disc
+    type: shape
+    shape: circle
+    style: {fill: "{{ palette.riso[3] }}"}
+    constraints:
+      anchor: {top: parent.top+290px, start: parent.start+89px}
+      size: {w: 510px, h: 510px}
+
+  - id: yellow-disc
+    type: shape
+    shape: circle
+    style: {fill: "{{ palette.riso[4] }}"}
+    constraints:
+      anchor: {top: parent.top+390px, end: parent.end-86px}
+      size: {w: 390px, h: 390px}
+
+  - id: product-photo
+    type: image
+    asset: "{{ source_image }}"
+    fit: cover
+    mask: {component: circle, params: {}}
+    effects:
+    - {preset: riso-photo}
+    - {name: drop-shadow, params: {dx: 14px, dy: 18px, blur: 0px, color: "#1B1838AA"}}
+    constraints:
+      anchor: {top: parent.top+286px, center_x: parent.center_x}
+      size: {w: 560px, h: 560px}
+
+  - id: collection
+    type: text
+    text: "{{ collection }}"
+    style: {font: Inter, font_size: 15px, font_weight: 850, color: "{{ palette.riso[1] }}", letter_spacing: 1.8px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 11px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+54px, start: parent.start+62px}
+      size: {w: 620px, h: 24px}
+
+  - id: product
+    type: text
+    text: "{{ product }}"
+    style: {font: Inter, font_size: 139px, font_weight: 900, color: "{{ palette.riso[2] }}", letter_spacing: -8px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 92px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+88px, start: parent.start+54px}
+      size: {w: 760px, h: 145px}
+
+  - id: model
+    type: text
+    text: "{{ model }}"
+    style: {font: Inter, font_size: 156px, font_weight: 900, color: "{{ palette.riso[3] }}", letter_spacing: -9px}
+    paragraph: {align: end, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 110px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+76px, end: parent.end-55px}
+      size: {w: 240px, h: 165px}
+
+  - id: descriptor-strip
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.riso[1] }}"}
+    constraints:
+      anchor: {top: parent.top+245px, start: parent.start+60px}
+      size: {w: 492px, h: 46px}
+
+  - id: descriptor
+    type: text
+    text: "{{ descriptor }}"
+    style: {font: Inter, font_size: 15px, font_weight: 850, color: "{{ palette.riso[0] }}", letter_spacing: 1.1px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 11px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {center_x: descriptor-strip.center_x, center_y: descriptor-strip.center_y}
+      size: {w: 460px, h: 22px}
+
+  - id: feature-a
+    type: text
+    text: "{{ feature_a }}"
+    style: {font: Inter, font_size: 17px, font_weight: 900, color: "{{ palette.riso[1] }}", letter_spacing: 1.2px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 13px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+852px, start: parent.start+62px}
+      size: {w: 250px, h: 26px}
+
+  - id: feature-a-line
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.riso[3] }}"}
+    constraints:
+      anchor: {top: parent.top+888px, start: parent.start+62px}
+      size: {w: 250px, h: 9px}
+
+  - id: feature-b
+    type: text
+    text: "{{ feature_b }}"
+    style: {font: Inter, font_size: 17px, font_weight: 900, color: "{{ palette.riso[1] }}", letter_spacing: 1.2px}
+    paragraph: {align: start, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 13px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+852px, start: parent.start+356px}
+      size: {w: 220px, h: 26px}
+
+  - id: feature-b-line
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.riso[2] }}"}
+    constraints:
+      anchor: {top: parent.top+888px, start: parent.start+356px}
+      size: {w: 220px, h: 9px}
+
+  - id: cta-pill
+    type: shape
+    shape: rrect
+    style: {fill: "{{ palette.riso[1] }}", corner_radius: 34px}
+    constraints:
+      anchor: {top: parent.top+950px, end: parent.end-58px}
+      size: {w: 352px, h: 68px}
+
+  - id: cta
+    type: text
+    text: "{{ cta }}"
+    style: {font: Inter, font_size: 16px, font_weight: 900, color: "{{ palette.riso[0] }}", letter_spacing: 1.3px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 12px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {center_x: cta-pill.center_x, center_y: cta-pill.center_y}
+      size: {w: 318px, h: 24px}
+
+  - id: registration-mark
+    type: shape
+    shape: circle
+    style: {fill: "#F7E9C800", stroke: "{{ palette.riso[1] }}", stroke_width: 2px}
+    constraints:
+      anchor: {bottom: parent.bottom-55px, start: parent.start+62px}
+      size: {w: 30px, h: 30px}
+
+  - id: registration-core
+    type: shape
+    shape: circle
+    style: {fill: "{{ palette.riso[3] }}"}
+    constraints:
+      anchor: {center_x: registration-mark.center_x, center_y: registration-mark.center_y}
+      size: {w: 8px, h: 8px}
+
+  - id: footer
+    type: text
+    text: "RISO REGISTER / FOUR INKS / SEED 24"
+    style: {font: Inter, font_size: 11px, font_weight: 750, color: "{{ palette.riso[1] }}", letter_spacing: 1.2px}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {bottom: parent.bottom-58px, start: parent.start+112px}
+      size: {w: 410px, h: 18px}

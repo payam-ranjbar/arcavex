@@ -1,0 +1,84 @@
+version: 0.1.0
+
+palettes:
+  swiss: ["#F3F0E8", "#111111", "#FF3B30", "#1A48FF", "#B9B6AE"]
+  xerox: ["#F4F0E6", "#111111", "#DFFF00", "#FF3FB4", "#7A7670"]
+  cinema: ["#03131C", "#0B3E4C", "#F4B56A", "#E9E3D4", "#B92B38"]
+  riso: ["#F7E9C8", "#1B1838", "#244CFF", "#FF4B45", "#F5C842"]
+  sheet: ["#101115", "#F2F0E8", "#9A9CA5", "#272931", "#66E3C4"]
+
+fonts:
+  display: [Inter, Vazirmatn]
+  body: [Inter, Vazirmatn]
+  meta: [Inter, Vazirmatn]
+
+effect_presets:
+  swiss-photo:
+    name: swiss-cut
+    params:
+      ink: "{{ palette.swiss[1] }}"
+      paper: "{{ palette.swiss[0] }}"
+      signal: "{{ palette.swiss[2] }}"
+      levels: 4
+      contrast: 1.38
+      edge_accent: 0.76
+      register_shift: 2px
+  xerox-photo:
+    name: xerox-pulse
+    params:
+      ink: "{{ palette.xerox[1] }}"
+      paper: "{{ palette.xerox[0] }}"
+      threshold: 0.54
+      contrast: 1.72
+      grit: 0.115
+      dropout: 0.022
+      slice_pitch: 31px
+      slice_shift: 4px
+  cinema-photo:
+    name: cinema-emulsion
+    params:
+      shadow: "{{ palette.cinema[0] }}"
+      mid: "{{ palette.cinema[1] }}"
+      highlight: "{{ palette.cinema[2] }}"
+      contrast: 1.27
+      source_color: 0.12
+      halation: 0.25
+      vignette: 0.34
+      grain: 0.022
+  riso-photo:
+    name: riso-register
+    params:
+      dark: "{{ palette.riso[1] }}"
+      blue: "{{ palette.riso[2] }}"
+      red: "{{ palette.riso[3] }}"
+      paper: "{{ palette.riso[0] }}"
+      contrast: 1.14
+      dither: 0.38
+      register_shift: 2.4px
+      texture: 0.022
+  subtle-grain:
+    name: grain
+    params: {amount: 0.012}
+  hard-shadow:
+    name: drop-shadow
+    params: {dx: 12px, dy: 14px, blur: 0px, color: "#111111CC"}
+  amber-halo:
+    name: glow
+    params: {radius: 12px, color: "#F4B56A66"}
+
+roles:
+  display:
+    font: display
+    font_weight: 900
+    color: "#111111"
+    align: start
+  body:
+    font: body
+    font_weight: 500
+    color: "#111111"
+    align: start
+  meta:
+    font: meta
+    font_weight: 750
+    color: "#111111"
+    align: start

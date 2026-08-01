@@ -134,6 +134,29 @@ See the [template and authoring notes](examples/future-archive-poster/),
 [custom effect](examples/future-archive-poster/extensions/archive-print/), and
 [MCP test report](examples/future-archive-poster/output/mcp-report.json).
 
+## Showcase — four styles, four real contexts
+
+The [`Graphic Style Lab`](examples/graphic-style-lab/) starts with four neutral source images and
+uses Arcavex to create four unrelated visual systems: a Swiss event announcement, xerox-punk video
+thumbnail, cinematic movie poster, and risograph product ad.
+
+![Four Arcavex graphic-style reference sheets](examples/graphic-style-lab/output/style-lab-overview.jpg)
+
+| Visual system | Context | Format | Custom effect |
+|---|---|---|---|
+| Signal Grid | Event announcement | 4:5 | `swiss-cut` |
+| Xerox Pulse | Video thumbnail | 16:9 | `xerox-pulse` |
+| Night Emulsion | Movie poster | 2:3 | `cinema-emulsion` |
+| Riso Object | Product-launch ad | 1:1 | `riso-register` |
+
+The generated inputs contain no typography or final style treatment. Arcavex applies the image
+filter, palette, composition, type hierarchy, effects, and content constraints. Each example ships
+with editable data and a source-versus-output reference sheet. The real MCP server inspected,
+validated, previewed, checked layout, and rendered all eight deliverable/reference cases; 8/8
+passed with no warnings or diagnostics, and the repeat render was byte-identical. See the
+[`style-lab-filters`](examples/graphic-style-lab/extensions/style-lab-filters/) extension and
+[`MCP report`](examples/graphic-style-lab/output/mcp-report.json).
+
 ## Commands
 
 Full flags and verified examples are in the [CLI reference](docs/cli.md); this is the overview.

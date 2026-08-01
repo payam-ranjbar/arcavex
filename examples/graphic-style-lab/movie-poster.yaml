@@ -1,0 +1,157 @@
+version: 0.1.0
+style: ./style-lab.yaml
+
+variables:
+  billing: {type: string, required: true}
+  tagline: {type: string, required: true}
+  title_a: {type: string, required: true}
+  title_b: {type: string, required: true}
+  credit: {type: string, required: true}
+  release: {type: string, required: true}
+  source_image: {type: image, required: true}
+
+formats:
+  poster:
+    canvas: {width: 1080px, height: 1620px, dpi: 96}
+
+preview_data:
+  billing: "MARA VOSS     ELIAN REED     AMIR NADER"
+  tagline: "SOME DEPARTURES ARRIVE LATE."
+  title_a: "LAST"
+  title_b: "PLATFORM"
+  credit: "A FILM BY SANA MEHRAN · MUSIC BY LEO HART · PRODUCED BY NORTHLINE PICTURES"
+  release: "OCTOBER 2026"
+  source_image: "assets/movie-platform-source.jpg"
+
+root:
+  type: group
+  id: root
+  children:
+  - id: photo
+    type: image
+    asset: "{{ source_image }}"
+    fit: cover
+    effect_preset: cinema-photo
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: fill, h: fill}
+
+  - id: top-veil
+    type: shape
+    shape: rect
+    style: {fill: "#03131CB8"}
+    constraints:
+      anchor: {top: parent.top, start: parent.start}
+      size: {w: fill, h: 250px}
+
+  - id: bottom-veil
+    type: shape
+    shape: rect
+    style: {fill: "#03131CE8"}
+    constraints:
+      anchor: {bottom: parent.bottom, start: parent.start}
+      size: {w: fill, h: 530px}
+
+  - id: amber-rule
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.cinema[2] }}"}
+    effects:
+    - {preset: amber-halo, params: {radius: 7px}}
+    constraints:
+      anchor: {top: parent.top+206px, start: parent.start+78px}
+      size: {w: 924px, h: 3px}
+
+  - id: billing
+    type: text
+    text: "{{ billing }}"
+    style: {font: Inter, font_size: 17px, font_weight: 650, color: "{{ palette.cinema[3] }}", letter_spacing: 2.6px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 11px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+84px, start: parent.start+88px}
+      size: {w: 904px, h: 28px}
+
+  - id: film-mark
+    type: shape
+    shape: circle
+    style: {fill: "#03131C00", stroke: "{{ palette.cinema[2] }}", stroke_width: 3px}
+    constraints:
+      anchor: {top: parent.top+145px, end: parent.end-78px}
+      size: {w: 44px, h: 44px}
+
+  - id: film-mark-core
+    type: shape
+    shape: circle
+    style: {fill: "{{ palette.cinema[4] }}"}
+    constraints:
+      anchor: {center_x: film-mark.center_x, center_y: film-mark.center_y}
+      size: {w: 10px, h: 10px}
+
+  - id: vertical-index
+    type: text
+    text: "FRAME 1187 / GATE 04"
+    style: {font: Inter, font_size: 12px, font_weight: 650, color: "#E9E3D4B5", letter_spacing: 2px}
+    transform: {rotate: 90}
+    paragraph: {align: start, direction: ltr}
+    constraints:
+      anchor: {top: parent.top+280px, end: parent.end-20px}
+      size: {w: 260px, h: 20px}
+
+  - id: tagline
+    type: text
+    text: "{{ tagline }}"
+    style: {font: Inter, font_size: 20px, font_weight: 500, color: "{{ palette.cinema[2] }}", letter_spacing: 3.5px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 14px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1090px, start: parent.start+105px}
+      size: {w: 870px, h: 30px}
+
+  - id: title-a
+    type: text
+    text: "{{ title_a }}"
+    style: {font: Inter, font_size: 118px, font_weight: 350, color: "{{ palette.cinema[3] }}", letter_spacing: 22px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 82px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1150px, start: parent.start+78px}
+      size: {w: 924px, h: 132px}
+
+  - id: title-b
+    type: text
+    text: "{{ title_b }}"
+    style: {font: Inter, font_size: 91px, font_weight: 760, color: "{{ palette.cinema[3] }}", letter_spacing: 8px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 58px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1270px, start: parent.start+78px}
+      size: {w: 924px, h: 106px}
+
+  - id: red-rule
+    type: shape
+    shape: rect
+    style: {fill: "{{ palette.cinema[4] }}"}
+    constraints:
+      anchor: {top: parent.top+1394px, center_x: parent.center_x}
+      size: {w: 84px, h: 5px}
+
+  - id: credit
+    type: text
+    text: "{{ credit }}"
+    style: {font: Inter, font_size: 12px, font_weight: 600, color: "#E9E3D4B5", letter_spacing: 1px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 9px, max_lines: 2, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1432px, start: parent.start+126px}
+      size: {w: 828px, h: 48px}
+
+  - id: release
+    type: text
+    text: "{{ release }}"
+    style: {font: Inter, font_size: 25px, font_weight: 800, color: "{{ palette.cinema[2] }}", letter_spacing: 5px}
+    paragraph: {align: center, direction: ltr}
+    fit: {policy: shrink_to_fit, min_size: 18px, max_lines: 1, overflow: error}
+    constraints:
+      anchor: {top: parent.top+1514px, start: parent.start+220px}
+      size: {w: 640px, h: 35px}
