@@ -79,10 +79,17 @@ class StylePack:
 def find_style_dirs() -> list[Path]:
     """Return the ordered directories style packs are read from.
 
-    ``library-seed/styles`` (located by walking up to the ``pyproject.toml`` marker) first, then
-    ``$ARCAVEX_HOME/styles`` when set — mirroring the bundled-font search.
+    The packaged ``arcavex/_bundled/styles`` directory (shipped in the wheel via
+    ``force-include``) first, then the in-repo ``library-seed/styles`` located by walking up to
+    the ``pyproject.toml`` marker, then ``$ARCAVEX_HOME/styles`` when set — mirroring the
+    bundled-font search exactly. The packaged directory is what makes an engine installed
+    outside a source checkout (a wheel, or a frozen binary) resolve the seeded packs at all;
+    the marker walk alone finds nothing there.
     """
     dirs: list[Path] = []
+    packaged = _packaged_styles_dir()
+    if packaged is not None:
+        dirs.append(packaged)
     marker = _find_repo_root()
     if marker is not None:
         seed = marker / "library-seed" / "styles"
@@ -238,6 +245,14 @@ class StyleResolver:
             shape_presets=_dict_of_dicts(raw.get("shape_presets")),
             roles=_dict_of_dicts(raw.get("roles")),
         )
+
+
+def _packaged_styles_dir() -> Path | None:
+    """Return the wheel-bundled style directory beside the installed package, if present."""
+    # ``arcavex/_bundled/styles`` is created by the wheel's force-include; it is absent in a raw
+    # source checkout, where the repo-root ``library-seed/styles`` is used instead.
+    packaged = Path(__file__).resolve().parents[1] / "_bundled" / "styles"
+    return packaged if packaged.is_dir() else None
 
 
 def _find_repo_root() -> Path | None:
