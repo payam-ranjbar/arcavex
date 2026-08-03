@@ -474,3 +474,30 @@ def test_list_effects_reports_schema(facade) -> None:  # noqa: ANN001
     assert params["blur"].default == pytest.approx(4.0)
     posterize = {p.name: p for p in by_name["posterize"].params}
     assert posterize["levels"].type == "integer" and posterize["levels"].constraint == ">=2, <=64"
+
+
+def test_blur_based_effects_declare_one_gaussian_spread() -> None:
+    """Blur, glow and drop-shadow must grow their paint region by the same multiple of sigma.
+
+    Each declares its own ``bounds_expansion``; if one used a different factor its output would
+    be clipped or over-allocated relative to the others for the same visual blur.
+    """
+    from arcavex.builtin.effects_core.composite import (
+        DropShadow,
+        DropShadowParams,
+        Glow,
+        GlowParams,
+    )
+    from arcavex.builtin.effects_core.params import GAUSSIAN_VISIBLE_SIGMAS
+    from arcavex.builtin.effects_core.raster import Blur, BlurParams
+
+    sigma = 4.0
+    blur = Blur().bounds_expansion(BlurParams(radius=sigma))
+    glow = Glow().bounds_expansion(GlowParams(radius=sigma))
+    shadow = DropShadow().bounds_expansion(DropShadowParams(blur=sigma, dx=0.0, dy=0.0))
+
+    expected = sigma * GAUSSIAN_VISIBLE_SIGMAS
+    assert blur.top == pytest.approx(expected)
+    assert glow.top == pytest.approx(expected)
+    # The shadow's expansion is its offset plus the spread; with a zero offset it is the spread.
+    assert shadow.top == pytest.approx(expected)

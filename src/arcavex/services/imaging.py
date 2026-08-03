@@ -13,6 +13,15 @@ from pathlib import Path
 import numpy as np
 import skia  # type: ignore[import-untyped]
 
+# SSIM parameters from Wang et al. 2004, the values the metric is defined with: an 11x11
+# Gaussian window at sigma 1.5, and stabilizers K1/K2 that keep the ratio finite where the local
+# mean or variance approaches zero. tests/golden/harness.py uses the same values, so a score
+# here and a golden comparison are the same measurement.
+_SSIM_WINDOW = 11
+_SSIM_SIGMA = 1.5
+_SSIM_K1 = 0.01
+_SSIM_K2 = 0.03
+
 
 def _load(path: Path) -> np.ndarray:
     image = skia.Image.open(str(path))
@@ -28,7 +37,7 @@ def _to_gray(array: np.ndarray) -> np.ndarray:
     return premul @ np.array([0.2126, 0.7152, 0.0722])
 
 
-def _gaussian_kernel(size: int = 11, sigma: float = 1.5) -> np.ndarray:
+def _gaussian_kernel(size: int = _SSIM_WINDOW, sigma: float = _SSIM_SIGMA) -> np.ndarray:
     ax = np.arange(size) - size // 2
     k = np.exp(-(ax**2) / (2 * sigma**2))
     return k / k.sum()
@@ -50,7 +59,7 @@ def _blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 def _ssim(a: np.ndarray, b: np.ndarray) -> float:
     x, y = _to_gray(a), _to_gray(b)
     kernel = _gaussian_kernel()
-    c1, c2 = 0.01**2, 0.03**2
+    c1, c2 = _SSIM_K1**2, _SSIM_K2**2
     mu_x, mu_y = _blur(x, kernel), _blur(y, kernel)
     mu_x2, mu_y2, mu_xy = mu_x**2, mu_y**2, mu_x * mu_y
     sigma_x2 = _blur(x * x, kernel) - mu_x2

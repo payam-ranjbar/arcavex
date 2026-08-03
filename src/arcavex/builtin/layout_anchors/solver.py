@@ -43,9 +43,11 @@ from arcavex.kernel.ir.models import (
     StackSpec,
     TextRun,
 )
-from arcavex.kernel.ir.units import Insets, Matrix3, Rect
+from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Insets, Matrix3, Rect
 
-_QUANT = 1024.0
+# Reciprocal of the IR's geometry quantum, so _qrect can multiply rather than divide. Both are
+# exact powers of two, so this is the same arithmetic as before the constant was shared.
+_QUANT = 1.0 / GEOMETRY_QUANTUM_PT
 _HORIZONTAL = ("left", "right", "center_x")
 _VERTICAL = ("top", "bottom", "center_y")
 # Safety margin added to a fit_content *width*. It is NOT about 1/1024pt geometry quantization

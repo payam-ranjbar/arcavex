@@ -40,7 +40,7 @@ from arcavex.kernel.ir.models import (
     LayoutDocument,
     LayoutNode,
 )
-from arcavex.kernel.ir.units import Rect
+from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Rect
 from arcavex.kernel.pipeline import layout_and_render
 from arcavex.kernel.registry import Registries
 
@@ -59,6 +59,36 @@ _DEFAULT_EXPORT_QUALITY = 90
 
 # Machine-readable responses carry this so consumers key on a version, not a shape.
 RESPONSE_VERSION = 1
+
+# ---------------------------------------------------------------- layout-inspection constants
+#
+# Tolerance for comparing resolved coordinates. The solver rounds geometry to
+# GEOMETRY_QUANTUM_PT, so an exact edge test would turn on the last bit of an accumulated
+# coordinate; ten quanta is far above that noise and still 0.0098pt — 1/7000 inch, under a
+# hundredth of a pixel at 300 dpi, so no intersection a reader could see is discarded by it.
+_GEOMETRY_EPS_PT = 10 * GEOMETRY_QUANTUM_PT
+
+# A leaf covering at least this fraction of its parent region is treated as a background, so
+# enclosing a sibling is layering rather than a collision. Area is the only signal available
+# here: nothing in the IR declares intent, and a node's own paint order says nothing about
+# whether it is a backdrop for a *sibling*. It therefore misjudges the edges in both directions —
+# a thin diagonal strip spanning the region qualifies, a true background at 0.88 does not. An
+# explicit authoring flag would replace it; see docs/backlog.md.
+_BACKDROP_AREA_FRACTION = 0.9
+
+# Resolution of the canvas-coverage grid used by `covered_fraction` and `free_regions`. 64x64
+# over the shortest supported canvas edge is a cell of a few points, fine enough to locate an
+# empty slab and coarse enough to stay O(1) per node. Coverage is therefore an approximation
+# biased upward: a node smaller than one cell still marks the whole cell.
+_COVERAGE_GRID_CELLS = 64
+
+# Reported precision of `covered_fraction`. The grid resolves 1/4096 of the canvas, so four
+# decimals report every distinguishable value and no more.
+_COVERAGE_DECIMALS = 4
+
+# Shortest run of empty grid rows reported as a free region: one row is a sliver at the
+# resolution of the grid rather than usable space.
+_MIN_FREE_BAND_ROWS = 2
 
 # A project/provenance result model — every one carries ``ok`` and ``diagnostics``, so the
 # facade's never-raises boundary helper is generic over the concrete report it returns.
@@ -2825,7 +2855,7 @@ def _collect_overlaps(
 def _is_backdrop(node: LayoutNode, content: Rect, region: object) -> bool:
     """Whether ``node`` is a backdrop-like container within ``region`` (full-bleed or a group).
 
-    Groups are structural containers, not collisions; a leaf that covers ~the whole parent
+    Groups are structural containers, not collisions; a leaf that covers nearly the whole parent
     region is a background. Either legitimately encloses siblings, so their containment is not
     reported as an overlap bug. The test reads ``content`` rather than ``paint_bounds`` so a
     generous shadow cannot promote an ordinary node into a backdrop.
@@ -2836,14 +2866,14 @@ def _is_backdrop(node: LayoutNode, content: Rect, region: object) -> bool:
     region_area = rw * rh
     if region_area <= 0:
         return False
-    return bool((content.w * content.h) >= 0.9 * region_area)
+    return bool((content.w * content.h) >= _BACKDROP_AREA_FRACTION * region_area)
 
 
 def _contains(outer: object, inner: object) -> bool:
-    """Whether ``outer`` fully contains ``inner`` (small tolerance for quantization)."""
+    """Whether ``outer`` fully contains ``inner``, within the geometry tolerance."""
     ox, oy, ow, oh = outer.x, outer.y, outer.w, outer.h  # type: ignore[attr-defined]
     ix, iy, iw, ih = inner.x, inner.y, inner.w, inner.h  # type: ignore[attr-defined]
-    eps = 0.01
+    eps = _GEOMETRY_EPS_PT
     return bool(
         ox - eps <= ix
         and oy - eps <= iy
@@ -2857,51 +2887,20 @@ def _intersection(a: object, b: object) -> tuple[float, float, float, float] | N
     bx, by, bw, bh = b.x, b.y, b.w, b.h  # type: ignore[attr-defined]
     x0, y0 = max(ax, bx), max(ay, by)
     x1, y1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
-    if x1 - x0 > 0.01 and y1 - y0 > 0.01:
+    if x1 - x0 > _GEOMETRY_EPS_PT and y1 - y0 > _GEOMETRY_EPS_PT:
         return (x0, y0, x1 - x0, y1 - y0)
     return None
 
 
-def _covered_fraction(layout: LayoutDocument, cells: int = 64) -> float:
-    """Approximate the fraction of the canvas covered by any leaf node (coarse grid)."""
-    w, h = layout.canvas.width_pt, layout.canvas.height_pt
-    if w <= 0 or h <= 0:
-        return 0.0
-    grid = [[False] * cells for _ in range(cells)]
+def _coverage_grid(layout: LayoutDocument, cells: int) -> list[list[bool]] | None:
+    """Mark a ``cells``x``cells`` grid true wherever a visible leaf node's bounds fall.
 
-    def mark(node: LayoutNode) -> None:
-        if node.children:
-            for child in node.children:
-                mark(child)
-            return
-        if not node.visible:
-            return
-        b = node.bounds
-        cx0 = max(0, int(b.x / w * cells))
-        cx1 = min(cells, int((b.x + b.w) / w * cells) + 1)
-        cy0 = max(0, int(b.y / h * cells))
-        cy1 = min(cells, int((b.y + b.h) / h * cells) + 1)
-        for cy in range(cy0, cy1):
-            for cx in range(cx0, cx1):
-                grid[cy][cx] = True
-
-    mark(layout.root)
-    covered = sum(row.count(True) for row in grid)
-    return round(covered / (cells * cells), 4)
-
-
-def _free_regions(
-    layout: LayoutDocument, cells: int = 64, min_rows: int = 2
-) -> list[tuple[float, float, float, float]]:
-    """Return maximal full-width empty horizontal bands, largest first (spec §6.1.1).
-
-    Rows of the coarse coverage grid that are entirely uncovered are merged into vertical
-    bands; a band is reported when it spans at least ``min_rows`` rows (so trivial slivers are
-    dropped). This is the summary that makes an unfilled top/bottom slab obvious.
+    ``None`` when the canvas has no area. A cell is marked if any part of a node touches it, so
+    coverage derived from this grid rounds small nodes up to a whole cell.
     """
     w, h = layout.canvas.width_pt, layout.canvas.height_pt
     if w <= 0 or h <= 0:
-        return []
+        return None
     grid = [[False] * cells for _ in range(cells)]
 
     def mark(node: LayoutNode) -> None:
@@ -2921,6 +2920,33 @@ def _free_regions(
                 grid[cy][cx] = True
 
     mark(layout.root)
+    return grid
+
+
+def _covered_fraction(layout: LayoutDocument, cells: int = _COVERAGE_GRID_CELLS) -> float:
+    """Approximate the fraction of the canvas covered by any leaf node (coarse grid)."""
+    grid = _coverage_grid(layout, cells)
+    if grid is None:
+        return 0.0
+    covered = sum(row.count(True) for row in grid)
+    return round(covered / (cells * cells), _COVERAGE_DECIMALS)
+
+
+def _free_regions(
+    layout: LayoutDocument,
+    cells: int = _COVERAGE_GRID_CELLS,
+    min_rows: int = _MIN_FREE_BAND_ROWS,
+) -> list[tuple[float, float, float, float]]:
+    """Return maximal full-width empty horizontal bands, largest first (spec §6.1.1).
+
+    Rows of the coverage grid that are entirely uncovered are merged into vertical bands; a band
+    is reported when it spans at least ``min_rows`` rows. This is the summary that makes an
+    unfilled top/bottom slab obvious.
+    """
+    w, h = layout.canvas.width_pt, layout.canvas.height_pt
+    grid = _coverage_grid(layout, cells)
+    if grid is None:
+        return []
     empty_rows = [cy for cy in range(cells) if not any(grid[cy])]
     bands: list[tuple[int, int]] = []
     run_start: int | None = None

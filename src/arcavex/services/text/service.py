@@ -33,7 +33,19 @@ _UNBOUNDED_WIDTH = 1.0e7
 # Fit tolerance in points: shaped extents within this of the box count as fitting, so
 # sub-pixel rounding never triggers a spurious overflow.
 _FIT_EPS = 0.25
+# Stop the shrink search once the bracket is narrower than this. A distinct quantity from
+# _FIT_EPS despite the equal value: this bounds how precisely the returned size is known, while
+# _FIT_EPS bounds how far a shaped extent may exceed the box. Sizes closer together than a
+# quarter point are indistinguishable once rasterized at any supported DPI.
+_SHRINK_SEARCH_EPS_PT = 0.25
+# Spec §4.3 caps measurement at 8 iterations per fit, which over the [min, base] range leaves a
+# bracket of (base - min) / 256 — finer than _SHRINK_SEARCH_EPS_PT for any realistic range, so
+# the tolerance above is what normally ends the loop and this is the hard ceiling.
 _MAX_FIT_ITERS = 8
+# Used only when the probe layout reports zero height, which SkParagraph does for a run with no
+# renderable glyphs. 1.2 is the CSS `normal` line-height default, i.e. a conventional stand-in
+# for an unmeasurable line, never a substitute for a metric the shaper did report.
+_FALLBACK_LINE_HEIGHT_RATIO = 1.2
 
 # The one file type the font database is built from. Every reader of the font store (the loader
 # below, ``arcavex font list/add/remove``) filters on this, so "what counts as a font file" has a
@@ -204,7 +216,7 @@ class TextService:
                 lo = mid
             else:
                 hi = mid
-            if hi - lo < 0.25:
+            if hi - lo < _SHRINK_SEARCH_EPS_PT:
                 break
         bw, bh, bl = best_metrics
         kind = "shrunk" if best < base_size - _FIT_EPS else "none"
@@ -333,7 +345,7 @@ class TextService:
         probe = self._build(runs, req, size)
         probe.layout(_UNBOUNDED_WIDTH)
         h = float(probe.Height)
-        return h if h > 0 else size * 1.2
+        return h if h > 0 else size * _FALLBACK_LINE_HEIGHT_RATIO
 
     def _runs_of(self, req: MeasureRequest) -> tuple[ResolvedRun, ...]:
         if req.runs:

@@ -15,6 +15,12 @@ from enum import StrEnum
 MM_PER_INCH = 25.4
 PT_PER_INCH = 72.0
 
+# Resolved geometry is rounded to this step so a layout is reproducible across platforms whose
+# floating-point accumulation differs in the last bits. A power of two, so the rounding is exact
+# in binary and introduces no error of its own. Consumers comparing resolved coordinates must
+# tolerate at least this much difference; see ``kernel.api._GEOMETRY_EPS_PT``.
+GEOMETRY_QUANTUM_PT = 1.0 / 1024.0
+
 
 class Unit(StrEnum):
     """A supported dimension unit."""

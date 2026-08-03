@@ -26,7 +26,11 @@ from arcavex.builtin.effects_core.context import (
     render_to_pool,
     rgba_to_image,
 )
-from arcavex.builtin.effects_core.params import Points, RGBAColor
+from arcavex.builtin.effects_core.params import (
+    GAUSSIAN_VISIBLE_SIGMAS,
+    Points,
+    RGBAColor,
+)
 from arcavex.kernel.contracts.spi import Effect
 from arcavex.kernel.contracts.types import EffectKind
 from arcavex.kernel.ir.units import Insets
@@ -58,9 +62,9 @@ class Blur(_RasterEffect):
     param_schema: ClassVar[type[BaseModel]] = BlurParams
 
     def bounds_expansion(self, params: BaseModel) -> Insets:
-        """Blur spreads ~3 sigma; grow the paint region by that on every side."""
+        """Grow the paint region by the blur's visible spread on every side."""
         assert isinstance(params, BlurParams)
-        pad = params.radius * 3.0
+        pad = params.radius * GAUSSIAN_VISIBLE_SIGMAS
         return Insets(pad, pad, pad, pad)
 
     def apply(self, ctx: object) -> skia.Image:

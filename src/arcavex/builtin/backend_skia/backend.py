@@ -62,6 +62,19 @@ _DEBUG_COLORS: dict[str, tuple[float, float, float, float]] = {
 _DEBUG_SAFE_AREA = (0.55, 0.55, 0.60, 1.0)
 _SAFE_MARGIN_FRAC = 0.05
 _DEBUG_LABEL_PT = 9.0
+# Debug-overlay label box, drawn only under --debug. The width is an estimate, not a measurement:
+# the overlay must not pay for shaping every label, so it multiplies the character count by a
+# mean advance-to-size ratio typical of the monospace debug face. Consequences of being wrong are
+# cosmetic — a slightly loose or tight background box behind text that is drawn either way.
+_DEBUG_LABEL_ADVANCE_RATIO = 0.62
+_DEBUG_LABEL_PAD_PT = 1.5
+_DEBUG_LABEL_LEADING_PT = 2.0
+_DEBUG_LABEL_MAX_W_PT = 400.0
+# Deconfliction: step a colliding label down a row, and on reaching the bottom edge start a new
+# column half a label to the right. Bounded so a dense scene cannot spin; labels that exhaust the
+# attempts simply overlap.
+_DEBUG_LABEL_PLACEMENT_TRIES = 32
+_DEBUG_LABEL_COLUMN_STEP = 0.5
 _EMPTY_PLAN = EffectPlan()
 
 
@@ -542,17 +555,20 @@ def _place_label(
     on-canvas, then stepped downward past any already-placed label until it finds a free row.
     Placement is a pure function of document order, so it stays deterministic.
     """
-    lw = min(400.0, 1.5 + len(label) * _DEBUG_LABEL_PT * 0.62)
-    lh = _DEBUG_LABEL_PT + 2.0
+    lw = min(
+        _DEBUG_LABEL_MAX_W_PT,
+        _DEBUG_LABEL_PAD_PT + len(label) * _DEBUG_LABEL_PT * _DEBUG_LABEL_ADVANCE_RATIO,
+    )
+    lh = _DEBUG_LABEL_PT + _DEBUG_LABEL_LEADING_PT
     x = max(0.0, min(x0, canvas_w - lw))
     y = max(0.0, min(y0, canvas_h - lh))
-    for _ in range(32):
+    for _ in range(_DEBUG_LABEL_PLACEMENT_TRIES):
         if not any(_rects_overlap((x, y, lw, lh), p) for p in placed):
             break
         y += lh
         if y + lh > canvas_h:
             # Ran out of room downward: shift right and restart near the original row.
-            x = min(x + lw * 0.5, canvas_w - lw)
+            x = min(x + lw * _DEBUG_LABEL_COLUMN_STEP, canvas_w - lw)
             y = max(0.0, min(y0, canvas_h - lh))
     placed.append((x, y, lw, lh))
     return x, y

@@ -113,3 +113,17 @@ def test_the_no_op_form_is_still_a_no_op() -> None:
     assert completed.stdout.strip() == "", (
         "`python -m importlinter.cli lint` now produces output; re-evaluate the Makefile comment"
     )
+
+
+def test_solver_quantum_matches_the_ir_contract() -> None:
+    """The solver's rounding step is the quantum consumers are told to tolerate.
+
+    `kernel.api` sizes its geometry tolerance from `GEOMETRY_QUANTUM_PT`. If the solver rounded
+    to a coarser step, exact-edge comparisons would start flipping on quantization noise.
+    """
+    from arcavex.builtin.layout_anchors.solver import _QUANT
+    from arcavex.kernel.api import _GEOMETRY_EPS_PT
+    from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT
+
+    assert _QUANT == 1.0 / GEOMETRY_QUANTUM_PT
+    assert _GEOMETRY_EPS_PT > GEOMETRY_QUANTUM_PT

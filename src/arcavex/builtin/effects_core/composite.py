@@ -16,13 +16,15 @@ import skia  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field
 
 from arcavex.builtin.effects_core.context import CompositeContext, render_to_pool
-from arcavex.builtin.effects_core.params import Points, RGBAColor
+from arcavex.builtin.effects_core.params import (
+    GAUSSIAN_VISIBLE_SIGMAS,
+    Points,
+    RGBAColor,
+)
 from arcavex.kernel.contracts.spi import Effect
 from arcavex.kernel.contracts.types import EffectKind
 from arcavex.kernel.ir.units import Insets
 from arcavex.kernel.ir.units import pt_to_px as _pt_to_px
-
-_SPREAD = 3.0  # a Gaussian's visible reach in sigmas
 
 
 def _color4f(rgba: tuple[float, float, float, float]) -> skia.Color4f:
@@ -55,7 +57,7 @@ class DropShadow(_CompositeEffect):
     def bounds_expansion(self, params: BaseModel) -> Insets:
         """Grow only toward where the blurred, offset shadow actually falls."""
         assert isinstance(params, DropShadowParams)
-        spread = params.blur * _SPREAD
+        spread = params.blur * GAUSSIAN_VISIBLE_SIGMAS
         dx, dy = params.dx, params.dy
         return Insets(
             top=max(0.0, -dy) + spread,
@@ -102,7 +104,7 @@ class Glow(_CompositeEffect):
     def bounds_expansion(self, params: BaseModel) -> Insets:
         """The halo reaches ~3 sigma on every side."""
         assert isinstance(params, GlowParams)
-        pad = params.radius * _SPREAD
+        pad = params.radius * GAUSSIAN_VISIBLE_SIGMAS
         return Insets(pad, pad, pad, pad)
 
     def apply(self, ctx: object) -> skia.Image:
