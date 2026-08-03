@@ -136,7 +136,10 @@ jobs:
             --data examples/ipen-bilingual/data.yaml \
             --format a4 --locale fa -o /tmp/installed.pdf
           test -s /tmp/installed.pdf
-          uv run --python /tmp/arcavex-install python - <<'PY'
+          # The venv interpreter directly, not `uv run python`: inside a project directory the
+          # latter resolves imports against the project environment, so pypdfium2 — installed
+          # into this venv alongside the wheel — is not importable there.
+          /tmp/arcavex-install/bin/python - <<'PY'
           import pypdfium2 as pdfium
 
           doc = pdfium.PdfDocument("/tmp/installed.pdf")
