@@ -33,6 +33,12 @@ jobs:
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
             platform_tag: linux-aarch64
+          # Windows is the declared reference platform, and every encoding/newline defect found
+          # in the readiness audit (child-process decode, generated-doc line endings, a contract
+          # check that printed nothing and exited 0) was invisible to a POSIX-only matrix.
+          - name: windows-x86_64
+            runner: windows-latest
+            platform_tag: win-x86_64
     steps:
       - uses: actions/checkout@v4
 
