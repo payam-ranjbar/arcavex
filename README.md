@@ -5,6 +5,12 @@ Local-first, headless, deterministic, template-driven rendering engine built on 
 A one-file YAML template plus data renders to an image or PDF with no project or configuration
 required.
 
+Arcavex is the substrate a designer — human or AI — works *on*: byte-reproducible output, an
+inspectable layout model, coded diagnostics, and recorded provenance, reachable from a CLI and an
+MCP server. It checks that a design is well-formed; it does not judge whether it is any good, and
+[says so plainly](docs/known-limitations.md#validation-checks-geometry-not-design). Something still
+has to look at the picture.
+
 ```bash
 arcavex render examples/hello-poster/template.yaml \
     --data examples/hello-poster/data.yaml --format square -o out.png
@@ -41,7 +47,7 @@ Everything below is reachable within two clicks from this index.
 | [Diagnostics](docs/diagnostics.md) | The coded-diagnostic catalog, exit codes, and `explain`. |
 | [Architecture](docs/architecture.md) | The microkernel map, pipeline, SPI contracts, determinism, provenance. |
 | [Extension guide](docs/extension-guide.md) | Trusted local extensions: the SDK, manifest, gates, trust model. |
-| [Known limitations](docs/known-limitations.md) | Honest list of what is deferred and where perf misses. |
+| [Known limitations](docs/known-limitations.md) | Honest list of what is deferred, where perf misses, and [why validation checks geometry rather than design](docs/known-limitations.md#validation-checks-geometry-not-design). |
 | [Performance](docs/performance.md) | Measured actuals vs the spec §8.2 targets. |
 | [Testing](docs/testing.md) | The test layers and the per-platform golden strategy. |
 | [Packaged install](docs/packaged-install.md) | The clean-venv wheel transcript (byte-identical proof). |

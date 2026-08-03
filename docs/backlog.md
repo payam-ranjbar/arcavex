@@ -14,6 +14,34 @@ during reviews. Nothing here is required v1 scope.
 - Automatic installation of older engine versions for compatibility reruns (§12 open)
 - Hyphenation (unless a concrete template requires it — none did in v1)
 
+## Candidate: a narrow `audit` command (not committed)
+
+From the readiness audit's P3-2. Validation checks that a design is well-formed, never whether it
+is good — see
+[known-limitations.md](known-limitations.md#validation-checks-geometry-not-design) for why that
+boundary is deliberate. The only extension of it that would not compromise determinism is a
+command limited to objective, testable checks:
+
+- WCAG contrast per text node against its resolved backdrop
+- minimum rendered cap-height at a declared viewing scale ("this 15px label is illegible in feed")
+- declared safe-area assertions (`safe_area:` per format, machine-checked rather than
+  hand-computed)
+- optical-margin deviation between text left edges in one column
+
+Anything beyond those four becomes opinion. Rough estimate ~1 week. Not scheduled, and not a
+prerequisite for anything.
+
+## Candidate: image preparation (P3-1 tier two, not committed)
+
+`ARC-AST-020` (shipped) warns that an asset is mostly transparent padding. The two larger pieces
+behind it are not built:
+
+- **`fit: content-box`** — fit the opaque bounding box rather than the declared canvas, which
+  removes the need to pre-trim at all. ~2 days.
+- **`asset prep` subcommands** (`trim-alpha`, `chroma-key`, `focal-crop`) feeding the annotations
+  `asset annotate` already accepts. ~1 week. The audit had to write both of these as throwaway
+  scripts outside the engine to finish an ordinary poster.
+
 ## Landed in Phase 7 (was deferred)
 
 - **Derived-variant asset cache (§4.7)** and **per-render resource budgets (§8.3)** — both shipped
