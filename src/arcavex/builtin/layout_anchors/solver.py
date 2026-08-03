@@ -639,7 +639,10 @@ class AnchorLayoutSolver(LayoutSolver):
                         f"(still {result.height_pt:.1f}pt tall at min size in a "
                         f"{bounds.h:.1f}pt box)",
                         severity="warning",
-                        hint="Raise min_size, enlarge the box, or switch to truncate.",
+                        hint=(
+                            "Lower min_size (it is the shrink floor, so raising it makes this "
+                            "worse), enlarge the box, or switch to truncate."
+                        ),
                         **_loc(node),
                     )
                 )

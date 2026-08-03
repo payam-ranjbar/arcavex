@@ -45,6 +45,49 @@ def test_shrink_to_fit_non_convergence() -> None:
     assert res.overflow_kind == "overflowing"
 
 
+# --------------------------------------------- ARC-LAY-051 points the right way (P1-3)
+#
+# The catalog used to advise "Raise min_size so a fitting size exists". 'min_size' is the *floor*
+# of the shrink search, so raising it deletes the only candidates that could still fit: following
+# the hint made the failure monotonically worse. These tests pin the direction behaviourally, not
+# just as wording, so the advice cannot invert again without a red test.
+_NON_CONVERGENT = {
+    "text": "Way too much text to ever fit here at all no matter what",
+    "font_size_pt": 40.0,
+    "max_width_pt": 60.0,
+    "max_height_pt": 60.0,
+    "fit_policy": "shrink_to_fit",
+}
+
+
+def test_lowering_min_size_is_what_makes_the_text_fit() -> None:
+    """The direction ARC-LAY-051 must recommend, measured rather than asserted."""
+    too_high = _measure(**_NON_CONVERGENT, min_size_pt=20.0)
+    assert too_high.converged is False
+
+    lowered = _measure(**_NON_CONVERGENT, min_size_pt=8.0)
+    assert lowered.converged is True
+    assert lowered.overflow_kind == "shrunk"
+
+
+def test_raising_min_size_is_monotonically_worse() -> None:
+    """Every step up the floor makes the overflow larger — never smaller."""
+    heights = [
+        _measure(**_NON_CONVERGENT, min_size_pt=floor).height_pt for floor in (12.0, 20.0, 30.0)
+    ]
+    assert heights == sorted(heights), heights
+    assert all(h > _NON_CONVERGENT["max_height_pt"] for h in heights)
+
+
+def test_lay051_hint_recommends_lowering_min_size() -> None:
+    """Both the catalog entry and the solver's raise-site hint must say lower, not raise."""
+    from arcavex.services.diagnostics_catalog import CATALOG
+
+    fix = CATALOG["ARC-LAY-051"].fix
+    assert "Lower min_size" in fix
+    assert "Raise min_size" not in fix
+
+
 def test_truncate_appends_ellipsis() -> None:
     res = _measure(
         text="This is a long line that should be truncated with an ellipsis",
@@ -217,6 +260,27 @@ def test_genuine_box_overflow_still_raises_lay050(tmp_path: Path) -> None:
 """,
         )
     assert exc.value.diagnostics[0].code == "ARC-LAY-050"
+
+
+def test_lay051_solver_hint_recommends_lowering_min_size(tmp_path: Path) -> None:
+    """The warning an author actually reads at the raise site, not just the catalog page."""
+    layout = _solve(
+        tmp_path,
+        """
+    - id: t
+      type: text
+      text: "Way too much text to ever fit here at all no matter what"
+      style: {font: Inter, font_size: 40pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 20pt, overflow: allow}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 60pt, h: 60pt}
+""",
+    )
+    warning = next(w for w in layout.warnings if w.code == "ARC-LAY-051")
+    assert warning.hint is not None
+    assert "Lower min_size" in warning.hint
+    assert "Raise min_size" not in warning.hint
 
 
 def test_box_too_narrow_for_one_glyph_still_raises_lay050(tmp_path: Path) -> None:
