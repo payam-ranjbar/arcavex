@@ -59,11 +59,36 @@ copy. Background: [ADR-0001](adr/0001-skia-python-144-platform-baseline.md).
 
 ## Fonts
 
-Four families are bundled and are the only fonts the shaper uses (no system-font fallback, for
-determinism): **Estedad**, **Inter**, **Lalezar**, **Vazirmatn**. They are discovered from
-`arcavex/_bundled/fonts/` when installed and from `library-seed/fonts/` when run from the repo, so an
-installed engine and a dev checkout render from the same families. `$ARCAVEX_HOME/fonts` is always
-additionally consulted. A text node requesting a family that is not available reports `ARC-RND-010`.
+Four families are bundled: **Estedad**, **Inter**, **Lalezar**, **Vazirmatn**. Together with any
+you install, they are the only fonts the shaper uses — there is no system-font fallback, because
+determinism requires it, so a typeface merely installed on the operating system will not resolve.
+Bundled families are discovered from `arcavex/_bundled/fonts/` when installed and from
+`library-seed/fonts/` when run from the repo, so an installed engine and a dev checkout render from
+the same families. The Arcavex home's `fonts/` directory is always additionally consulted.
+
+`arcavex font list` reports every available family and names the install directory:
+
+```console
+$ arcavex font list
+Estedad bundled (3 file(s))
+  …
+install fonts into: C:\Users\you\.arcavex\fonts
+add one with: arcavex font add <path/to/font.ttf>
+```
+
+To use any other typeface, install it. `add` reports the family name to write in `style.font`,
+read from the file itself — a file stem and its internal family name routinely differ:
+
+```console
+$ arcavex font add ~/Downloads/Lateef-Regular.ttf --license ~/Downloads/OFL.txt
+Installed Lateef into C:\Users\you\.arcavex\fonts
+  use it in a template as: style: {font: Lateef}
+```
+
+`--license` copies the licence alongside the font, the convention the bundled OFL licences follow.
+`arcavex font remove FAMILY` removes an installed family; a bundled one is refused. A text node
+requesting a family that is not available reports `ARC-RND-010`, whose hint lists the nearest
+available families and points at `arcavex font add`. Full reference: [cli.md](cli.md#font).
 
 ## Configuration home
 

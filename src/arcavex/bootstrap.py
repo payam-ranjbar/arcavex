@@ -30,6 +30,7 @@ from arcavex.services.config import RuntimeConfig
 from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
 from arcavex.services.extensions import ExtensionService, load_enabled_extensions
+from arcavex.services.fonts import FontService
 from arcavex.services.library import Library
 from arcavex.services.orchestrator import Orchestrator
 from arcavex.services.pipeline import render_to_file
@@ -169,6 +170,9 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         orchestrator=orchestrator,
         extensions=ExtensionService(builtin_names=_builtin_component_names()),
         extension_load_diagnostics=extension_load_diagnostics,
+        # Font management resolves its directories on every call rather than capturing the ones
+        # this engine loaded, so 'font add' always writes to the home currently in effect.
+        fonts=FontService(),
         budget=budget,
         engine_version=engine_version(),
     )

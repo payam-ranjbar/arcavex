@@ -295,6 +295,83 @@ class EffectListReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+# ----------------------------------------------------------------------------- fonts (§4.3)
+class FontFileInfo(BaseModel):
+    """One font file backing a family, and whether it came from the install directory."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    path: str
+    installed: bool
+
+
+class FontFamilyInfo(BaseModel):
+    """A resolvable font family: its files, and where they came from.
+
+    ``bundled`` and ``installed`` are separate flags rather than one enum because they are not
+    exclusive — installing an extra weight of a bundled family is legitimate, and a single
+    "source" field would have to misreport that case.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    family: str
+    bundled: bool
+    installed: bool
+    files: list[FontFileInfo] = Field(default_factory=list)
+
+
+class FontListReport(BaseModel):
+    """The result of ``arcavex font list`` — every family the shaper will resolve.
+
+    ``install_dir`` names the directory ``font add`` writes to, so "where do I put a font?" is
+    answered by the output rather than by prose buried in the docs.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    install_dir: str
+    families: list[FontFamilyInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class FontActionReport(BaseModel):
+    """The result of ``arcavex font add`` / ``arcavex font remove``.
+
+    ``family`` is the name the ENGINE resolves for the font — read from the file with the shaper's
+    own resolver, never guessed from the filename — because that is the name a template must
+    write in ``style.font``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    family: str | None = None
+    files: list[str] = Field(default_factory=list)
+    license: str | None = None
+    install_dir: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class FontServiceProtocol(Protocol):
+    """The font install/inspect service injected by bootstrap (spec §4.3).
+
+    Every method returns a versioned kernel result model and does not raise across the facade
+    boundary. The concrete implementation lives in ``services.fonts`` and reads/writes the font
+    store under the Arcavex home.
+    """
+
+    def list_fonts(self) -> FontListReport: ...
+
+    def add_font(self, source: Path, license_path: Path | None) -> FontActionReport: ...
+
+    def remove_font(self, family: str) -> FontActionReport: ...
+
+
 class RenderResult(BaseModel):
     """The result of a render request."""
 
@@ -1280,6 +1357,7 @@ class Facade:
         orchestrator: OrchestratorProtocol | None = None,
         extensions: ExtensionServiceProtocol | None = None,
         extension_load_diagnostics: list[Diagnostic] | None = None,
+        fonts: FontServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
     ) -> None:
@@ -1309,6 +1387,7 @@ class Facade:
         self._orchestrator = orchestrator
         self._extensions = extensions
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
+        self._fonts = fonts
         self._budget = budget
         self._engine_version = engine_version
 
@@ -1832,6 +1911,44 @@ class Facade:
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return ExtensionActionReport(
                 ok=False, diagnostics=[internal_error("ext disable failed", detail=repr(exc))]
+            )
+
+    # ----------------------------------------------------------------------- fonts (§4.3)
+    def list_fonts(self) -> FontListReport:
+        """List every resolvable font family, bundled or installed (spec §4.3). Never raises."""
+        if self._fonts is None:  # pragma: no cover - always wired in production
+            return FontListReport(ok=False, install_dir="", diagnostics=[_unwired("fonts")])
+        try:
+            return self._fonts.list_fonts()
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontListReport(
+                ok=False,
+                install_dir="",
+                diagnostics=[internal_error("font list failed", detail=repr(exc))],
+            )
+
+    def add_font(self, source: Path, license_path: Path | None = None) -> FontActionReport:
+        """Install a font into the Arcavex home and report its resolved family. Never raises."""
+        if self._fonts is None:  # pragma: no cover - always wired in production
+            return FontActionReport(ok=False, diagnostics=[_unwired("fonts")])
+        try:
+            return self._fonts.add_font(
+                Path(source), None if license_path is None else Path(license_path)
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontActionReport(
+                ok=False, diagnostics=[internal_error("font add failed", detail=repr(exc))]
+            )
+
+    def remove_font(self, family: str) -> FontActionReport:
+        """Remove an installed font family; a bundled family is refused. Never raises."""
+        if self._fonts is None:  # pragma: no cover - always wired in production
+            return FontActionReport(ok=False, diagnostics=[_unwired("fonts")])
+        try:
+            return self._fonts.remove_font(family)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontActionReport(
+                ok=False, diagnostics=[internal_error("font remove failed", detail=repr(exc))]
             )
 
     def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:

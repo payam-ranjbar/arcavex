@@ -2713,7 +2713,6 @@ class Compiler:
             return
         for family in families:
             if family not in self._available_fonts:
-                available = ", ".join(sorted(self._available_fonts)) or "(none)"
                 raise DiagnosticError(
                     diagnostic(
                         MISSING_FONT_CODE,
@@ -2722,7 +2721,7 @@ class Compiler:
                         file=str(template),
                         keypath=f"{style_kp}.font",
                         line=line,
-                        hint=f"Available families: {available}.",
+                        hint=_missing_font_hint(family, self._available_fonts),
                     )
                 )
 
@@ -2923,6 +2922,27 @@ def _did_you_mean(name: str, context: dict[str, Any]) -> str:
     candidates = [k for k in context if isinstance(k, str) and k != "loop"]
     matches = difflib.get_close_matches(name, candidates, n=1)
     return f" Did you mean {matches[0]!r}?" if matches else ""
+
+
+def _missing_font_hint(requested: str, available: frozenset[str]) -> str:
+    """Build the ARC-RND-010 hint: nearest families, the full list, and how to install one.
+
+    Rendering is confined to the loaded families, so an author hitting this needs two answers:
+    "did I mistype an available family?" and "how do I install the one I actually want?". The
+    nearest matches come first because a typo is the common case, and ``arcavex font add`` is
+    named because otherwise the only route to a non-bundled typeface was prose in the docs
+    (P2-2) — the list alone silently implies the set is closed, which it is not.
+    """
+    import difflib
+
+    names = sorted(available)
+    parts: list[str] = []
+    nearest = difflib.get_close_matches(requested, names, n=3)
+    if nearest:
+        parts.append(f"Closest installed families: {', '.join(nearest)}.")
+    parts.append(f"Available families: {', '.join(names) or '(none)'}.")
+    parts.append("Install another with 'arcavex font add <path/to/font.ttf>'.")
+    return " ".join(parts)
 
 
 def _expr_hint(exc: ExpressionError) -> str | None:

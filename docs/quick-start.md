@@ -113,7 +113,45 @@ Rendered poster.pdf
 Every format is deterministic: identical inputs produce byte-identical files, with no embedded
 timestamps or run ids.
 
-## 6. Ask where a value came from, and what an error means
+## 6. Use a font that is not bundled
+
+Four families ship with the engine, and they are the only fonts a template may name until you
+install more — system fonts are never used, because determinism requires it. `font list` shows
+what is available and where new fonts go:
+
+```console
+$ arcavex font list
+Estedad bundled (3 file(s))
+  …
+Inter bundled (5 file(s))
+  …
+install fonts into: C:\Users\you\.arcavex\fonts
+add one with: arcavex font add <path/to/font.ttf>
+```
+
+Installing one reports the family name to write in `style.font` — read from the file itself,
+because the filename and the internal family name are often different:
+
+```console
+$ arcavex font add ~/Downloads/Lateef-Regular.ttf --license ~/Downloads/OFL.txt
+Installed Lateef into C:\Users\you\.arcavex\fonts
+  use it in a template as: style: {font: Lateef}
+```
+
+That family now resolves in any template (`style: {font: Lateef}`). Naming one that is not
+installed is `ARC-RND-010`, and the hint lists the nearest available families:
+
+```console
+$ arcavex render mytpl.yaml -f square -o out.png
+ERROR ARC-RND-010 Node 'title' requests font family 'Intr', which is not in the
+bundled font database (mytpl.yaml, line 11, at root.children[0].style.font)
+  hint: Closest installed families: Inter. Available families: Estedad, Inter,
+Lalezar, Vazirmatn. Install another with 'arcavex font add <path/to/font.ttf>'.
+```
+
+`arcavex font remove FAMILY` removes one you installed; a bundled family is refused.
+
+## 7. Ask where a value came from, and what an error means
 
 `template inspect --resolved` reports the resolved direction/digits and each applied patch with its
 originating layer — the answer to "why is this value what it is?":
