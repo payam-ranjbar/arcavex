@@ -676,33 +676,50 @@ class AnchorLayoutSolver(LayoutSolver):
     ) -> NoReturn:
         """Raise the overflow error that names the constraint actually blocking the fit.
 
-        Two genuinely different failures reach here. When 'shrink_to_fit' bottomed out at its
-        min_size floor and the text *still* wraps onto more lines than 'max_lines' allows —
-        while every line does fit the box width — the binding constraint is the line cap, not
-        the box. The measured height in that state is simply what those lines occupy, so
-        quoting a measured-vs-box height pair points at the one dimension that cannot fix it:
-        enlarging the box height leaves the cap violated and re-reports the same number
-        (ARC-LAY-057). Every other case is a real box-geometry overflow and keeps ARC-LAY-050,
-        whose measured-vs-box extents are the useful thing to show.
+        Two genuinely different failures reach here. When the text wraps onto more lines than
+        'max_lines' allows — while every line does fit the box width — the binding constraint is
+        the line cap, not the box. The measured height in that state is simply what those lines
+        occupy, so quoting a measured-vs-box height pair points at the one dimension that cannot
+        fix it: enlarging the box height leaves the cap violated and re-reports the same number
+        (ARC-LAY-057). Measured on the case that prompted this, a 1-line cap on text needing 4
+        lines reported the identical 76.0pt at box heights of 60, 80, 200 and 400pt.
+
+        This holds for both policies that can reach the cap. Under 'shrink_to_fit' the search
+        must first have bottomed out at its min_size floor — while it is still shrinking, the
+        line count is not yet final. Under 'wrap' there is no search, so the authored size is
+        the size, and the remedies differ accordingly: there is no floor to lower.
+
+        Every other case is a real box-geometry overflow and keeps ARC-LAY-050, whose
+        measured-vs-box extents are the useful thing to show.
         """
         max_lines = node.fit.max_lines
         # The width comparison reuses _FIT_WIDTH_MARGIN for the reason it exists: absorbing
         # SkParagraph's longest-line-vs-max-width boundary jitter, the same comparison made here.
-        if (
-            node.fit.policy == "shrink_to_fit"
-            and not result.converged
+        line_cap_is_binding = (
+            node.fit.policy in ("shrink_to_fit", "wrap")
             and max_lines is not None
             and result.line_count > max_lines
             and result.width_pt <= bounds.w + _FIT_WIDTH_MARGIN
-        ):
+            # A shrink search that is still converging has not reached its final line count.
+            and not (node.fit.policy == "shrink_to_fit" and result.converged)
+        )
+        if line_cap_is_binding:
+            if node.fit.policy == "shrink_to_fit":
+                where = f"at its {result.resolved_size_pt:.1f}pt shrink floor"
+                remedies = "Widen the box, lower 'fit.min_size', or raise 'max_lines'."
+            else:
+                where = f"at {result.resolved_size_pt:.1f}pt"
+                remedies = (
+                    "Widen the box, reduce the font size, switch to "
+                    "'policy: shrink_to_fit' with a 'min_size' so the text can shrink into the "
+                    "cap, or raise 'max_lines'."
+                )
             raise DiagnosticError(
                 diagnostic(
                     "ARC-LAY-057",
-                    f"Text node {node.id!r} still needs {result.line_count} lines at its "
-                    f"{result.resolved_size_pt:.1f}pt shrink floor but 'max_lines' is "
-                    f"{max_lines}, and overflow is 'error'",
-                    hint="Widen the box, lower 'fit.min_size', or raise 'max_lines'. "
-                    "Enlarging the box height will not help.",
+                    f"Text node {node.id!r} still needs {result.line_count} lines {where} "
+                    f"but 'max_lines' is {max_lines}, and overflow is 'error'",
+                    hint=f"{remedies} Enlarging the box height will not help.",
                     **_loc(node),
                 )
             )
