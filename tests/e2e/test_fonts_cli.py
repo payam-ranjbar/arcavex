@@ -1,4 +1,4 @@
-"""End-to-end font installation workflow (P2-2).
+"""End-to-end font installation workflow.
 
 Drives the Typer app in-process with an isolated ``$ARCAVEX_HOME`` — via the shared
 ``arcavex_home`` fixture — so no test ever writes into the developer's real font store. Covers
@@ -86,7 +86,7 @@ def test_font_list_shows_bundled_families(arcavex_home: Path) -> None:
 
 
 def test_font_list_names_the_install_directory(arcavex_home: Path) -> None:
-    """The report names where 'font add' writes — the answer 'doctor' never gave (P2-2)."""
+    """The report names the directory 'font add' writes to; 'doctor' reports only a count."""
     result = runner.invoke(app, ["font", "list", "--json"])
     assert result.exit_code == 0, result.output
     install_dir = Path(json.loads(result.stdout)["install_dir"])
@@ -106,7 +106,7 @@ def test_font_list_human_output_marks_bundled_vs_installed(arcavex_home: Path) -
 def test_font_add_reports_family_as_the_engine_resolves_it(
     arcavex_home: Path, tmp_path: Path
 ) -> None:
-    """The reported name is the internal family, never the file stem (the P2-2 trap)."""
+    """The reported name is the internal family, never the file stem."""
     source = _renamed_copy(tmp_path, "MyCoolFont-Regular.ttf")
     result = runner.invoke(app, ["font", "add", str(source), "--json"])
     assert result.exit_code == 0, result.output

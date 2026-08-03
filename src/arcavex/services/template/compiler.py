@@ -122,7 +122,7 @@ _MASK_KEYS = frozenset({"component", "params"})
 _TRANSFORM_KEYS = frozenset({"rotate", "scale", "translate", "origin"})
 _PADDING_KEYS = frozenset({"top", "right", "bottom", "left"})
 
-# Outer authoring scopes (P0-1). Until these existed strictness was the exception rather than
+# Outer authoring scopes. Until these existed strictness was the exception rather than
 # the rule: it held only where a whitelist constant happened to exist, so an invented field at
 # node/root/format/canvas/variable/effect level validated clean and then did nothing — the
 # failure mode ARC-TPL-051's own catalog text promises the engine does not have. Every mapping
@@ -162,7 +162,7 @@ _CANVAS_KEYS = frozenset({"width", "height", "dpi", "bleed"})
 _VARIABLE_KEYS = frozenset({"type", "required", "default", "doc", "enum"})
 _EFFECT_KEYS = frozenset({"name", "params", "preset"})
 
-# Wrong-scope hints for ARC-TPL-064 (P0-1). A generic rejection tells an author the field is
+# Wrong-scope hints for ARC-TPL-064. A generic rejection tells an author the field is
 # wrong; these tell them where it actually goes, which is the difference between one failed
 # validate and a rebuilt mental model. Keyed by the invented spelling an author (very often an
 # LLM carrying habits over from another template language) is most likely to reach for.
@@ -1251,7 +1251,7 @@ class Compiler:
                 )
             )
         # Runs once the id and kind are known so the rejection can name the node and list the
-        # vocabulary for *this* kind (P0-1). Structural constructs never reach here: they are
+        # vocabulary for *this* kind. Structural constructs never reach here: they are
         # expanded by _expand_child, which hands _build_node the construct's inner 'node'.
         self._reject_unknown_node_fields(raw, str(node_type), template, node_id, keypath)
 
@@ -1400,8 +1400,6 @@ class Compiler:
                         hint="Use 'fill', 'contain', or 'cover'.",
                     )
                 )
-            # ARC-AST-020, raised here rather than at render time so 'validate' catches it too:
-            # a mostly-transparent asset under contain/cover renders correctly and uselessly.
             padding = padding_warning(
                 resolved_asset,
                 node_id=node_id,
@@ -1762,7 +1760,7 @@ class Compiler:
     def _reject_unknown_node_fields(
         self, raw: dict[str, Any], node_type: str, template: Path, node_id: str, keypath: str
     ) -> None:
-        """Reject any node-level field the compiler does not read (ARC-TPL-064, P0-1).
+        """Reject any node-level field the compiler does not read (ARC-TPL-064).
 
         The node top level is where an AI author invents fields, so a plain "unknown field" is
         the least useful thing to say. Three answers are tried in order of how much they tell
@@ -1807,7 +1805,7 @@ class Compiler:
             )
 
     def _validate_authoring_surface(self, source: TemplateSource) -> None:
-        """Reject unknown keys in the template-level scopes (P0-1).
+        """Reject unknown keys in the template-level scopes.
 
         Covers the template root, every declared format and its canvas, and every variable
         declaration. Formats are checked in full rather than only the one being resolved, so
@@ -1884,7 +1882,7 @@ class Compiler:
             # Checked against the *authored* list, not the merged `entries`, so the reported
             # index matches what the author wrote even when an `effect_preset` shorthand has
             # prepended a synthesized entry. Runs before the no-registry early return below so
-            # a junk key is rejected in isolated unit tests too (P0-1).
+            # a junk key is rejected in isolated unit tests too.
             for i, entry in enumerate(raw_effects):
                 if isinstance(entry, dict):
                     self._reject_unknown_keys(
@@ -2755,7 +2753,7 @@ class Compiler:
         This turns a misspelled field (``font_wieght``, ``kerning``) into an authoring error at
         validation time rather than a silently ignored no-op.
 
-        ``code`` and ``subject`` let the outer authoring scopes (P0-1) reuse this raiser while
+        ``code`` and ``subject`` let the outer authoring scopes reuse this raiser while
         still reporting themselves accurately: a template root or a variable declaration is not
         a node, so it gets its own code and its own "Template"/"Variable 'x'" subject instead of
         the node-level default.
@@ -3190,7 +3188,7 @@ def _missing_font_hint(requested: str, available: frozenset[str]) -> str:
     "did I mistype an available family?" and "how do I install the one I actually want?". The
     nearest matches come first because a typo is the common case, and ``arcavex font add`` is
     named because otherwise the only route to a non-bundled typeface was prose in the docs
-    (P2-2) — the list alone silently implies the set is closed, which it is not.
+    — the list alone implies the set is closed, which it is not.
     """
     import difflib
 

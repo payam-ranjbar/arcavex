@@ -14,6 +14,37 @@ during reviews. Nothing here is required v1 scope.
 - Automatic installation of older engine versions for compatibility reruns (§12 open)
 - Hyphenation (unless a concrete template requires it — none did in v1)
 
+## Candidate: whole-canvas overlap reporting (not committed)
+
+`layout inspect` enumerates overlapping pairs **per group**, so two nodes in different groups are
+never compared. Measured on the reference poster, that leaves 20-22 intersecting cross-group pairs
+unreported per format, and 5 on the bilingual example.
+
+Simply comparing every leaf pair is wrong: nearly all of those pairs are `background` against the
+nodes drawn over it, or a card panel (`date-frame`) against its own labels in a nested group. The
+existing suppression — a container that is a group, or covers ≥90% of its parent region, is a
+backdrop — cannot classify them, because the container is not a sibling and the area test is
+relative to the wrong region.
+
+The principled rule is containment plus paint order: a node that fully contains another **and** is
+painted below it is a backdrop for it, whatever its area. That also replaces the 0.9 magic number.
+It was prototyped against every bundled example, and it is a behaviour change in both directions,
+not a pure addition:
+
+| Example / format | Reported now | Under the rule | Added | Dropped |
+|---|---|---|---|---|
+| reference-poster / square | 5 | 5 | 2 | 2 |
+| reference-poster / story | 7 | 3 | 0 | 4 |
+| reference-poster / landscape | 9 | 9 | 5 | 5 |
+| hello-poster / square | 2 | 0 | 0 | 2 |
+
+The dropped pairs are the question. `hello-poster`'s `accent` ∩ `title` disappears because the
+accent bar contains the title and is painted under it — correct if it is a highlight bar,
+a missed collision if it is not. Deciding that is a design call about what an overlap *means*,
+and it changes a field already shipped on the CLI and MCP surfaces. Not taken on that basis; the
+scope limit is documented instead, on `SiblingOverlap` and in
+[known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
+
 ## Candidate: a narrow `audit` command (not committed)
 
 From the readiness audit's P3-2. Validation checks that a design is well-formed, never whether it

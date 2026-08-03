@@ -73,7 +73,7 @@ def _overlap_template(tmp_path: Path) -> Path:
 
 
 def test_layout_inspect_human_prints_both_bounds_and_paint_bounds(tmp_path: Path) -> None:
-    # P2-1: the inflated box must be visible per node, or a halo overlap's rect is unexplainable.
+    # The inflated box must be visible per node, or a halo overlap's rect cannot be checked.
     proc = _run(
         ["layout", "inspect", str(_overlap_template(tmp_path)), "--format", "sq", "--no-color"]
     )
@@ -89,7 +89,7 @@ def test_layout_inspect_human_prints_both_bounds_and_paint_bounds(tmp_path: Path
 
 
 def test_layout_inspect_human_demotes_halo_below_content(tmp_path: Path) -> None:
-    # P2-1: the genuine collision gets the heading; the shadow spill is a subordinate section.
+    # The content collision gets the heading; the shadow spill is a subordinate section.
     proc = _run(
         ["layout", "inspect", str(_overlap_template(tmp_path)), "--format", "sq", "--no-color"]
     )
@@ -102,7 +102,7 @@ def test_layout_inspect_human_demotes_halo_below_content(tmp_path: Path) -> None
 
 
 def test_layout_inspect_json_carries_overlap_kind(tmp_path: Path) -> None:
-    # P2-1: an agent filters on `kind` rather than re-deriving it from the geometry.
+    # A caller filters on `kind` rather than re-deriving it from the geometry.
     proc = _run(
         ["layout", "inspect", str(_overlap_template(tmp_path)), "--format", "sq", "--json"]
     )

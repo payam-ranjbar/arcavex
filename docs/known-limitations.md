@@ -46,6 +46,19 @@ bounds and baseline rather than per-glyph rectangles. Fit policies, BiDi/RTL, an
 implemented in the Arcavex text service on top of the scalar metrics the binding does expose, so the
 public template contract is unaffected.
 
+## Overlap reporting is per-group
+
+`layout inspect` enumerates overlapping pairs **within each group**. Two nodes in different groups
+are never compared, however much they intersect — on the reference poster that is 20-22 unreported
+intersecting pairs per format. A clean `overlaps` list therefore means "no sibling collisions",
+not "nothing on this canvas collides".
+
+Nearly all of those unreported pairs are legitimate layering (a background under everything, a card
+panel under its own labels), which is why widening the scope is a redesign of the containment rule
+rather than an enumeration change; the measured trade-off is in [backlog.md](backlog.md). If you
+need a whole-canvas guarantee today, compare `bounds_pt` across the tree yourself — `layout inspect
+--json` reports every node's box.
+
 ## Validation checks geometry, not design
 
 This is the largest boundary in the engine, and the one most easily mistaken for a defect.

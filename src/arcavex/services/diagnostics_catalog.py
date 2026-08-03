@@ -627,8 +627,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "still succeeds.",
             "Lower min_size so a smaller, fitting size exists, enlarge the box, or switch the "
             "policy to 'truncate'. Note the direction: 'min_size' is the floor of the shrink "
-            "search, so raising it removes the only candidates that could still fit and makes "
-            "the overflow strictly worse.",
+            "search, so raising it removes the smallest candidates, which are the only ones "
+            "that could still fit.",
         ),
         _e(
             "ARC-LAY-052",
@@ -918,21 +918,18 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-AST-020",
             "Image is mostly transparent padding for its fit mode",
-            "An image node uses 'fit: contain' or 'fit: cover', and the asset's opaque artwork "
-            "covers less than 40% of the canvas it declares — the rest is transparent padding. "
-            "Both fit modes scale the *canvas* into the box, so the artwork is scaled down by "
-            "the same proportion and renders far smaller than the box implies. This is a "
-            "warning, not an error: the engine is doing exactly what 'fit' asks. It exists "
-            "because that combination is the one case where a correct render is silently "
-            "useless — a 512x512 logo whose mark is a 452x114 band renders as a smudge with "
-            "nothing else to report. The measurement is the alpha bounding box, recorded at "
-            "ingest; a pixel counts as ink above alpha 8, so an anti-aliasing halo cannot "
-            "inflate the box and hide the problem. 'fit: fill' is not checked, because it "
-            "distorts rather than shrinks and the result is visibly wrong on its own.",
-            "Trim the asset to its alpha bounding box so its canvas matches its artwork, then "
-            "re-reference it. Nothing in the template needs to change. If the padding is "
-            "deliberate — reserved optical margin around a mark — the warning is expected and "
-            "can be ignored.",
+            "An image node uses 'fit: contain' or 'fit: cover' and the asset's opaque artwork "
+            "covers less than 40% of the canvas it declares; the rest is transparent padding. "
+            "Both fit modes scale the canvas into the box, so the artwork is scaled by the same "
+            "proportion and renders smaller than the box implies — a 512x512 asset whose mark "
+            "is a 452x114 band draws that mark at under a fifth of the box area. This is a "
+            "warning: the render follows 'fit' correctly. The measurement is the alpha bounding "
+            "box, recorded at ingest; a pixel counts as ink at alpha 8 or above, so an "
+            "anti-aliasing border cannot expand the box. 'fit: fill' is not checked because it "
+            "does not preserve aspect, so padding distorts the artwork rather than shrinking it.",
+            "Trim the asset to its alpha bounding box so its canvas matches its artwork; the "
+            "template does not change. If the padding is deliberate — reserved optical margin "
+            "around a mark — the warning is expected.",
         ),
         _e(
             "ARC-EXP-001",

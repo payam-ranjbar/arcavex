@@ -1,7 +1,6 @@
-"""ARC-AST-020: images that render correctly and uselessly (P3-1).
+"""ARC-AST-020: an asset that is mostly transparent padding under contain/cover.
 
-The case these are written against is real: a 512x512 logo whose artwork is a 452x114 band,
-placed with `fit: contain`. Every existing check passed and the mark rendered as a smudge.
+The reference case is a 512x512 asset whose artwork is a 452x114 band — 19.7% opaque.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ def _write_png(path: Path, array: np.ndarray) -> Path:
 
 
 def _banded(path: Path, canvas: int = 512, band_w: int = 452, band_h: int = 114) -> Path:
-    """The audit's asset: a wide, short mark centred in a large square of transparency."""
+    """A wide, short opaque band centred in a large transparent square."""
     array = np.zeros((canvas, canvas, 4), dtype=np.uint8)
     top, left = (canvas - band_h) // 2, (canvas - band_w) // 2
     array[top : top + band_h, left : left + band_w] = [255, 0, 0, 255]
@@ -53,11 +52,7 @@ def test_opaque_box_of_an_image_with_no_transparency_is_the_whole_canvas(tmp_pat
 
 
 def test_antialiasing_halo_does_not_inflate_the_box(tmp_path: Path) -> None:
-    """One near-transparent corner pixel must not silence the warning by filling the box.
-
-    PNG exporters routinely leave alpha 1-3 around anti-aliased edges. Thresholding at >0
-    would make this asset measure 100% coverage and report nothing.
-    """
+    """Anti-aliased edges leave alpha 1-3 pixels; thresholding at >0 would measure 100%."""
     canvas = 512
     array = np.zeros((canvas, canvas, 4), dtype=np.uint8)
     array[199:313, 30:482] = [255, 0, 0, 255]
@@ -124,7 +119,7 @@ def test_padded_asset_warns_under_contain_and_cover(tmp_path: Path, fit: str) ->
 
 
 def test_fill_is_not_warned_about(tmp_path: Path) -> None:
-    """'fill' distorts rather than shrinks; the result is visibly wrong without our help."""
+    """'fill' does not preserve aspect, so padding distorts rather than shrinks the artwork."""
     _banded(tmp_path / "logo.png")
     assert padding_warnings(tmp_path, "logo.png", "fill") == []
 
@@ -135,7 +130,7 @@ def test_ordinary_asset_produces_no_warning(tmp_path: Path) -> None:
 
 
 def test_generous_but_reasonable_margin_is_not_warned_about(tmp_path: Path) -> None:
-    """The threshold must clear normal artwork, or the warning becomes noise to filter."""
+    """Artwork with an ordinary margin must stay clear of the threshold."""
     canvas = 200
     array = np.zeros((canvas, canvas, 4), dtype=np.uint8)
     array[20:180, 20:180] = [0, 0, 255, 255]  # 160x160 in 200x200 = 64% coverage
@@ -144,11 +139,11 @@ def test_generous_but_reasonable_margin_is_not_warned_about(tmp_path: Path) -> N
 
 
 def test_no_bundled_asset_trips_the_warning() -> None:
-    """Calibration guard: a warning that fires on our own examples is noise by construction.
+    """Calibration guard for COVERAGE_WARN_BELOW.
 
-    The threshold sits below `examples/hello-poster/logo.png` (0.483) and well above the case
-    that prompted the diagnostic (0.197). If a future bundled asset lands in that gap, this
-    fails and the number gets re-derived from evidence rather than quietly drifting.
+    The threshold sits below `examples/hello-poster/logo.png` (0.483) and above the reference
+    case (0.197). A bundled asset landing in that gap fails here, so the number is re-derived
+    from measurement rather than left to drift.
     """
     repo_root = Path(__file__).resolve().parents[2]
     offenders = []

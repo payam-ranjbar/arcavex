@@ -24,7 +24,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from arcavex.kernel.contracts.types import (
     ExportOptions,
     MeasureFn,
-    RenderOptions,
 )
 from arcavex.kernel.diagnostics import (
     Diagnostic,
@@ -42,6 +41,7 @@ from arcavex.kernel.ir.models import (
     LayoutNode,
 )
 from arcavex.kernel.ir.units import Rect
+from arcavex.kernel.pipeline import layout_and_render
 from arcavex.kernel.registry import Registries
 
 _EXPORTER_BY_EXT: dict[str, str] = {
@@ -892,17 +892,21 @@ class LayoutNodeReport(BaseModel):
 
 
 class SiblingOverlap(BaseModel):
-    """Two sibling nodes whose resolved bounds intersect, classified by what actually collides.
+    """Two sibling nodes whose resolved bounds intersect, classified by what collides.
 
-    ``kind`` is the difference between a bug and a design decision (P2-1):
+    ``kind``:
 
     - ``content`` — the nodes' layout bounds (post-rotation AABB, no effect growth) intersect.
-      A genuine collision; ``rect_pt`` is the colliding area, so its size is the depth to fix.
-    - ``halo`` — only the effect-grown ``paint_bounds`` intersect. The drop-shadow, glow or
-      torn-paper amplitude of one node reaches over its neighbour; usually the intended look.
+      ``rect_pt`` is the colliding area, so its size is the depth to correct.
+    - ``halo`` — only the effect-grown ``paint_bounds`` intersect: the drop-shadow, glow or
+      torn-paper amplitude of one node reaches over its neighbour. ``rect_pt`` is then the
+      paint intersection, the only one that exists.
 
-    Reporting both under one label made the genuine collision indistinguishable from the spill,
-    so callers filter on ``kind`` rather than re-deriving it from the geometry.
+    Scope: pairs are enumerated per group, so two nodes in different groups are never compared.
+    An empty list means no sibling collisions, not that nothing on the canvas collides — on the
+    reference poster, 20-22 intersecting cross-group pairs go unreported per format. Callers
+    needing a whole-canvas check compare ``bounds_pt`` across the tree themselves; the reason the
+    scope is not simply widened is in docs/backlog.md.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -1617,23 +1621,10 @@ class Facade:
             )
 
         canvas = compiled.document.canvas
-        effective_dpi = dpi or canvas.dpi
-        width_px = max(1, round(canvas.width_pt * effective_dpi / 72.0))
-        height_px = max(1, round(canvas.height_pt * effective_dpi / 72.0))
-        if self._budget is not None:
-            # Pre-flight the resource budgets before allocating the surface, located on the
-            # template whose canvas/DPI produced it (spec §8.3).
-            self._budget.check_surface(width_px, height_px, file=str(template))
-
-        solver = self._registries.layouts.get(self._default_layout)
-        layout = solver.solve(compiled.document, self._measure)
-        diagnostics.extend(layout.warnings)
-
-        backend = self._registries.backends.get(self._default_backend)
-        started = time.monotonic()
-        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=debug))
-        if self._budget is not None:
-            self._budget.check_wall_ms((time.monotonic() - started) * 1000.0, file=str(template))
+        surface, _, warnings = self._layout_and_render(
+            compiled.document, dpi, debug=debug, file=str(template)
+        )
+        diagnostics.extend(warnings)
 
         exporter = self._registries.exporters.get(exporter_name)
         opts = ExportOptions(
@@ -1670,6 +1661,46 @@ class Facade:
             content_sha256=report.content_sha256,
             inferred=inferred,
         )
+
+    def _layout_and_render(
+        self,
+        document: CompiledDocument,
+        dpi: int | None,
+        *,
+        debug: bool = False,
+        file: str | None = None,
+    ) -> tuple[Any, LayoutDocument, list[Diagnostic]]:
+        """Solve and render ``document`` with this facade's registered components."""
+        return layout_and_render(
+            solver=self._registries.layouts.get(self._default_layout),
+            backend=self._registries.backends.get(self._default_backend),
+            measure=self._measure,
+            document=document,
+            dpi=dpi,
+            debug=debug,
+            budget=self._budget,
+            file=file,
+        )
+
+    def _export_replace(self, surface: Any, out_path: Path, dpi: int | None) -> Any:
+        """Export ``surface`` to ``out_path`` via a same-directory temp file and ``os.replace``.
+
+        A watcher never observes a torn PNG, and a failed render leaves the previous file intact.
+        """
+        exporter = self._registries.exporters.get("png")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_name = tempfile.mkstemp(
+            dir=str(out_path.parent), prefix=".preview-", suffix=".png"
+        )
+        os.close(tmp_fd)
+        tmp_path = Path(tmp_name)
+        try:
+            report = exporter.export(surface, tmp_path, ExportOptions(dpi=dpi))
+            os.replace(tmp_path, out_path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        return report
 
     def _try_layout(self, document: CompiledDocument) -> list[Diagnostic]:
         try:
@@ -2150,26 +2181,9 @@ class Facade:
         out_path = self.preview_path(template, resolved_format)
 
         render_start = time.perf_counter()
-        solver = self._registries.layouts.get(self._default_layout)
-        layout = solver.solve(compiled.document, self._measure)
-        diagnostics.extend(layout.warnings)
-        backend = self._registries.backends.get(self._default_backend)
-        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=debug))
-        exporter = self._registries.exporters.get("png")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic write: export to a unique temp file in the same directory, then os.replace so
-        # a watcher never observes a torn PNG and a failed render leaves the old file intact.
-        tmp_fd, tmp_name = tempfile.mkstemp(
-            dir=str(out_path.parent), prefix=".preview-", suffix=".png"
-        )
-        os.close(tmp_fd)
-        tmp_path = Path(tmp_name)
-        try:
-            report = exporter.export(surface, tmp_path, ExportOptions(dpi=dpi))
-            os.replace(tmp_path, out_path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
+        surface, _, warnings = self._layout_and_render(compiled.document, dpi, debug=debug)
+        diagnostics.extend(warnings)
+        report = self._export_replace(surface, out_path, dpi)
         render_ms = (time.perf_counter() - render_start) * 1000.0
 
         return PreviewResult(
@@ -2411,30 +2425,9 @@ class Facade:
     def _render_document(
         self, document: CompiledDocument, out_path: Path, dpi: int | None
     ) -> tuple[Any, list[Diagnostic]]:
-        """Lay out, render, and atomically export a compiled document to ``out_path``.
-
-        Shared by project preview; mirrors the direct-preview atomic write so a failed render
-        leaves any prior image intact.
-        """
-        solver = self._registries.layouts.get(self._default_layout)
-        layout = solver.solve(document, self._measure)
-        warnings = list(layout.warnings)
-        backend = self._registries.backends.get(self._default_backend)
-        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=False))
-        exporter = self._registries.exporters.get("png")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_name = tempfile.mkstemp(
-            dir=str(out_path.parent), prefix=".preview-", suffix=".png"
-        )
-        os.close(tmp_fd)
-        tmp_path = Path(tmp_name)
-        try:
-            report = exporter.export(surface, tmp_path, ExportOptions(dpi=dpi))
-            os.replace(tmp_path, out_path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        return report, warnings
+        """Lay out, render, and atomically export a compiled document to ``out_path``."""
+        surface, _, warnings = self._layout_and_render(document, dpi)
+        return self._export_replace(surface, out_path, dpi), warnings
 
     def rerun(self, run_dir: Path) -> RerunReport:
         """Reproduce a recorded run into a new run dir (byte-identical on match). Never raises."""
@@ -2764,7 +2757,7 @@ def _content_aabb(node: LayoutNode) -> Rect:
     ``paint_bounds`` folds two unrelated expansions together — the post-rotation AABB, which is
     real geometry the node occupies, and the effects' declared bounds expansion, which is only
     an allocation request so a blur or tear is not clipped. Collision reporting needs the first
-    without the second, otherwise a drop-shadow reads as a collision (P2-1).
+    without the second, otherwise a drop-shadow reads as a collision.
 
     Rotated nodes still contribute their post-transform AABB, matching what siblings anchor to
     (CR-14); the AABB of a rotated node is coarser than its ink, which is why such a pair is
@@ -2835,7 +2828,7 @@ def _is_backdrop(node: LayoutNode, content: Rect, region: object) -> bool:
     Groups are structural containers, not collisions; a leaf that covers ~the whole parent
     region is a background. Either legitimately encloses siblings, so their containment is not
     reported as an overlap bug. The test reads ``content`` rather than ``paint_bounds`` so a
-    generous shadow cannot promote an ordinary node into a backdrop (P2-1).
+    generous shadow cannot promote an ordinary node into a backdrop.
     """
     if node.kind == "group":
         return True

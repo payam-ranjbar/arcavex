@@ -246,7 +246,7 @@ def _scaffold_with_test(tmp_path: Path, name: str, body: str) -> Path:
 
 
 def test_ext_test_reads_non_ascii_output(arcavex_home: Path, tmp_path: Path) -> None:
-    """P1-1: a golden test printing non-ASCII runs green and its text survives the round trip.
+    """A golden test printing non-ASCII runs green and its text survives the round trip.
 
     The child is pinned to UTF-8 so ``print`` cannot die encoding to the console codepage, and the
     harness decodes as UTF-8 rather than the locale's. Before the fix this pair (cp1252 on the
@@ -262,7 +262,7 @@ def test_ext_test_reads_non_ascii_output(arcavex_home: Path, tmp_path: Path) -> 
 
 
 def test_ext_test_survives_undecodable_output(arcavex_home: Path, tmp_path: Path) -> None:
-    """P1-1: raw bytes that are not valid UTF-8 are replaced, never crash the harness.
+    """Raw bytes that are not valid UTF-8 are replaced, never crash the harness.
 
     A child may write anything to its pipe — a C library's stderr, a truncated multibyte sequence.
     The harness must still report the child's real exit status instead of dying mid-read.
@@ -286,7 +286,7 @@ def test_ext_test_survives_undecodable_output(arcavex_home: Path, tmp_path: Path
 def test_failing_test_still_reports_052_not_a_harness_error(
     arcavex_home: Path, tmp_path: Path
 ) -> None:
-    """P1-1: a genuinely failing test keeps ARC-EXT-052 — ARC-EXT-053 is only the harness's fault.
+    """A failing test keeps ARC-EXT-052; ARC-EXT-053 covers only harness I/O.
 
     The separation is the point of the fix: 052 must keep meaning "your test failed", so it may
     not be diluted by I/O problems on the Arcavex side.

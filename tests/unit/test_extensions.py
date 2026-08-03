@@ -348,7 +348,7 @@ def _testable_ext(root: Path, name: str) -> Path:
 def test_child_env_pins_utf8_over_the_inherited_environment(
     arcavex_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P1-1: the child is spawned with UTF-8 pinned, merged over the inherited environment.
+    """The child is spawned with UTF-8 pinned, merged over the inherited environment.
 
     Asserting the spawn arguments directly keeps the contract explicit: a future refactor that
     drops ``encoding`` or the env would otherwise only show up as a Windows-only crash.
@@ -375,7 +375,7 @@ def test_child_env_pins_utf8_over_the_inherited_environment(
 def test_unreadable_output_is_a_harness_error_not_a_test_failure(
     arcavex_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P1-1: output the harness could not read reports ARC-EXT-053, never ARC-EXT-052.
+    """Output the harness could not read reports ARC-EXT-053, never ARC-EXT-052.
 
     Simulates the historical Windows failure: a reader thread dies mid-stream and leaves the
     captured stream unset, which used to reach the caller as a confident 'your test failed'.
@@ -396,7 +396,7 @@ def test_unreadable_output_is_a_harness_error_not_a_test_failure(
 def test_unspawnable_child_is_a_harness_error(
     arcavex_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """P1-1: a subprocess that cannot be started is ARC-EXT-053, not a failing extension test."""
+    """A subprocess that cannot be started is ARC-EXT-053, not a failing extension test."""
     from arcavex.services.extensions.service import ExtensionService
 
     ext = _testable_ext(tmp_path, "unspawnable")

@@ -1,10 +1,9 @@
-"""Guards on the release gate itself.
+"""Guards on the verification targets themselves.
 
-A verification target that cannot fail is worse than no target: it reports green and stops
-anyone from looking. `make contracts` ran `python -m importlinter.cli lint`, which dispatches
-nothing — it exits 0 with empty output even against a deliberately broken contract, so the
-architecture gate in `make verify` had never actually run. These tests fail if that form comes
-back, and if the tool that replaced it ever goes quiet.
+`make contracts` ran `python -m importlinter.cli lint`, which dispatches nothing: it exits 0
+with empty output even against a deliberately broken contract. A target that cannot fail reports
+green regardless of the state of the code, so these tests check that the gate still runs and
+still speaks.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MAKEFILE = _REPO_ROOT / "Makefile"
 
-# The exact invocation that silently passes. Kept as a literal so the guard is unambiguous.
+# The invocation that exits 0 without checking. A literal, so the guard is unambiguous.
 _NO_OP_FORM = "-m importlinter.cli"
 
 
@@ -54,13 +53,13 @@ def test_contracts_target_does_not_use_the_no_op_form() -> None:
 
 
 def test_makefile_forces_utf8_on_shelled_out_tools() -> None:
-    """Box-drawing output is truncated by the console codepage on the reference platform."""
+    """Non-ASCII tool output is truncated by the Windows console codepage without this."""
     text = _MAKEFILE.read_text(encoding="utf-8")
     assert re.search(r"^export PYTHONIOENCODING\s*:=\s*utf-8$", text, re.M)
 
 
 def test_import_linter_actually_reports_its_verdict() -> None:
-    """The replacement must print a verdict, so a silent pass is visibly different from a pass."""
+    """A silent exit 0 must be distinguishable from a checked pass."""
     executable = _lint_imports_executable()
     if executable is None:
         pytest.skip("import-linter console script not installed in this environment")
@@ -75,17 +74,32 @@ def test_import_linter_actually_reports_its_verdict() -> None:
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "Contracts:" in completed.stdout, (
-        "the contracts gate produced no verdict line; a target that prints nothing and exits 0 "
-        f"is indistinguishable from a pass. stdout={completed.stdout!r}"
+        f"the contracts gate produced no verdict line. stdout={completed.stdout!r}"
     )
     assert "0 broken" in completed.stdout
 
 
-def test_the_no_op_form_is_still_the_no_op_it_was_diagnosed_as() -> None:
-    """Pin the reason the target changed, so a future revert is understood rather than guessed.
+def test_only_one_module_drives_the_backend() -> None:
+    """Every render path reaches the backend through `kernel.pipeline.layout_and_render`.
 
-    If a later import-linter release makes `-m importlinter.cli` dispatch properly, this test
-    fails and the comment in the Makefile can be revisited on evidence.
+    The solve-then-render sequence determines the output bytes. A second call site can diverge
+    from the first — a budget check on one path only, different RenderOptions — and two paths
+    then disagree on a byte.
+    """
+    src = _REPO_ROOT / "src" / "arcavex"
+    callers = {
+        path.relative_to(src).as_posix()
+        for path in src.rglob("*.py")
+        if re.search(r"\.render\(\s*layout", path.read_text(encoding="utf-8"))
+    }
+    assert callers == {"kernel/pipeline.py"}, callers
+
+
+def test_the_no_op_form_is_still_a_no_op() -> None:
+    """Pins the premise of the Makefile comment: this form produces nothing.
+
+    If a later import-linter release makes `-m importlinter.cli` dispatch, this fails and the
+    comment can be revisited.
     """
     completed = subprocess.run(
         [sys.executable, "-m", "importlinter.cli", "lint"],

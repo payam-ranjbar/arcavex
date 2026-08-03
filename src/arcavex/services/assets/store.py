@@ -40,11 +40,8 @@ class AssetRef(BaseModel):
     width: int
     height: int
     bytes: int
-    # ``(x, y, width, height)`` of the opaque pixels, or None when the asset has no alpha
-    # channel, is fully transparent, or predates this field. Recorded at ingest because that is
-    # the one moment the bytes are already in hand; ARC-AST-020 reads it to tell an author that
-    # 'fit: contain' is about to scale mostly padding. Additive with a None default so sidecars
-    # written before it parse unchanged.
+    # ``(x, y, width, height)`` of the opaque pixels; None when the image is fully transparent,
+    # undecodable, or was ingested before this field existed. Defaulted so those sidecars parse.
     opaque_bbox: tuple[int, int, int, int] | None = None
     annotations: dict[str, Any] = Field(default_factory=dict)
 

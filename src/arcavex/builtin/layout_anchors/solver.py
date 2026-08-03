@@ -674,23 +674,21 @@ class AnchorLayoutSolver(LayoutSolver):
     def _raise_overflow(
         self, node: CompiledText, bounds: Rect, result: MeasureResult
     ) -> NoReturn:
-        """Raise the overflow error that names the constraint actually blocking the fit.
+        """Raise the overflow error naming the constraint that blocks the fit.
 
-        Two genuinely different failures reach here. When the text wraps onto more lines than
-        'max_lines' allows — while every line does fit the box width — the binding constraint is
-        the line cap, not the box. The measured height in that state is simply what those lines
-        occupy, so quoting a measured-vs-box height pair points at the one dimension that cannot
-        fix it: enlarging the box height leaves the cap violated and re-reports the same number
-        (ARC-LAY-057). Measured on the case that prompted this, a 1-line cap on text needing 4
-        lines reported the identical 76.0pt at box heights of 60, 80, 200 and 400pt.
+        When the text wraps onto more lines than 'max_lines' allows and every line fits the box
+        width, the line cap is the binding constraint, not the box. The measured height is then
+        just what those lines occupy and does not change when the box grows — a 1-line cap on
+        text needing 4 lines reports the same 76.0pt at box heights of 60, 80, 200 and 400pt —
+        so a measured-vs-box height pair would name a dimension that cannot resolve it. That
+        case is ARC-LAY-057.
 
-        This holds for both policies that can reach the cap. Under 'shrink_to_fit' the search
-        must first have bottomed out at its min_size floor — while it is still shrinking, the
-        line count is not yet final. Under 'wrap' there is no search, so the authored size is
-        the size, and the remedies differ accordingly: there is no floor to lower.
+        Both policies that can reach the cap qualify. Under 'shrink_to_fit' the search must have
+        bottomed out at its min_size floor first, because a search still in progress has no final
+        line count; under 'wrap' there is no search and no floor to lower, so the remedies differ.
 
-        Every other case is a real box-geometry overflow and keeps ARC-LAY-050, whose
-        measured-vs-box extents are the useful thing to show.
+        Everything else is box geometry and keeps ARC-LAY-050, whose measured-vs-box extents are
+        the actionable numbers.
         """
         max_lines = node.fit.max_lines
         # The width comparison reuses _FIT_WIDTH_MARGIN for the reason it exists: absorbing

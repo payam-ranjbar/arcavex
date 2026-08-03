@@ -311,6 +311,13 @@ containment by a node covering ≥90% of its parent region, or by a group, is st
 collision. A node's shadow cannot buy it that exemption: the threshold is measured on the layout
 box, not the paint box.
 
+**Pairs are enumerated within each group.** Two nodes in different groups are never compared, so
+an empty `overlaps` list means no sibling collisions, not that nothing on the canvas collides —
+on the reference poster, 20-22 intersecting cross-group pairs go unreported per format. For a
+whole-canvas check, compare `bounds_pt` across the tree from `--json`. The reasoning and the
+measured trade-off are in
+[known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
+
 ## style
 
 | Subcommand | Purpose |

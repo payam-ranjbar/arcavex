@@ -868,7 +868,7 @@ def _rect_pt(rect: tuple[float, float, float, float]) -> str:
 
 
 def _print_overlaps(console: Console, report: LayoutReport) -> None:
-    """Print sibling overlaps with effect spill demoted below the genuine collisions (P2-1).
+    """Print sibling overlaps with effect spill demoted below content collisions.
 
     A halo is one node's shadow or tear reaching over its neighbour — usually the intended look.
     Listing it alongside a real collision is what made the real one impossible to spot, so the
@@ -900,7 +900,7 @@ def _print_layout_node(console: Console, node: object, depth: int) -> None:
     )
     # Paint bounds get their own line rather than a suffix: a halo overlap's rect comes from
     # this box, so it has to be readable, and at ~80 columns a second rect on the node line
-    # wraps mid-number — which is worse than not printing it at all (P2-1).
+    # wraps mid-number, which makes the coordinates unreadable.
     console.print(
         f"{pad}  [dim]paint {_rect_pt(n.paint_bounds_pt)}[/dim]"  # type: ignore[attr-defined]
     )

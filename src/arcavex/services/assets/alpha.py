@@ -1,17 +1,10 @@
 """Opaque bounding box of an image's alpha channel.
 
-`fit: contain` and `fit: cover` scale an asset's **canvas** into its box. When the artwork
-occupies only part of that canvas — a 512x512 logo whose mark is a 452x114 band, the rest
-transparent padding — the engine does exactly as instructed and the result is an unreadable
-smudge, with nothing wrong to report. That is the one silent-wrong-output trap the readiness
-audit found: correct behaviour, useless render, no diagnostic.
+`fit: contain` and `fit: cover` scale an asset's declared canvas into its box, so transparent
+padding around the artwork scales with it and the artwork renders proportionally smaller. The
+opaque fraction of the canvas is what distinguishes that case; `ARC-AST-020` reports it.
 
-The signal that separates it from a normal image is cheap and objective: what fraction of the
-declared canvas is actually opaque. This module computes it, and `ARC-AST-020` reports it.
-
-Deliberately *not* an image-processing feature. It measures; it never trims, crops, or alters
-a single byte. Fixing the asset stays the author's decision, which keeps the engine
-deterministic and the warning honest.
+Measurement only: nothing here trims, crops, or rewrites an asset.
 """
 
 from __future__ import annotations
@@ -22,23 +15,14 @@ from pathlib import Path
 import numpy as np
 import skia  # type: ignore[import-untyped]
 
-# A pixel counts as ink above this alpha. Not 0: PNG exporters routinely leave a halo of
-# alpha 1-3 around anti-aliased artwork, and one such pixel in a corner would inflate the
-# bounding box to the whole canvas and silence the warning exactly when it is most needed.
+# A pixel counts as ink at or above this alpha. Anti-aliased artwork commonly carries a border
+# of alpha 1-3, and a single such pixel in a corner would expand the box to the whole canvas.
 _ALPHA_FLOOR = 8
 
-# Below this fraction of opaque canvas, `contain`/`cover` are scaling mostly padding.
-#
-# The readiness audit proposed ~0.60. Measured against every asset shipped in this repository,
-# that fires on `examples/hello-poster/logo.png` — 872x581 of artwork in a 1024x1024 canvas,
-# 0.483 — which is a real but minor loss of size, not the failure this warning is for. A
-# warning that fires on the project's own quick-start teaches the reader to ignore it, so the
-# threshold is set below that measurement rather than above the audit's estimate.
-#
-# 0.40 keeps a clear gap on both sides: the case that prompted the diagnostic measured 0.197,
-# and no bundled asset measures between 0.40 and 0.483. `test_no_bundled_asset_trips_the_warning`
-# fails if a future asset lands in that gap, so this number stays calibrated against reality
-# instead of drifting.
+# Opaque-fraction threshold for ARC-AST-020. Measured against the assets in this repository:
+# examples/hello-poster/logo.png is 0.483 and must not warn; the smallest artwork the diagnostic
+# targets is 0.197. test_no_bundled_asset_trips_the_warning fails if a bundled asset enters the
+# gap, which is what keeps this number derived from measurement.
 COVERAGE_WARN_BELOW = 0.40
 
 
@@ -69,21 +53,18 @@ class OpaqueBox:
 def opaque_box(path: Path) -> OpaqueBox | None:
     """Return the opaque bounding box of the image at ``path``.
 
-    An image with no transparency returns a full-canvas box (coverage 1.0), which is the honest
-    answer rather than a special case. ``None`` means the question could not be answered at
-    all: an image that is entirely transparent, or one this process cannot decode. A diagnostic
-    about image *content* must never be the reason a render fails, so decode problems here are
-    silence, not errors — the real decode guards run at ingest and raise properly.
-
-    Note ``skia.Image.isOpaque()`` reports the declared alpha *type*, not whether any pixel is
-    actually transparent, so it is only usable as a fast path when it is true.
+    An image with no transparent pixels returns a full-canvas box (coverage 1.0). ``None`` means
+    the box is undefined: a fully transparent image, or one that cannot be decoded here. Decode
+    failures are silent because this feeds a warning; the decode guards that raise run at ingest.
     """
     try:
         image = skia.Image.open(str(path))
-    except Exception:  # pragma: no cover - defensive: decode is guarded at ingest
+    except Exception:  # pragma: no cover - decode is guarded at ingest
         return None
     if image is None:  # pragma: no cover - skia returns None for undecodable bytes
         return None
+    # isOpaque() reports the declared alpha type, not whether any pixel is transparent, so it is
+    # only conclusive when true.
     if image.isOpaque():
         return None
     try:

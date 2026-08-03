@@ -1,4 +1,4 @@
-"""Sibling-overlap classification: a genuine collision vs. effect spill (P2-1).
+"""Sibling-overlap classification: content collision vs. effect spill.
 
 ``paint_bounds`` is inflated so the renderer can allocate room for a shadow or a tear. Using it
 as the sole basis for collision reporting made every shadowed node look like a bug, which buried

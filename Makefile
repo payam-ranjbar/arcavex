@@ -1,10 +1,8 @@
 PY := .venv/Scripts/python.exe
 LINT_IMPORTS := .venv/Scripts/lint-imports.exe
 
-# Every target below shells out to a tool that prints non-ASCII. Without this, the console
-# codepage on Windows — the declared reference platform — silently truncates or kills that
-# output: `contracts` printed *nothing* and exited 0, which is indistinguishable from a pass,
-# so a broken contract set would have looked green to both CI and the developer.
+# The tools below print non-ASCII (box-drawing banners, arrows). Without these the Windows
+# console codepage truncates that output: lint-imports emitted 552 bytes instead of 1188.
 export PYTHONIOENCODING := utf-8
 export PYTHONUTF8 := 1
 
@@ -19,10 +17,9 @@ lint:
 typecheck:
 	$(PY) -m mypy src/arcavex/kernel --strict
 
-# Must be the console script, not `$(PY) -m importlinter.cli lint`. That module form dispatches
-# nothing: it exits 0 with no output even when a contract is deliberately broken (verified by
-# adding a forbidden clients->kernel contract — the module form still passed), so this gate has
-# been reporting green without checking anything. tests/unit/test_toolchain.py guards it.
+# Must be the console script. `$(PY) -m importlinter.cli lint` dispatches nothing: it exits 0
+# with no output even against a deliberately broken contract. tests/unit/test_toolchain.py
+# fails if that form returns here.
 contracts:
 	$(LINT_IMPORTS)
 

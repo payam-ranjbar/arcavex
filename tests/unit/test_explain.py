@@ -113,17 +113,13 @@ def test_no_orphan_docs_files() -> None:
 
 
 def test_generated_docs_are_lf_only() -> None:
-    """P2-3: read_text normalises newlines, so the mirror test above cannot see CRLF.
-
-    Only a byte-level check catches `make docs-diagnostics` rewriting the whole directory
-    with platform line endings on Windows.
-    """
+    """read_text normalises newlines, so the mirror test above cannot observe CRLF."""
     for path in sorted(_DOCS.glob("*.md")):
         assert b"\r\n" not in path.read_bytes(), f"{path.name} has CRLF line endings"
 
 
 def test_diagnostics_index_counts_match_catalog() -> None:
-    """docs/diagnostics.md quotes a total and a per-prefix table; both must track the catalog."""
+    """docs/diagnostics.md quotes a total and a per-prefix table; both track the catalog."""
     index = _DOCS.parent / "diagnostics.md"
     text = index.read_text(encoding="utf-8")
 

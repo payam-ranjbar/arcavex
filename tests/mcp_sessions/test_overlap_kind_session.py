@@ -1,4 +1,4 @@
-"""An agent filtering overlaps by ``kind`` over the MCP surface (P2-1).
+"""Filtering overlaps by ``kind`` over the MCP surface.
 
 ``layout inspect`` is the primary geometry signal for an agent that cannot see the render. It
 used to report a drop-shadow halo and a real 4pt text collision in identical shape, so the real

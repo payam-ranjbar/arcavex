@@ -45,12 +45,11 @@ def test_shrink_to_fit_non_convergence() -> None:
     assert res.overflow_kind == "overflowing"
 
 
-# --------------------------------------------- ARC-LAY-051 points the right way (P1-3)
+# ------------------------------------------------- ARC-LAY-051 recommends the right direction
 #
-# The catalog used to advise "Raise min_size so a fitting size exists". 'min_size' is the *floor*
-# of the shrink search, so raising it deletes the only candidates that could still fit: following
-# the hint made the failure monotonically worse. These tests pin the direction behaviourally, not
-# just as wording, so the advice cannot invert again without a red test.
+# 'min_size' is the floor of the shrink search: raising it removes the smallest candidates, which
+# are the only ones that can still fit. These tests pin the direction behaviourally, not only in
+# the hint string.
 _NON_CONVERGENT = {
     "text": "Way too much text to ever fit here at all no matter what",
     "font_size_pt": 40.0,
@@ -61,7 +60,6 @@ _NON_CONVERGENT = {
 
 
 def test_lowering_min_size_is_what_makes_the_text_fit() -> None:
-    """The direction ARC-LAY-051 must recommend, measured rather than asserted."""
     too_high = _measure(**_NON_CONVERGENT, min_size_pt=20.0)
     assert too_high.converged is False
 
@@ -71,7 +69,7 @@ def test_lowering_min_size_is_what_makes_the_text_fit() -> None:
 
 
 def test_raising_min_size_is_monotonically_worse() -> None:
-    """Every step up the floor makes the overflow larger — never smaller."""
+    """Raising the floor increases the measured height at every step."""
     heights = [
         _measure(**_NON_CONVERGENT, min_size_pt=floor).height_pt for floor in (12.0, 20.0, 30.0)
     ]
@@ -80,7 +78,6 @@ def test_raising_min_size_is_monotonically_worse() -> None:
 
 
 def test_lay051_hint_recommends_lowering_min_size() -> None:
-    """Both the catalog entry and the solver's raise-site hint must say lower, not raise."""
     from arcavex.services.diagnostics_catalog import CATALOG
 
     fix = CATALOG["ARC-LAY-051"].fix
@@ -262,11 +259,10 @@ def test_genuine_box_overflow_still_raises_lay050(tmp_path: Path) -> None:
     assert exc.value.diagnostics[0].code == "ARC-LAY-050"
 
 
-# ------------------------------------------- max_lines under 'wrap' (P1-4, also ARC-LAY-057)
+# ------------------------------------------------------ max_lines under 'wrap' (ARC-LAY-057)
 #
-# 'wrap' does no shrink search, so there is no floor to bottom out at — but the line cap binds
-# exactly the same way, and the reported height is just as inert. Measured on this node, the
-# error quoted the identical 76.0pt measured height at box heights of 60, 80, 200 and 400pt.
+# 'wrap' does no shrink search, so there is no floor to bottom out at, but the line cap binds the
+# same way. This node measures the same 76.0pt at box heights of 60, 80, 200 and 400pt.
 _WRAP_MAX_LINES = """
     - id: footer-venue-2
       type: text
@@ -286,7 +282,7 @@ def test_wrap_max_lines_raises_lay057_not_lay050(tmp_path: Path) -> None:
 
 
 def test_wrap_lay057_names_the_authored_size_not_a_shrink_floor(tmp_path: Path) -> None:
-    """Under 'wrap' there is no floor, so the message must not invent one."""
+    """There is no floor under 'wrap', so the message must not name one."""
     with pytest.raises(DiagnosticError) as exc:
         _solve(tmp_path, _WRAP_MAX_LINES % "60pt")
     diag = exc.value.diagnostics[0]
@@ -302,21 +298,21 @@ def test_wrap_lay057_names_the_authored_size_not_a_shrink_floor(tmp_path: Path) 
 
 @pytest.mark.parametrize("box_height", ["60pt", "80pt", "200pt", "400pt"])
 def test_wrap_max_lines_error_survives_any_box_height(tmp_path: Path, box_height: str) -> None:
-    """The proof that the old height pair was inert: growing the box never resolves the cap."""
+    """Growing the box never resolves the cap, which is why a height pair cannot report it."""
     with pytest.raises(DiagnosticError) as exc:
         _solve(tmp_path, _WRAP_MAX_LINES % box_height)
     assert exc.value.diagnostics[0].code == "ARC-LAY-057"
 
 
 def test_wrap_without_max_lines_still_raises_lay050(tmp_path: Path) -> None:
-    """No cap in play under 'wrap' means the box really is the problem."""
+    """With no cap in play the box is the binding constraint."""
     with pytest.raises(DiagnosticError) as exc:
         _solve(tmp_path, _WRAP_MAX_LINES.replace(", max_lines: 1", "") % "60pt")
     assert exc.value.diagnostics[0].code == "ARC-LAY-050"
 
 
 def test_wrap_max_lines_too_narrow_for_a_line_still_raises_lay050(tmp_path: Path) -> None:
-    """Width genuinely does not fit, so box geometry is the honest report even with a cap."""
+    """No line fits the width, so box geometry binds even though the cap is violated too."""
     with pytest.raises(DiagnosticError) as exc:
         _solve(
             tmp_path,
@@ -344,7 +340,7 @@ def test_wrap_max_lines_keeps_non_error_policies_soft(tmp_path: Path, overflow: 
 
 
 def test_lay051_solver_hint_recommends_lowering_min_size(tmp_path: Path) -> None:
-    """The warning an author actually reads at the raise site, not just the catalog page."""
+    """The raise-site hint, which is what the CLI prints; the catalog entry is checked above."""
     layout = _solve(
         tmp_path,
         """

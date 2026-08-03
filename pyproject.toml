@@ -10,11 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }
 authors = [{ name = "Arcavex" }]
-# Every dependency carries an upper bound. A project whose headline guarantee is byte-identical
-# output cannot let a fresh install resolve to an untested major — and this is not hypothetical:
-# six venvs created from an unbounded spec within one hour resolved `mcp` three different ways,
-# one of them to 2.0.0, which dropped `mcp.server.fastmcp` and left the suite unable to collect.
-# The version after each bound is the one CI and the reference machine actually verified.
+# Every dependency carries a floor and an upper bound so a fresh resolve cannot pick an untested
+# major. The version in each trailing comment is the one CI and the reference machine verified.
+# tests/unit/test_packaging.py fails on any requirement added without both bounds.
 dependencies = [
     "skia-python>=144.0,<145",      # 144.0.post2
     "pydantic>=2.13,<3",            # 2.13.4

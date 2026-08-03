@@ -1,10 +1,8 @@
-"""Packaging guards.
+"""Packaging guards: every declared dependency must be bounded on both sides.
 
-P0-2: an unbounded dependency spec is a determinism defect, not a style preference. Six venvs
-created from the same `pyproject.toml` within one hour resolved `mcp` three different ways, one
-of them to a major that had removed the module `clients/mcp_server.py` imports — so a clean clone
-could not collect its own tests. These tests fail the moment a dependency is added without an
-upper bound, which is the only point at which the mistake is cheap to fix.
+An unbounded requirement lets two installs from the same `pyproject.toml` resolve to different
+versions. `mcp` did: an unbounded spec resolved to 2.0.0, which had removed the module
+`clients/mcp_server.py` imports, and the suite could not be collected.
 """
 
 from __future__ import annotations
@@ -66,11 +64,7 @@ def test_every_dependency_has_a_lower_bound() -> None:
 
 
 def test_mcp_excludes_the_major_that_removed_fastmcp() -> None:
-    """Regression guard for the exact resolution that broke collection.
-
-    `mcp` 2.0.0 removed `mcp.server.fastmcp`, which `arcavex.clients.mcp_server` imports at
-    module scope. Pinning below 2 is what keeps a clean clone runnable.
-    """
+    """`mcp` 2.0.0 removed `mcp.server.fastmcp`, which `clients.mcp_server` imports."""
     dev = _declared_requirements()["optional-dependencies.dev"]
     spec = next(r for r in dev if r.startswith("mcp"))
     assert "<2" in spec.replace(" ", ""), f"mcp must be capped below 2.0: {spec!r}"

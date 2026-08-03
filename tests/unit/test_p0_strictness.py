@@ -1,4 +1,4 @@
-"""P0-1 strictness: an unknown field is a located error in *every* authoring scope.
+"""Strictness: an unknown field is a located error in *every* authoring scope.
 
 Before this, strictness was the exception rather than the rule — it held only where a whitelist
 constant happened to exist, so a plausible-sounding invented field (``condition:`` on a node was
@@ -255,7 +255,7 @@ def test_wrap_keeps_its_own_diagnostic(tmp_path: Path) -> None:
 
 # ------------------------------------------------------------------------- the guard test
 # Every authoring scope, as a mapping the compiler parses, paired with the edit that plants an
-# unknown key in it. This is the test that would have caught P0-1: a scope added later without
+# unknown key in it. A scope added later without
 # a whitelist fails here instead of silently accepting invented fields for eight phases.
 _SURFACE: list[tuple[str, str, str]] = [
     ("template root", "version: 0.1.0", "version: 0.1.0\nzzz_junk: 1"),

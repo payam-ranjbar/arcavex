@@ -147,9 +147,8 @@ def _cold_start_ms() -> float:
         "from arcavex.bootstrap import build_facade; build_facade();"
         "print(time.perf_counter()-t)"
     )
-    # encoding/errors are explicit for the reason ARC-EXT-053 exists: text=True alone decodes
-    # with the ANSI codepage, so one non-cp1252 byte from the child kills the reader on the
-    # declared reference platform. PYTHONIOENCODING makes the child emit UTF-8 in the first place.
+    # text=True alone decodes with the ANSI codepage, so one non-cp1252 byte from the child
+    # raises UnicodeDecodeError in the reader. The env vars make the child emit UTF-8.
     result = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
