@@ -95,8 +95,10 @@ def test_webp_lossless_is_bit_exact(tmp_path: Path) -> None:
     report = WebpExporter().export(surface, tmp_path / "ll.webp", ExportOptions(lossless=True))
     decoded = skia.Image.MakeFromEncoded(
         skia.Data.MakeFromFileName(str(report.path))
-    ).toarray()
-    original = surface.makeImageSnapshot().toarray()
+    ).toarray(colorType=skia.kRGBA_8888_ColorType)
+    # Both sides must be read in the same, stated order — the platform default is not a
+    # guarantee that a decoded image and a surface snapshot agree.
+    original = surface.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)
     assert (decoded == original).all()
 
 
