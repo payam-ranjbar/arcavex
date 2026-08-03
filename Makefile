@@ -1,4 +1,12 @@
 PY := .venv/Scripts/python.exe
+LINT_IMPORTS := .venv/Scripts/lint-imports.exe
+
+# Every target below shells out to a tool that prints non-ASCII. Without this, the console
+# codepage on Windows — the declared reference platform — silently truncates or kills that
+# output: `contracts` printed *nothing* and exited 0, which is indistinguishable from a pass,
+# so a broken contract set would have looked green to both CI and the developer.
+export PYTHONIOENCODING := utf-8
+export PYTHONUTF8 := 1
 
 .PHONY: test lint typecheck contracts golden-update docs-diagnostics bench verify
 
@@ -11,8 +19,12 @@ lint:
 typecheck:
 	$(PY) -m mypy src/arcavex/kernel --strict
 
+# Must be the console script, not `$(PY) -m importlinter.cli lint`. That module form dispatches
+# nothing: it exits 0 with no output even when a contract is deliberately broken (verified by
+# adding a forbidden clients->kernel contract — the module form still passed), so this gate has
+# been reporting green without checking anything. tests/unit/test_toolchain.py guards it.
 contracts:
-	$(PY) -m importlinter.cli lint
+	$(LINT_IMPORTS)
 
 # Regenerate the per-platform golden images, then review the diff before committing.
 golden-update:

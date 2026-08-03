@@ -12,6 +12,7 @@ Skia's native allocations, not just the Python heap.
 
 from __future__ import annotations
 
+import os
 import statistics
 import subprocess
 import sys
@@ -146,9 +147,22 @@ def _cold_start_ms() -> float:
         "from arcavex.bootstrap import build_facade; build_facade();"
         "print(time.perf_counter()-t)"
     )
+    # encoding/errors are explicit for the reason ARC-EXT-053 exists: text=True alone decodes
+    # with the ANSI codepage, so one non-cp1252 byte from the child kills the reader on the
+    # declared reference platform. PYTHONIOENCODING makes the child emit UTF-8 in the first place.
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(_REPO)
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=str(_REPO),
+        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"cold-start probe failed (exit {result.returncode}):\n{result.stderr.strip()}"
+        )
     return float(result.stdout.strip()) * 1000.0
 
 
