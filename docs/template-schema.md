@@ -251,7 +251,11 @@ A text node may set `fit: {policy, overflow, min_size, max_lines}`:
   `[min_size, font_size]` that fits — combine with `fit_content` height + `max_lines` to hug the
   shrunk result), or `truncate` (measured-prefix ellipsis, RTL-correct placement).
 - `overflow`: `clip` (default), `allow`, or `error` (`ARC-LAY-050`, exit 1).
-- `max_lines` caps the line count; with `h: fit_content` it also caps the box height.
+- `max_lines` caps the line count; with `h: fit_content` it also caps the box height. When
+  `shrink_to_fit` reaches its `min_size` floor and the text still needs more lines than the cap
+  allows, `overflow: error` reports `ARC-LAY-057` — line count vs cap and the floor reached —
+  instead of `ARC-LAY-050`. The box height is not the constraint there, so enlarging it cannot
+  help; widen the box, lower `min_size`, or raise `max_lines`.
 - Non-convergent shrink and sub-line-height truncation emit `ARC-LAY-051` warnings with the measured
   numbers. `paragraph: {align, direction}` sets alignment (`start`/`end` follow the base direction)
   and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).

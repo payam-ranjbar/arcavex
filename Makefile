@@ -19,11 +19,11 @@ golden-update:
 	ARCAVEX_UPDATE_GOLDENS=1 $(PY) -m pytest tests/golden -q
 
 # Regenerate docs/diagnostics/*.md from the canonical catalog (services.diagnostics_catalog).
-# newline='\n' is required: Path.write_text defaults to os.linesep translation, so on Windows
-# (the declared reference platform) this target otherwise rewrites all ~118 files with CRLF and
-# reports the whole catalog as changed even when only one entry was edited.
+# newline='\n' is required: without it write_text() translates to CRLF on Windows, rewriting
+# every committed (LF) file and burying a real change in a whole-directory diff. The mirror test
+# reads back through universal newlines, so it cannot catch that on its own.
 docs-diagnostics:
-	$(PY) -c "from pathlib import Path; from arcavex.services.diagnostics_catalog import CATALOG, render_markdown; [ (Path('docs/diagnostics')/f'{c}.md').open('w', encoding='utf-8', newline='\n').write(render_markdown(d)) for c,d in CATALOG.items() ]"
+	$(PY) -c "from pathlib import Path; from arcavex.services.diagnostics_catalog import CATALOG, render_markdown; [ (Path('docs/diagnostics')/f'{c}.md').write_text(render_markdown(d), encoding='utf-8', newline='\n') for c,d in CATALOG.items() ]"
 
 # Measure performance against the spec §8.2 targets and print the actuals.
 bench:
