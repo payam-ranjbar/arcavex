@@ -14,6 +14,41 @@ authoring. P3 is post-launch.
 
 ---
 
+## Status
+
+Every item below is implemented on `integration/public-readiness`, branched from `2e0f8b7`. Suite:
+**726 passed, 1 skipped** (from 590 + 1 at the audit baseline). `ruff`, `mypy --strict` on the
+kernel, and `lint-imports` all clean.
+
+| Item | State | Where |
+|---|---|---|
+| P0-1 strictness sweep | done | `fix/p0-1-strictness` |
+| P0-2 pin dependencies | done | `f0f1c39` |
+| P1-1 `ext test` encoding | done | `fix/p1-1-ext-encoding` |
+| P1-2 `ARC-LAY-057` | done | `fix/p1-2-maxlines` |
+| P1-3 Raise → Lower | done | `fdc02d0` |
+| P1-4 `max_lines` under `wrap` | done | `5bd5ff5` |
+| P2-1 overlap `kind` | done | `fix/p2-1-overlap-kind` |
+| P2-2 `font` command | done | `fix/p2-2-font-cmd` |
+| P2-3 / P2-4 encoding sweep | done | `0b9fa04` |
+| P3-1 `ARC-AST-020` warning | done (tier one) | `b26b441` |
+| P3-1 `fit: content-box`, `asset prep` | **not built** — tier two, see [backlog.md](backlog.md) | — |
+| P3-2 judgement boundary | documented | `59c3123` |
+| P3-2 `audit` command | **not built** — candidate only, see [backlog.md](backlog.md) | — |
+
+Three findings changed on contact with the code, and the entries below have been corrected in place
+rather than left as written:
+
+1. **P2-4 was not an encoding problem.** `python -m importlinter.cli lint` dispatches nothing at
+   all — it exits 0 with no output even against a deliberately broken contract. The gate had never
+   run, on any platform.
+2. **P3-1's ~60% threshold fires on `examples/hello-poster/logo.png`** (0.483). Shipped at 0.40,
+   calibrated against every asset in the repository.
+3. **The audit's baseline of "591 passed"** was 590 passed + 1 skipped; `addopts = "-q"` plus a
+   second `-q` suppresses the summary line, which is the likely origin.
+
+---
+
 ## P0-1 — Unknown fields are silently accepted in six of seven authoring scopes
 
 **Severity: release-blocking.** This is the single highest-leverage defect in the repo.
@@ -357,6 +392,14 @@ Two tiers.
 sidecar. When an image node uses `fit: contain|cover` and the asset's opaque bbox covers less than
 ~60% of its canvas, emit a warning:
 
+> **Shipped at 40%, not 60%.** Measured against every asset in the repository, a 60% threshold
+> fires on `examples/hello-poster/logo.png` (872x581 of artwork in a 1024x1024 canvas, 0.483) — a
+> real but minor loss of size, not this failure. A warning that fires on the project's own
+> quick-start teaches the reader to ignore it. 0.40 leaves a clear gap on both sides of the 0.197
+> case that prompted the diagnostic, and a test sweeps every bundled asset so the number stays
+> calibrated. The warning also lives at **compile** time rather than ingest, so `validate` reports
+> it before a pixel is drawn and every surface inherits it.
+
 > **`ARC-AST-020`** — `Asset 'igsa-logo.png' is 512x512 but its opaque content is only 452x114
 > (20% of the canvas); 'fit: contain' will scale the transparent padding, not the artwork.`
 > `hint: Trim to the alpha bounding box, or set fit: content-box.`
@@ -520,18 +563,36 @@ wording does not apply as written — it needs its own message, or a generalised
 **Severity: medium.** Found while implementing P1-2.
 
 `python -m importlinter.cli lint` — the invocation the Makefile's `contracts` target uses — exits 0
-and prints **nothing** in this environment, because its output banner uses box-drawing characters
-that die on the console codepage. The `5 kept, 0 broken` confirmation only appears via
-`.venv/Scripts/lint-imports.exe`.
+and prints **nothing** in this environment. A target that prints nothing and exits 0 is
+indistinguishable from a target that passed.
 
-A target that prints nothing and exits 0 is indistinguishable from a target that passed. If the
-contract set ever broke while the encoding problem persisted, CI and the developer would both see
-green.
+### Corrected during implementation — this was not an encoding bug
 
-This is the **fourth** instance of the encoding root cause in one session; fold it into the P2-3
-sweep and add `PYTHONIOENCODING=utf-8` to the Makefile targets that shell out.
+The diagnosis above assumed a console codepage killing import-linter's box-drawing banner, and
+filed it as the fourth instance of the encoding root cause. That was wrong, and the truth is worse:
+**`python -m importlinter.cli lint` dispatches nothing at all.** It exits 0 with zero output
+regardless of encoding.
 
-**Effort:** included in the P2-3 sweep.
+Verified rather than assumed — a deliberately forbidden `clients` → `kernel` contract was appended
+to `pyproject.toml`, and:
+
+| Invocation | Exit | Output |
+|---|---|---|
+| `python -m importlinter.cli lint` | **0** | none |
+| `lint-imports` (console script) | 1 | names the violating import chain |
+
+So the architecture gate inside `make verify` had never checked anything, on any platform, and no
+amount of encoding work would have revealed that. The fix is the console script, guarded by
+`tests/unit/test_toolchain.py`, which parses the recipe and fails if the no-op form returns.
+
+The encoding problem is real but secondary: `lint-imports` produced 552 bytes without
+`PYTHONIOENCODING=utf-8` against 1188 with it, so its output was being truncated too. Both are
+fixed.
+
+One reason this survived eight phases: `make` is not installed on the reference machine. Nobody
+could run the target — they ran `lint-imports.exe` directly, which works.
+
+**Effort:** as estimated; the diagnosis cost more than the fix.
 
 ## Cross-cutting: the meta-lesson for the diagnostics system
 
