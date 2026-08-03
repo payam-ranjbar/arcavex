@@ -112,6 +112,34 @@ def test_no_orphan_docs_files() -> None:
     assert doc_codes == documented_codes()
 
 
+def test_generated_docs_are_lf_only() -> None:
+    """P2-3: read_text normalises newlines, so the mirror test above cannot see CRLF.
+
+    Only a byte-level check catches `make docs-diagnostics` rewriting the whole directory
+    with platform line endings on Windows.
+    """
+    for path in sorted(_DOCS.glob("*.md")):
+        assert b"\r\n" not in path.read_bytes(), f"{path.name} has CRLF line endings"
+
+
+def test_diagnostics_index_counts_match_catalog() -> None:
+    """docs/diagnostics.md quotes a total and a per-prefix table; both must track the catalog."""
+    index = _DOCS.parent / "diagnostics.md"
+    text = index.read_text(encoding="utf-8")
+
+    total = re.search(r"\*\*(\d+)\*\* documented codes", text)
+    assert total is not None, "docs/diagnostics.md no longer states a documented-code total"
+    assert int(total.group(1)) == len(CATALOG)
+
+    counts: dict[str, int] = {}
+    for prefix, count in re.findall(r"^\| `(ARC-[A-Z]+)` \| (\d+) \|", text, re.M):
+        counts[prefix] = int(count)
+    actual: dict[str, int] = {}
+    for code in CATALOG:
+        actual[code.rsplit("-", 1)[0]] = actual.get(code.rsplit("-", 1)[0], 0) + 1
+    assert counts == actual
+
+
 def test_new_remediation_codes_are_documented() -> None:
     """CR-3/DX-1/DX-5 added new codes; every one must have a catalog entry."""
     for code in ("ARC-TPL-061", "ARC-TPL-099", "ARC-LAY-040"):
