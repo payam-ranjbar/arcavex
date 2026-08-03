@@ -9,6 +9,7 @@ sandbox: the code is trusted local code (spec §7.3).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,11 @@ from arcavex.services.extensions.validator import validate_extension
 # The conventional test script an extension ships; ``ext test`` runs it in a subprocess.
 GOLDEN_TEST_NAME = "golden_test.py"
 _TEST_TIMEOUT_S = 120
+# Pin UTF-8 on both ends of the test pipe. Without it the child encodes its output with the console
+# codepage and the harness decodes it with the locale's — cp1252 on the reference Windows platform
+# (docs/known-limitations.md) — so one non-ASCII character in a test's output broke the harness
+# rather than the extension. The child gets these on top of the inherited environment.
+_CHILD_UTF8_ENV = {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
 
 
 class ExtensionService:
@@ -205,12 +211,16 @@ class ExtensionService:
                     )
                 ],
             )
+        environ = self._env if self._env is not None else dict(os.environ)
         try:
             completed = subprocess.run(
                 [sys.executable, GOLDEN_TEST_NAME],
                 cwd=str(ext_dir),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
+                env={**environ, **_CHILD_UTF8_ENV},
                 timeout=_TEST_TIMEOUT_S,
                 check=False,
             )
@@ -228,6 +238,18 @@ class ExtensionService:
                     )
                 ],
             )
+        except OSError as exc:
+            # The harness could not even start the child, so the extension's result is unknown.
+            return self._harness_failure(
+                ext_dir, name, f"Extension test harness could not start the test subprocess: {exc}"
+            )
+        if completed.stdout is None or completed.stderr is None:
+            # A reader thread died mid-stream. Decoding can no longer cause that (errors="replace"
+            # never raises), but a pipe-level error still can, and it used to surface as empty
+            # output attached to a confident ARC-EXT-052.
+            return self._harness_failure(
+                ext_dir, name, "Extension test harness could not read the test subprocess output"
+            )
         output = (completed.stdout or "") + (completed.stderr or "")
         passed = completed.returncode == 0
         diagnostics: list[Diagnostic] = []
@@ -242,6 +264,29 @@ class ExtensionService:
             )
         return ExtensionTestReport(
             ok=passed, name=name, passed=passed, output=output.strip(), diagnostics=diagnostics
+        )
+
+    def _harness_failure(
+        self, ext_dir: Path, name: str | None, message: str
+    ) -> ExtensionTestReport:
+        """Report an ``ext test`` failure the harness itself caused, apart from ARC-EXT-052.
+
+        The extension's own result is unknown when the harness cannot run or read the child, so
+        reporting ARC-EXT-052 there would falsely accuse the author of shipping a failing test.
+        """
+        return ExtensionTestReport(
+            ok=False,
+            name=name,
+            diagnostics=[
+                diagnostic(
+                    "ARC-EXT-053",
+                    message,
+                    file=str(ext_dir),
+                    hint="This is an Arcavex-side failure, not a failing test. Re-run the command; "
+                    "if it persists, check the extension directory is readable and that Arcavex "
+                    "can start a subprocess.",
+                )
+            ],
         )
 
     # ----------------------------------------------------------------------- add

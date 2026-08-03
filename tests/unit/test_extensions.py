@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
 import textwrap
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from arcavex.builtin.effects_core import builtin_effects
 from arcavex.kernel.registry import Registries
@@ -331,6 +335,80 @@ def test_service_add_rejects_collision_with_other_extension(
     assert not add.ok
     dup = next(d for d in add.diagnostics if d.code == "ARC-EXT-001")
     assert "extension 'ext-a'" in dup.message
+
+
+# ------------------------------------------------------------------- test-harness failures
+def _testable_ext(root: Path, name: str) -> Path:
+    """A valid extension carrying a trivial golden_test.py, so ``test`` reaches the subprocess."""
+    ext = _make_ext(root, name)
+    (ext / "golden_test.py").write_text("print('ok')\n", encoding="utf-8")
+    return ext
+
+
+def test_child_env_pins_utf8_over_the_inherited_environment(
+    arcavex_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-1: the child is spawned with UTF-8 pinned, merged over the inherited environment.
+
+    Asserting the spawn arguments directly keeps the contract explicit: a future refactor that
+    drops ``encoding`` or the env would otherwise only show up as a Windows-only crash.
+    """
+    from arcavex.services.extensions.service import ExtensionService
+
+    ext = _testable_ext(tmp_path, "envy")
+    seen: dict[str, Any] = {}
+
+    def _fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args=args[0], returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setenv("ARCAVEX_MARKER", "inherited")
+    assert ExtensionService().test_extension(ext).ok
+    assert seen["encoding"] == "utf-8"
+    assert seen["errors"] == "replace"
+    assert seen["env"]["PYTHONIOENCODING"] == "utf-8"
+    assert seen["env"]["PYTHONUTF8"] == "1"
+    assert seen["env"]["ARCAVEX_MARKER"] == "inherited"  # merged over, not replacing
+
+
+def test_unreadable_output_is_a_harness_error_not_a_test_failure(
+    arcavex_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-1: output the harness could not read reports ARC-EXT-053, never ARC-EXT-052.
+
+    Simulates the historical Windows failure: a reader thread dies mid-stream and leaves the
+    captured stream unset, which used to reach the caller as a confident 'your test failed'.
+    """
+    from arcavex.services.extensions.service import ExtensionService
+
+    ext = _testable_ext(tmp_path, "unreadable")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], returncode=0, stdout=None, stderr=None),
+    )
+    report = ExtensionService().test_extension(ext)
+    assert not report.ok and not report.passed
+    assert [d.code for d in report.diagnostics] == ["ARC-EXT-053"]
+
+
+def test_unspawnable_child_is_a_harness_error(
+    arcavex_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P1-1: a subprocess that cannot be started is ARC-EXT-053, not a failing extension test."""
+    from arcavex.services.extensions.service import ExtensionService
+
+    ext = _testable_ext(tmp_path, "unspawnable")
+
+    def _boom(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise OSError(8, "Exec format error")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    report = ExtensionService().test_extension(ext)
+    assert not report.ok
+    assert [d.code for d in report.diagnostics] == ["ARC-EXT-053"]
+    assert "Exec format error" in report.diagnostics[0].message
 
 
 # --------------------------------------------------------------------- SDK path coercion
