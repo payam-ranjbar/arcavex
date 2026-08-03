@@ -74,6 +74,23 @@ template + data  ──compile──▶  CompiledDocument  ──layout──▶
 Per-render resource budgets (`ARC-RND-020..023`) are checked pre-flight from the canvas + DPI, before
 any pixels are allocated, so a runaway render is refused rather than exhausting memory.
 
+### The three boxes a laid-out node carries
+
+`LayoutNode` records three rectangles, and confusing them is the source of most geometry bugs:
+
+| Box | Space | Grown by | Used for |
+|---|---|---|---|
+| `bounds` | canvas pt, pre-rotation | nothing | anchoring, sizing, stacks — the authored layout box |
+| `render_bounds` | node-local, pre-rotation | the effects' declared bounds expansion | the element surface the backend allocates, so a blur or tear is not clipped |
+| `paint_bounds` | canvas pt | rotation **and** effect expansion | clipping, debug overlays, and the allocation envelope |
+
+Effect expansion is an *allocation request*, not occupancy: a drop-shadow claims room it will
+paint softly into, but the node's ink stays inside `bounds`. `paint_bounds` folds that request
+together with the post-rotation AABB, which is real geometry. Overlap reporting therefore
+classifies against the rotation AABB of `bounds` alone (`kind: content`) and treats an
+intersection that exists only in `paint_bounds` as effect spill (`kind: halo`) — see
+[cli.md](cli.md#overlap-kinds).
+
 ## SPI contracts
 
 Eight service-provider interfaces define every replaceable component. An extension subclasses exactly
@@ -150,6 +167,21 @@ of its 24 tools is a thin wrapper over exactly one `kernel.api` facade method an
 versioned pydantic result the CLI's `--json` returns — a schema-parity test asserts each tool's
 output schema equals the facade model's JSON schema. The transport is stdio only; the render path is
 network-free by design. See the [MCP section of the README](../README.md#mcp-authoring-surface-62).
+
+## Versioning the machine-readable contracts
+
+Every `--json` / MCP result carries `response_version` (spec §2 rule 5: persisted contracts are
+versioned, breaking changes need a migration note). One rule decides whether a change is breaking:
+
+- **Additive and forward-compatible** — a new field with a default, or a new value in a set a
+  consumer is expected to tolerate. `response_version` does **not** move. A consumer that ignores
+  the field is unaffected, and a payload written before the field existed still parses, because the
+  default fills it in. Declare the field forward-compatible in `CHANGELOG.md` and document it.
+- **Breaking** — removing or renaming a field, changing its type, or changing the meaning of an
+  existing value. `response_version` moves, and `CHANGELOG.md` carries a migration note.
+
+`SiblingOverlap.kind` is the worked example of the first case: it defaults to `content`, so
+nothing that ignores it changes behaviour and `response_version` stays at 1.
 
 ## Architecture decisions
 

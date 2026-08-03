@@ -246,16 +246,69 @@ arcavex layout inspect TEMPLATE [-d -f -l] [--json]
 Report resolved geometry: per-node bounds (pt + px), the anchor derivation for each axis, overflow,
 and sibling overlaps — geometry a compile-clean `validate` cannot see.
 
+Every node prints **two** boxes. `bounds` is the layout box the solver resolved. `paint` is that
+box grown by the node's rotation and by the bounds expansion its effects declare, so the renderer
+can allocate room for a blur or a tear. The two are equal unless the node is rotated or carries an
+expanding effect.
+
 ```console
 $ arcavex layout inspect examples/hello-poster/template.yaml \
     --data examples/hello-poster/data.yaml --format square
 canvas 810x810pt (1080x1080px @ 96dpi) format=square locale=-
-root group (0.0, 0.0, 810.0, 810.0)pt
+root group bounds (0.0, 0.0, 810.0, 810.0)pt
+  paint (0.0, 0.0, 810.0, 810.0)pt
   v: top = parent.top → 0.0pt
   h: left = parent.left → 0.0pt
+  accent shape bounds (105.3, 226.8, 599.4, 356.4)pt
+    paint (105.3, 226.8, 599.4, 356.4)pt
+    h: center_x = parent.center_x → 405.0pt
   …
-overlaps:
+overlaps: 2 content, 0 effect spill
+  accent ∩ title at (145.8, 352.5, 518.4, 69.0)pt
+  accent ∩ subtitle at (145.8, 450.0, 518.4, 31.0)pt
+coverage: 100% of canvas
 ```
+
+Both of those are `content` overlaps and both are intentional — the text is meant to sit on the
+accent panel. `layout inspect` reports geometry; deciding which intersections are by design is
+still the author's call.
+
+### Overlap kinds
+
+Every overlap carries a `kind` naming what actually collided:
+
+| `kind` | Condition | What to do |
+|---|---|---|
+| `content` | The nodes' layout `bounds` intersect. | A genuine collision. `rect_pt` is the colliding area itself, so its width or height is the correction to apply. |
+| `halo` | Only the effect-grown `paint` boxes intersect. | Effect spill: one node's shadow, glow or torn-paper amplitude reaches over its neighbour. Usually the intended look. |
+
+Human output lists `content` overlaps first and demotes `halo` ones into a dimmed *effect spill*
+subsection. For a poster whose `strip` casts a drop-shadow across a 10pt gap to `tag`, while
+`venue-2` genuinely bites 4pt into `venue-1`:
+
+```
+overlaps: 1 content, 1 effect spill
+  venue-1 ∩ venue-2 at (20.0, 236.0, 200.0, 4.0)pt
+  effect spill (paint bounds only — usually intended):
+    strip ∩ tag at (130.0, 20.0, 50.0, 40.0)pt
+```
+
+`--json` and the `arcavex_layout_inspect` MCP tool carry `kind` on every overlap, so an agent
+filters on it directly rather than re-deriving the distinction from geometry:
+
+```console
+$ arcavex layout inspect poster.yaml --format portrait --json \
+  | jq '[.overlaps[] | select(.kind == "content")]'
+```
+
+A rotated node contributes its axis-aligned bounding box, not its rotated outline. Two rotated
+nodes that visually clear each other can therefore still report a `content` overlap; the per-node
+`paint` box is what makes that arithmetic checkable by hand.
+
+Full-bleed backdrops and groups that enclose their siblings are suppressed rather than reported —
+containment by a node covering ≥90% of its parent region, or by a group, is structure, not a
+collision. A node's shadow cannot buy it that exemption: the threshold is measured on the layout
+box, not the paint box.
 
 ## style
 

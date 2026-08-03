@@ -41,6 +41,7 @@ from arcavex.kernel.ir.models import (
     LayoutDocument,
     LayoutNode,
 )
+from arcavex.kernel.ir.units import Rect
 from arcavex.kernel.registry import Registries
 
 _EXPORTER_BY_EXT: dict[str, str] = {
@@ -814,13 +815,27 @@ class LayoutNodeReport(BaseModel):
 
 
 class SiblingOverlap(BaseModel):
-    """Two sibling nodes whose resolved bounds intersect."""
+    """Two sibling nodes whose resolved bounds intersect, classified by what actually collides.
+
+    ``kind`` is the difference between a bug and a design decision (P2-1):
+
+    - ``content`` — the nodes' layout bounds (post-rotation AABB, no effect growth) intersect.
+      A genuine collision; ``rect_pt`` is the colliding area, so its size is the depth to fix.
+    - ``halo`` — only the effect-grown ``paint_bounds`` intersect. The drop-shadow, glow or
+      torn-paper amplitude of one node reaches over its neighbour; usually the intended look.
+
+    Reporting both under one label made the genuine collision indistinguishable from the spill,
+    so callers filter on ``kind`` rather than re-deriving it from the geometry.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     a: str
     b: str
     rect_pt: tuple[float, float, float, float]
+    # Additive under response_version 1 and defaulted, so a payload serialised before the field
+    # existed still parses and a consumer that ignores it is unaffected (spec §2 rule 5).
+    kind: Literal["content", "halo"] = "content"
 
 
 class LayoutReport(BaseModel):
@@ -2626,37 +2641,84 @@ def _derive_anchors(
     return out
 
 
+def _content_aabb(node: LayoutNode) -> Rect:
+    """Return the node's ink footprint: its layout ``bounds`` AABB, without effect growth.
+
+    ``paint_bounds`` folds two unrelated expansions together — the post-rotation AABB, which is
+    real geometry the node occupies, and the effects' declared bounds expansion, which is only
+    an allocation request so a blur or tear is not clipped. Collision reporting needs the first
+    without the second, otherwise a drop-shadow reads as a collision (P2-1).
+
+    Rotated nodes still contribute their post-transform AABB, matching what siblings anchor to
+    (CR-14); the AABB of a rotated node is coarser than its ink, which is why such a pair is
+    reported as ``content`` and left to the author to judge.
+    """
+    if node.render_bounds == node.bounds:
+        # Nothing grew the box, so paint_bounds already *is* the content AABB. Reusing it keeps
+        # the solver's 1/1024pt geometry quantization intact instead of re-deriving a rect that
+        # differs from it in the last decimal.
+        return node.paint_bounds
+    if not node.rotate_deg:
+        return node.bounds
+    b, m = node.bounds, node.absolute_transform
+    corners = [
+        m.apply(b.x, b.y), m.apply(b.right, b.y),
+        m.apply(b.right, b.bottom), m.apply(b.x, b.bottom),
+    ]
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
+
+def _classify_overlap(
+    ca: Rect, cb: Rect, pa: Rect, pb: Rect
+) -> tuple[Literal["content", "halo"], tuple[float, float, float, float]] | None:
+    """Classify a sibling pair from its content and paint rects, or ``None`` if they clear.
+
+    Content wins when the ink footprints themselves intersect, and the rect reported is then the
+    content intersection — so the number an author reads is the real collision depth rather than
+    a blur radius. Otherwise only the effect-grown boxes touch, which is spill.
+    """
+    content = _intersection(ca, cb)
+    if content is not None:
+        return "content", content
+    halo = _intersection(pa, pb)
+    if halo is not None:
+        return "halo", halo
+    return None
+
+
 def _collect_overlaps(
     children: tuple[LayoutNode, ...], overlaps: list[SiblingOverlap], region: object
 ) -> None:
-    visible = [c for c in children if c.visible]
+    visible = [(c, _content_aabb(c)) for c in children if c.visible]
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
-            a, b = visible[i], visible[j]
-            # Rotated nodes contribute their post-transform AABB to overlap reporting (CR-14).
-            ra, rb = a.paint_bounds, b.paint_bounds
-            rect = _intersection(ra, rb)
-            if rect is None:
+            (a, ca), (b, cb) = visible[i], visible[j]
+            classified = _classify_overlap(ca, cb, a.paint_bounds, b.paint_bounds)
+            if classified is None:
                 continue
             # DX-8/RR2-9: containment is suppressed as noise only when the *container* is a
             # backdrop — a group, or a full-bleed node covering nearly the whole parent region.
             # A regular content node that fully swallows a sibling is a genuine bug and is still
             # reported, rather than hidden just because it happens to enclose the other.
-            if _contains(ra, rb) and _is_backdrop(a, region):
+            if _contains(ca, cb) and _is_backdrop(a, ca, region):
                 continue
-            if _contains(rb, ra) and _is_backdrop(b, region):
+            if _contains(cb, ca) and _is_backdrop(b, cb, region):
                 continue
+            kind, rect = classified
             overlaps.append(
-                SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect)
+                SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect, kind=kind)
             )
 
 
-def _is_backdrop(node: LayoutNode, region: object) -> bool:
+def _is_backdrop(node: LayoutNode, content: Rect, region: object) -> bool:
     """Whether ``node`` is a backdrop-like container within ``region`` (full-bleed or a group).
 
     Groups are structural containers, not collisions; a leaf that covers ~the whole parent
     region is a background. Either legitimately encloses siblings, so their containment is not
-    reported as an overlap bug.
+    reported as an overlap bug. The test reads ``content`` rather than ``paint_bounds`` so a
+    generous shadow cannot promote an ordinary node into a backdrop (P2-1).
     """
     if node.kind == "group":
         return True
@@ -2664,8 +2726,7 @@ def _is_backdrop(node: LayoutNode, region: object) -> bool:
     region_area = rw * rh
     if region_area <= 0:
         return False
-    pb = node.paint_bounds
-    return bool((pb.w * pb.h) >= 0.9 * region_area)
+    return bool((content.w * content.h) >= 0.9 * region_area)
 
 
 def _contains(outer: object, inner: object) -> bool:

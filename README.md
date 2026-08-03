@@ -300,7 +300,10 @@ The intended authoring loop (also the server's advertised `instructions`):
    typo (`fontsize` for `font_size`) is a located `ARC-TPL-051`, not a silent write; an op that
    does not name exactly one verb is a located `ARC-TPL-092`.
 3. `arcavex_template_validate` → `arcavex_render_preview` (see the image) →
-   `arcavex_layout_inspect` (resolved geometry, overlaps a compile-clean validate misses).
+   `arcavex_layout_inspect` (resolved geometry, overlaps a compile-clean validate misses). Each
+   overlap is classified `content` (the layout boxes genuinely collide — act on it) or `halo`
+   (only the effect-grown paint boxes touch, e.g. a drop-shadow reaching over a neighbour), so an
+   agent that cannot see the render filters on `kind` instead of confirming each one by eye.
 4. To author real content: `arcavex_project_create` → `arcavex_data_set` / `arcavex_data_import`
    (a keypath matching no declared variable warns with `ARC-TPL-112`) → `arcavex_project_render`
    for a recorded run that `arcavex_run_list`/`_diff`/`_rerun` then operate on.
