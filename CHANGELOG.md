@@ -44,6 +44,42 @@ hint names. No template shipped in this repository needed a change.
   declared reference platform), which made a one-entry edit look like a 118-file change. The
   previously CRLF-committed files are normalized to LF.
 
+### Added
+
+- **`SiblingOverlap.kind` on `layout inspect`** — every reported overlap is now classified as
+  `content` (the nodes' layout bounds genuinely intersect) or `halo` (only their effect-grown
+  paint bounds do, i.e. a shadow, glow or torn-paper edge reaching over a neighbour). Overlap
+  reporting previously compared `paint_bounds` alone, so a shadowed node was indistinguishable
+  from a real collision and the useful signal got filtered away with the noise. The field is
+  carried by `--json` and by the `arcavex_layout_inspect` MCP tool, so an agent that cannot see
+  the render filters structurally instead of guessing.
+
+### Changed
+
+- **`layout inspect` human output** groups overlaps: `content` ones are listed under the
+  `overlaps` heading, `halo` ones demoted to a dimmed *effect spill* subsection, with a
+  `N content, M effect spill` count on the heading itself.
+- **`layout inspect` prints both boxes per node** — `bounds` (the resolved layout box) and
+  `paint` (that box grown by rotation and effect expansion). Only `bounds` was shown before,
+  which is why a halo overlap's rect looked like it came from nowhere.
+- **`rect_pt` on a `content` overlap is now the content intersection**, not the paint
+  intersection — so its width/height is the actual collision depth to correct. `halo` overlaps
+  still report the paint intersection, which is the only one that exists for them.
+- **The full-bleed backdrop suppression threshold** (a node covering ≥90% of its parent region is
+  structure, not a collision) is measured on the layout box rather than the paint box, so a
+  generous shadow can no longer promote an ordinary node into a backdrop and have its containment
+  of a sibling silently dropped.
+
+### Compatibility
+
+`SiblingOverlap.kind` is **additive and forward-compatible**: it defaults to `content`, so a
+payload serialised before the field existed still parses and a consumer that ignores the field is
+unaffected. `response_version` therefore stays at `1` and no migration is required. Consumers that
+want the new signal opt in by reading `kind`; the recommended filter for "real problems only" is
+`kind == "content"`. Which node pairs are reported is unchanged — verified byte-for-byte against
+the previous output across all 16 reference-poster and IPEN format × locale targets; the change is
+purely the added label plus the more precise `rect_pt` for content overlaps.
+
 ## [0.1.0] — 2026-07-15
 
 First tagged release: a local-first, headless, deterministic, template-driven rendering engine.

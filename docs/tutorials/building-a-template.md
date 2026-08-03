@@ -156,10 +156,12 @@ $ arcavex template check ./card --format square      # schema + structure, no da
 OK template is valid
 
 $ arcavex layout inspect ./card --format square       # resolved geometry + overlaps
+inferred: data=preview_data
 canvas 810x810pt (1080x1080px @ 96dpi) format=square locale=-
-root group (0.0, 0.0, 810.0, 810.0)pt
+root group bounds (0.0, 0.0, 810.0, 810.0)pt
+  paint (0.0, 0.0, 810.0, 810.0)pt
   …
-overlaps:
+coverage: 100% of canvas
 
 $ arcavex render ./card --format square -o card.png
 inferred: data=preview_data
@@ -167,7 +169,14 @@ Rendered card.png
 ```
 
 `layout inspect` shows the resolved bounds and any sibling overlaps — geometry a compile-clean
-`check`/`validate` cannot see. Use it whenever a node lands somewhere unexpected.
+`check`/`validate` cannot see. Use it whenever a node lands somewhere unexpected. The scaffold's
+nodes all clear each other, so it prints no `overlaps` section at all.
+
+Each node prints two boxes: `bounds` is the layout box, and `paint` is that box grown by rotation
+and by any effect's declared bounds expansion. Overlaps are split the same way — a `content`
+overlap means the layout boxes really intersect, while *effect spill* means only the grown boxes
+do (a drop-shadow reaching over a neighbour). Fix the first; the second is usually the intended
+look. See [overlap kinds](../cli.md#overlap-kinds).
 
 ## Next
 

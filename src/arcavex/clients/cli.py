@@ -846,13 +846,7 @@ def _print_layout_report(console: Console, report: LayoutReport) -> None:
     if report.root is not None:
         _print_layout_node(console, report.root, 0)
     if report.overlaps:
-        console.print("[bold]overlaps[/bold]:")
-        for ov in report.overlaps:
-            r = ov.rect_pt
-            console.print(
-                f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at "
-                f"({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f}, {r[3]:.1f})pt"
-            )
+        _print_overlaps(console, report)
     console.print(f"[bold]coverage[/bold]: {report.covered_fraction:.0%} of canvas")
     if report.free_regions:
         console.print("[bold]free regions[/bold] (empty horizontal bands):")
@@ -864,13 +858,46 @@ def _print_layout_report(console: Console, report: LayoutReport) -> None:
         console.print(f"[yellow]WARN {warn.code}[/yellow] {_esc(warn.message)}")
 
 
+def _rect_pt(rect: tuple[float, float, float, float]) -> str:
+    return f"({rect[0]:.1f}, {rect[1]:.1f}, {rect[2]:.1f}, {rect[3]:.1f})pt"
+
+
+def _print_overlaps(console: Console, report: LayoutReport) -> None:
+    """Print sibling overlaps with effect spill demoted below the genuine collisions (P2-1).
+
+    A halo is one node's shadow or tear reaching over its neighbour — usually the intended look.
+    Listing it alongside a real collision is what made the real one impossible to spot, so the
+    ``content`` overlaps get the heading and the ``halo`` ones a dimmed, indented subsection.
+    """
+    content = [ov for ov in report.overlaps if ov.kind == "content"]
+    halo = [ov for ov in report.overlaps if ov.kind == "halo"]
+    console.print(
+        f"[bold]overlaps[/bold]: {len(content)} content, {len(halo)} effect spill"
+    )
+    for ov in content:
+        console.print(f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}")
+    if not content:
+        console.print("  [dim]no content collisions[/dim]")
+    if halo:
+        console.print("  [dim]effect spill (paint bounds only — usually intended):[/dim]")
+        for ov in halo:
+            console.print(
+                f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
+            )
+
+
 def _print_layout_node(console: Console, node: object, depth: int) -> None:
     n = node  # LayoutNodeReport
     pad = "  " * depth
-    x, y, w, h = n.bounds_pt  # type: ignore[attr-defined]
     console.print(
         f"{pad}[cyan]{_esc(n.id)}[/cyan] [dim]{n.kind}[/dim] "  # type: ignore[attr-defined]
-        f"({x:.1f}, {y:.1f}, {w:.1f}, {h:.1f})pt"
+        f"bounds {_rect_pt(n.bounds_pt)}"  # type: ignore[attr-defined]
+    )
+    # Paint bounds get their own line rather than a suffix: a halo overlap's rect comes from
+    # this box, so it has to be readable, and at ~80 columns a second rect on the node line
+    # wraps mid-number — which is worse than not printing it at all (P2-1).
+    console.print(
+        f"{pad}  [dim]paint {_rect_pt(n.paint_bounds_pt)}[/dim]"  # type: ignore[attr-defined]
     )
     for anchor in n.anchors:  # type: ignore[attr-defined]
         console.print(
