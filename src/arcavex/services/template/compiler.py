@@ -53,6 +53,7 @@ from arcavex.kernel.ir.models import (
     Transform,
 )
 from arcavex.kernel.ir.units import Dim
+from arcavex.services.assets.advice import padding_warning
 from arcavex.services.template.expressions import (
     BudgetError,
     ExpressionError,
@@ -1399,6 +1400,18 @@ class Compiler:
                         hint="Use 'fill', 'contain', or 'cover'.",
                     )
                 )
+            # ARC-AST-020, raised here rather than at render time so 'validate' catches it too:
+            # a mostly-transparent asset under contain/cover renders correctly and uselessly.
+            padding = padding_warning(
+                resolved_asset,
+                node_id=node_id,
+                fit=fit,
+                file=str(template),
+                keypath=f"{keypath}.asset",
+                line=asset_line,
+            )
+            if padding is not None:
+                diags.append(padding)
             return CompiledImage(**common, asset_path=asset_path, fit=fit)
         if node_type == "shape":
             generator = raw.get("generator")

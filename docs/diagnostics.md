@@ -25,7 +25,7 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**154** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**155** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
 
 ## Unknown fields are always rejected
@@ -88,7 +88,7 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 | `ARC-EXT` | 20 | Extension manifest, compat, imports, determinism, golden test | `ARC-EXT-001` duplicate component, `ARC-EXT-030` import surface, `ARC-EXT-050` dishonest bounds, `ARC-EXT-053` test harness I/O |
 | `ARC-PRJ` | 6 | Project manifest, discovery, status, detach | `ARC-PRJ-001` no project, `ARC-PRJ-002` invalid manifest |
 | `ARC-STY` | 4 | Style packs, presets, roles | `ARC-STY-001` unknown pack, `ARC-STY-010` unknown preset |
-| `ARC-AST` | 4 | Asset resolution, decode, guards, traversal | `ARC-AST-003` decode guard, `ARC-AST-004` path escape |
+| `ARC-AST` | 5 | Asset resolution, decode, guards, traversal, shape advice | `ARC-AST-003` decode guard, `ARC-AST-004` path escape, `ARC-AST-020` mostly-transparent asset under contain/cover |
 | `ARC-EXP` | 4 | Exporters (write, encode, PDF, extension) | `ARC-EXP-001` export write failed, `ARC-EXP-011` unsupported extension |
 | `ARC-LIB` | 4 | Versioned library publish/resolve | `ARC-LIB-002` version immutable, `ARC-LIB-003` ambiguous bare name |
 | `ARC-RUN` | 2 | Recorded runs, rerun drift | `ARC-RUN-001` run not found, `ARC-RUN-002` input drift |

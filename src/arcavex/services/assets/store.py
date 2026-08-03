@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from arcavex.kernel.contracts.types import DecodeGuards
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
+from arcavex.services.assets.alpha import opaque_box
 from arcavex.services.assets.probe import ALLOWED_MIME, probe_image
 from arcavex.services.fsutil import atomic_write_text, sha256_bytes
 
@@ -39,6 +40,12 @@ class AssetRef(BaseModel):
     width: int
     height: int
     bytes: int
+    # ``(x, y, width, height)`` of the opaque pixels, or None when the asset has no alpha
+    # channel, is fully transparent, or predates this field. Recorded at ingest because that is
+    # the one moment the bytes are already in hand; ARC-AST-020 reads it to tell an author that
+    # 'fit: contain' is about to scale mostly padding. Additive with a None default so sidecars
+    # written before it parse unchanged.
+    opaque_bbox: tuple[int, int, int, int] | None = None
     annotations: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -89,8 +96,14 @@ class AssetStore:
                 f"over the {self._guards.max_pixels} cap",
             )
         digest = sha256_bytes(data)
+        box = opaque_box(path)
         ref = AssetRef(
-            sha256=digest, mime=probe.mime, width=probe.width, height=probe.height, bytes=size
+            sha256=digest,
+            mime=probe.mime,
+            width=probe.width,
+            height=probe.height,
+            bytes=size,
+            opaque_bbox=box.as_tuple() if box is not None else None,
         )
         self._persist(digest, data, ref)
         return ref
