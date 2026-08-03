@@ -80,6 +80,41 @@ want the new signal opt in by reading `kind`; the recommended filter for "real p
 the previous output across all 16 reference-poster and IPEN format × locale targets; the change is
 purely the added label plus the more precise `rect_pt` for content overlaps.
 
+### Added
+
+- **`arcavex font` command group** — the supported way to use a typeface beyond the four bundled
+  families, which previously required knowing (from prose in the docs) to drop a `.ttf` into
+  `$ARCAVEX_HOME/fonts` by hand:
+  - `font list [--json]` lists every resolvable family with its files, marks each **bundled** or
+    **installed**, and names the directory `add` writes to — the answer `doctor` never gave, since
+    it reported only the family *count*.
+  - `font add PATH [--license PATH]` installs a `.ttf` into the Arcavex home and reports the family
+    name **as the engine resolves it**, read from the file with the shaper's own resolver. A file
+    stem and its internal family name routinely differ (`Lateef-Regular.ttf` provides `Lateef`) and
+    `style.font` must name the family, so reporting the stem would hand back a name that does not
+    render. `--license` copies a licence alongside the font, following the bundled OFL convention.
+  - `font remove FAMILY` removes an installed family and its licence; a family bundled with the
+    engine is refused (`ARC-RND-032`), because it backs the default font stacks.
+- **`arcavex_font_list` MCP tool** — the legal `style.font` vocabulary is now discoverable by an
+  agent alongside `arcavex_style_list`/`arcavex_effects_list`. Installing a font stays CLI-only, in
+  the same class as `ext add`: an operator action on the machine, not an agent one.
+- **New diagnostics** `ARC-RND-030`..`ARC-RND-034` for the font store (file not found, unusable
+  typeface, bundled-family removal refused, no such installed family, unreadable/unwritable store).
+
+### Changed
+
+- **`ARC-RND-010` (font family not available)** now lists the **nearest** available families ahead
+  of the full list and names `arcavex font add` in its hint, so a typo and a genuinely missing
+  typeface get different, actionable answers. Its catalog entry no longer implies the font set is
+  closed.
+
+### Fixed
+
+- **Fonts in the default Arcavex home were silently ignored.** Font discovery read `$ARCAVEX_HOME`
+  directly and skipped the `~/.arcavex` default that `doctor` reports, so with `ARCAVEX_HOME` unset
+  a font placed in `~/.arcavex/fonts` was never registered. Discovery now resolves through
+  `fsutil.home_dir()` — the same single source of truth every other reader uses.
+
 ## [0.1.0] — 2026-07-15
 
 First tagged release: a local-first, headless, deterministic, template-driven rendering engine.

@@ -679,19 +679,65 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-RND-010",
-            "Font family not bundled",
-            "A text node requests a font family that is not in the bundled font database.",
-            "Use one of the available families, or add the font under library-seed/fonts.",
+            "Font family not available",
+            "A text node requests a font family the engine has not loaded. Rendering is confined "
+            "to the bundled families plus any installed under the Arcavex home — system fonts are "
+            "never consulted, because determinism requires it — so a typeface that is merely "
+            "installed on the operating system will not resolve. The name must be the font's "
+            "FAMILY (e.g. 'Lateef'), which often differs from its file name.",
+            "Use one of the families the hint lists, or install the typeface with 'arcavex font "
+            "add <path/to/font.ttf>', which reports the exact family name to write. 'arcavex "
+            "font list' shows every available family and the install directory.",
         ),
         _e(
             "ARC-RND-011",
             "Missing glyph",
-            "A text run contains a code point that no bundled font can render, so it would "
-            "paint as a tofu box. Rendering is confined to bundled fonts for determinism, so "
+            "A text run contains a code point that no loaded font can render, so it would "
+            "paint as a tofu box. Rendering is confined to the loaded fonts for determinism, so "
             "the shaper never falls back to a system font. This is a warning; the render "
             "proceeds.",
-            "Add a font that covers the reported code points under library-seed/fonts, or "
-            "remove the unsupported characters from the text.",
+            "Install a font covering the reported code points with 'arcavex font add "
+            "<path/to/font.ttf>', or remove the unsupported characters from the text.",
+        ),
+        _e(
+            "ARC-RND-030",
+            "Font file not found",
+            "'arcavex font add' was given a path that does not exist or is not a file.",
+            "Check the path; pass the .ttf file itself, not the directory containing it.",
+        ),
+        _e(
+            "ARC-RND-031",
+            "Font file is not a usable typeface",
+            "'arcavex font add' was given a file the shaper cannot read as a TrueType font, "
+            "either because of its extension or because Skia could not parse its contents. Such "
+            "a file is refused rather than installed, since it would sit in the font directory "
+            "providing no family and silently fail to resolve.",
+            "Install a .ttf file the engine can read; re-download or re-export the font, "
+            "converting from another format (.otf, .woff2) to TrueType first.",
+        ),
+        _e(
+            "ARC-RND-032",
+            "Cannot remove a bundled font family",
+            "'arcavex font remove' named a family that ships with the engine. Bundled families "
+            "back the default font stacks, so removing one would break templates that never "
+            "opted into anything unusual, and the files would return on the next reinstall.",
+            "Only families added with 'arcavex font add' can be removed; 'arcavex font list' "
+            "marks which families are bundled and which are installed.",
+        ),
+        _e(
+            "ARC-RND-033",
+            "No such installed font family",
+            "'arcavex font remove' named a family that is not installed. Names are case-"
+            "sensitive and must be the font's family name, not the file name it was added from.",
+            "Run 'arcavex font list' to see the installed family names, and pass one of those.",
+        ),
+        _e(
+            "ARC-RND-034",
+            "Font store could not be read or written",
+            "The font directory under the Arcavex home could not be read, created, or modified — "
+            "typically a permissions problem, or a file held open by another process.",
+            "Check that the Arcavex home is readable and writable; 'arcavex doctor' reports "
+            "which home directory is in effect.",
         ),
         _e(
             "ARC-RND-020",

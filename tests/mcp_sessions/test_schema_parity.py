@@ -20,6 +20,7 @@ from arcavex.kernel.api import (
     DiagnosticHelp,
     DiffReport,
     EffectListReport,
+    FontListReport,
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
@@ -57,6 +58,7 @@ _TOOL_OUTPUT_MODELS = {
     "arcavex_style_list": StyleListReport,
     "arcavex_style_inspect": StyleInspectReport,
     "arcavex_effects_list": EffectListReport,
+    "arcavex_font_list": FontListReport,
     "arcavex_layout_inspect": LayoutReport,
     "arcavex_render": RenderResult,
     "arcavex_run_list": RunListReport,
@@ -74,7 +76,7 @@ def test_catalog_lists_every_declared_tool() -> None:
     """The built server exposes exactly the declared tool catalog (names)."""
     catalog = _catalog()
     assert set(catalog) == {name for name, _ in _TOOL_METHODS}
-    assert len(catalog) == 24
+    assert len(catalog) == 25
 
 
 def test_output_schemas_match_facade_models() -> None:

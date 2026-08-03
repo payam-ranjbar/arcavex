@@ -27,6 +27,7 @@ from arcavex.kernel.api import (
     ExtensionActionReport,
     ExtensionListReport,
     Facade,
+    FontListReport,
     LayoutReport,
     PatchOp,
     PreviewResult,
@@ -68,6 +69,8 @@ mcp_app = typer.Typer(add_completion=False, help="MCP authoring server (spec §6
 app.add_typer(mcp_app, name="mcp")
 ext_app = typer.Typer(add_completion=False, help="Trusted local extension commands (spec §7).")
 app.add_typer(ext_app, name="ext")
+font_app = typer.Typer(add_completion=False, help="Font install/inspect commands (spec §4.3).")
+app.add_typer(font_app, name="font")
 
 
 def _engine_version() -> str:
@@ -102,8 +105,10 @@ EXIT_BUDGET = 4
 EXIT_INTERNAL = 5
 
 # Codes that map to exit 3 (missing template/asset/font). ARC-TPL-001 = file not found;
-# ARC-AST-* = missing/undecodable asset; MISSING_FONT_CODE = font not in bundled DB.
-_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE}
+# ARC-AST-* = missing/undecodable asset; MISSING_FONT_CODE = font family not loaded;
+# ARC-RND-030 = the file 'font add' was pointed at does not exist, which is the same
+# "a named input is not there" class as a missing asset and so shares its exit code.
+_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE, "ARC-RND-030"}
 _MISSING_PREFIXES = ("ARC-AST",)
 # Resource-limit codes that map to exit 4: the expression budget, the repeat iteration cap, and
 # the per-render surface budgets (dimension/pixels/memory/wall-clock, spec §8.3).
@@ -1783,6 +1788,106 @@ def _print_ext_list(console: Console, report: ExtensionListReport) -> None:
         state = "[green]enabled[/green]" if ext.enabled else "[dim]disabled[/dim]"
         components = ", ".join(f"{c.kind}:{c.name}" for c in ext.components) or "(none)"
         console.print(f"[cyan]{_esc(ext.name)}[/cyan] {ext.version} {state} — {components}")
+
+
+@font_app.command("list")
+def font_list(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List every font family the engine can resolve, marking bundled vs installed."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_fonts()
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_font_list(console, report)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+@font_app.command("add")
+def font_add(
+    path: Path = typer.Argument(..., help="Font file (.ttf) to install."),
+    license_path: Path | None = typer.Option(
+        None, "--license", help="Licence file to copy alongside the font (e.g. an OFL.txt)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Install a font into the Arcavex home and report the family name templates must use.
+
+    The reported family is read from the file itself, so it is the name the engine will resolve —
+    a file stem and its internal family name often differ, and 'style.font' must name the family.
+    """
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.add_font(path, license_path)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(
+                f"[green]Installed[/green] {_esc(result.family)} into {result.install_dir}"
+            )
+            console.print(
+                f"  [dim]use it in a template as:[/dim] style: {{font: {_esc(result.family)}}}"
+            )
+            if result.license:
+                console.print(f"  [dim]licence:[/dim] {result.license}")
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@font_app.command("remove")
+def font_remove(
+    family: str = typer.Argument(..., help="Installed family name (not a file name)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Remove an installed font family; a family bundled with the engine is refused."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.remove_font(family)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(
+                f"[green]Removed[/green] {_esc(result.family)} ({len(result.files)} file(s))"
+            )
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+def _print_font_list(console: Console, report: FontListReport) -> None:
+    if not report.ok:
+        _print_diagnostics(console, report.diagnostics, quiet=False)
+        return
+    if not report.families:
+        console.print("[dim]no font families found[/dim]")
+    for info in report.families:
+        # Both flags can be true (an extra weight installed for a bundled family), so the label
+        # reports the union rather than picking one and hiding the other.
+        tags = [t for t in ("bundled" if info.bundled else None,
+                            "installed" if info.installed else None) if t]
+        console.print(
+            f"[cyan]{_esc(info.family)}[/cyan] [dim]{'+'.join(tags)}[/dim] "
+            f"[dim]({len(info.files)} file(s))[/dim]"
+        )
+        for file in info.files:
+            console.print(f"  [dim]{_esc(file.name)}[/dim]")
+    console.print(f"[dim]install fonts into:[/dim] {report.install_dir}")
+    console.print("[dim]add one with:[/dim] arcavex font add <path/to/font.ttf>")
 
 
 def main() -> None:

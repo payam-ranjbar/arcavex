@@ -45,6 +45,7 @@ arcavex 0.1.0
 | [`layout inspect`](#layout-inspect) | Report resolved geometry, anchors, overlaps. |
 | [`style …`](#style) | List/inspect installed style packs. |
 | [`effects …`](#effects) | List/inspect the registered effects. |
+| [`font …`](#font) | List the available font families; install or remove a typeface. |
 | [`project …`](#project) | Project lifecycle: new/clone/set-status/upgrade. |
 | [`data …`](#data) | Project data authoring: set/import. |
 | [`asset …`](#asset) | Asset ingest/annotation. |
@@ -344,6 +345,59 @@ drop-shadow composite
 The full effect list and its usage notes are in
 [template-schema.md](template-schema.md#effects).
 
+## font
+
+Font install/inspect commands (spec §4.3). Rendering is confined to the families listed here —
+system fonts are **never** consulted, because determinism requires it — so any typeface beyond the
+four bundled families must be installed before a template may name it.
+
+| Subcommand | Purpose |
+|---|---|
+| `list [--json]` | List every resolvable family, its files, and whether it is bundled or installed; names the install directory. |
+| `add PATH [--license PATH]` | Install a `.ttf` into `$ARCAVEX_HOME/fonts` and report the family name templates must use. |
+| `remove FAMILY [--json]` | Remove an installed family. A family bundled with the engine is refused (`ARC-RND-032`). |
+
+```console
+$ arcavex font list
+Estedad bundled (3 file(s))
+  Estedad-Black.ttf
+  Estedad-Bold.ttf
+  Estedad-Regular.ttf
+Inter bundled (5 file(s))
+  Inter-Black.ttf
+  …
+Lalezar bundled (1 file(s))
+  Lalezar-Regular.ttf
+Vazirmatn bundled (5 file(s))
+  …
+install fonts into: C:\Users\you\.arcavex\fonts
+add one with: arcavex font add <path/to/font.ttf>
+```
+
+`add` reports the family name **as the engine resolves it**, read from the file itself. A file stem
+and its internal family name routinely differ, and `style.font` must name the *family*, so this is
+the name to write — never the filename:
+
+```console
+$ arcavex font add ~/Downloads/MyFace.ttf
+Installed Lalezar into C:\Users\you\.arcavex\fonts
+  use it in a template as: style: {font: Lalezar}
+```
+
+A family that ships with the engine cannot be removed — it backs the default font stacks, and the
+files would return on the next reinstall:
+
+```console
+$ arcavex font remove Inter
+ERROR ARC-RND-032 Font family 'Inter' is bundled with the engine and cannot be removed
+  hint: Bundled families ship with Arcavex; only families added with 'arcavex font add' can be removed.
+```
+
+`--license PATH` copies a licence file alongside the font as `LICENSE-<family>-<name>`, the
+convention the bundled OFL licences follow; `remove` deletes it with the family. Naming a family
+that is not available is [`ARC-RND-010`](diagnostics/ARC-RND-010.md), whose hint lists the nearest
+available families and points at `arcavex font add`.
+
 ## project
 
 Project lifecycle commands (spec §5).
@@ -383,7 +437,7 @@ MCP authoring server (spec §6.2).
 | Subcommand | Purpose |
 |---|---|
 | `serve` | Start the stdio MCP authoring server (blocks until the client disconnects). |
-| `tools [--json]` | Print the 24-tool catalog (names, descriptions, input/output schemas). |
+| `tools [--json]` | Print the 25-tool catalog (names, descriptions, input/output schemas). |
 
 Every MCP tool is a thin wrapper over one facade method and returns the same versioned pydantic
 result as the CLI's `--json`. See [architecture.md](architecture.md#mcp-parity) and the

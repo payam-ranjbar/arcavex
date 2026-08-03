@@ -179,6 +179,9 @@ Full flags and verified examples are in the [CLI reference](docs/cli.md); this i
 | `style inspect NAME [--json]` | Show a style pack's palettes, fonts, effect presets, and role defaults. |
 | `effects list [--json]` | List registered effects with their category and each param's type, default, and range. |
 | `effects inspect NAME [--json]` | Show one effect's category and full parameter schema. |
+| `font list [--json]` | List every resolvable font family, marking bundled vs installed, and name the install directory. |
+| `font add PATH [--license PATH]` | Install a `.ttf` into `$ARCAVEX_HOME/fonts` and report the family name templates must use. |
+| `font remove FAMILY [--json]` | Remove an installed font family; a family bundled with the engine is refused. |
 | `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, exporters, cache, temp dir, paths, config) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
@@ -281,10 +284,10 @@ transport is stdio only (no network).
 | `mcp tools [--json]` | Print the tool catalog (names, descriptions, and input/output JSON schemas) for discovery. |
 
 Wire it into an MCP client (e.g. Claude Desktop) as a stdio server running `arcavex mcp serve`.
-The catalog (24 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_validate`/`_patch`,
+The catalog (25 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_validate`/`_patch`,
 `arcavex_project_create`/`_list`/`_status`/`_clone`/`_render`, `arcavex_render_record`,
 `arcavex_data_set`/`_import`, `arcavex_asset_add`/`_annotate`,
-`arcavex_style_list`/`_inspect`/`arcavex_effects_list`,
+`arcavex_style_list`/`_inspect`/`arcavex_effects_list`/`arcavex_font_list`,
 `arcavex_render_preview` (returns the PNG as image content, `debug=true` overlays the layout),
 `arcavex_layout_inspect`, `arcavex_render`, `arcavex_run_list`/`_diff`/`_rerun`, and
 `arcavex_diagnostic_explain`. Every tool delegates to a facade method that is also reachable from

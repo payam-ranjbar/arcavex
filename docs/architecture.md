@@ -163,10 +163,14 @@ Provenance is same-platform: cross-platform reproduction is perceptual, not bit-
 ## MCP parity
 
 The MCP authoring server (`arcavex mcp serve`, spec §6.2) adds **no exclusive capability**. Every one
-of its 24 tools is a thin wrapper over exactly one `kernel.api` facade method and returns the same
+of its 25 tools is a thin wrapper over exactly one `kernel.api` facade method and returns the same
 versioned pydantic result the CLI's `--json` returns — a schema-parity test asserts each tool's
 output schema equals the facade model's JSON schema. The transport is stdio only; the render path is
-network-free by design. See the [MCP section of the README](../README.md#mcp-authoring-surface-62).
+network-free by design. The reverse containment is deliberate rather than accidental: the surface
+carries the **discovery** commands an agent needs to author correctly (`style list`, `effects list`,
+`font list` — the legal `style.font` vocabulary), while actions that install code or typefaces onto
+the machine (`ext add`/`enable`, `font add`/`remove`) stay CLI-only, so a human runs them. See the
+[MCP section of the README](../README.md#mcp-authoring-surface-62).
 
 ## Versioning the machine-readable contracts
 

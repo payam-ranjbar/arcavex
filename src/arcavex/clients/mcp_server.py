@@ -36,6 +36,7 @@ from arcavex.kernel.api import (
     DiffReport,
     EffectListReport,
     Facade,
+    FontListReport,
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
@@ -64,7 +65,8 @@ _INSTRUCTIONS = (
     "To author real content, scaffold with arcavex_project_create, write data with "
     "arcavex_data_set / arcavex_data_import, then arcavex_project_render for a recorded run "
     "(discoverable via arcavex_run_list). Discover vocabulary with arcavex_style_list / "
-    "arcavex_effects_list. Use arcavex_diagnostic_explain <code> for any code you do not know."
+    "arcavex_effects_list / arcavex_font_list (the only font families a template may name). "
+    "Use arcavex_diagnostic_explain <code> for any code you do not know."
 )
 
 
@@ -233,6 +235,16 @@ class ArcavexTools:
         """List every registered effect, its category, and each param's type/default/range."""
         return self._facade.list_effects()
 
+    def font_list(self) -> FontListReport:
+        """List every font family a template may name, marking bundled vs locally installed.
+
+        Rendering is confined to these families (there is no system-font fallback, for
+        determinism), so this is the legal vocabulary for 'style.font' — naming anything else is
+        ARC-RND-010. Installing a font is a local operator action, not an agent one: ask the user
+        to run 'arcavex font add <path/to/font.ttf>'.
+        """
+        return self._facade.list_fonts()
+
     # ---------------------------------------------------------------- render & inspect
     def render_preview(
         self,
@@ -349,6 +361,7 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_style_list", "style_list"),
     ("arcavex_style_inspect", "style_inspect"),
     ("arcavex_effects_list", "effects_list"),
+    ("arcavex_font_list", "font_list"),
     ("arcavex_render_preview", "render_preview"),
     ("arcavex_layout_inspect", "layout_inspect"),
     ("arcavex_render", "render"),
