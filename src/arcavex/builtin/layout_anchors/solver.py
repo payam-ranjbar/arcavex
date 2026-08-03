@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 import unicodedata
 from collections.abc import Sequence
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NoReturn
 
 from arcavex.kernel.contracts.spi import Effect, LayoutSolver
 from arcavex.kernel.contracts.types import MeasureFn, MeasureRequest, MeasureResult
@@ -615,16 +615,7 @@ class AnchorLayoutSolver(LayoutSolver):
         clip = kind == "truncated"
         if kind == "overflowing":
             if node.fit.overflow == "error":
-                raise DiagnosticError(
-                    diagnostic(
-                        "ARC-LAY-050",
-                        f"Text node {node.id!r} overflows its box "
-                        f"({result.width_pt:.1f}x{result.height_pt:.1f}pt into "
-                        f"{bounds.w:.1f}x{bounds.h:.1f}pt) and overflow is 'error'",
-                        hint="Enlarge the box, shrink the text, or set overflow to clip/allow.",
-                        **_loc(node),
-                    )
-                )
+                self._raise_overflow(node, bounds, result)
             if node.fit.overflow == "clip":
                 kind, clip = "clipped", True
         if not result.converged:
@@ -676,6 +667,52 @@ class AnchorLayoutSolver(LayoutSolver):
             resolved_size_pt=result.resolved_size_pt or base_size,
         )
         return resolved, overflow
+
+    def _raise_overflow(
+        self, node: CompiledText, bounds: Rect, result: MeasureResult
+    ) -> NoReturn:
+        """Raise the overflow error that names the constraint actually blocking the fit.
+
+        Two genuinely different failures reach here. When 'shrink_to_fit' bottomed out at its
+        min_size floor and the text *still* wraps onto more lines than 'max_lines' allows —
+        while every line does fit the box width — the binding constraint is the line cap, not
+        the box. The measured height in that state is simply what those lines occupy, so
+        quoting a measured-vs-box height pair points at the one dimension that cannot fix it:
+        enlarging the box height leaves the cap violated and re-reports the same number
+        (ARC-LAY-057). Every other case is a real box-geometry overflow and keeps ARC-LAY-050,
+        whose measured-vs-box extents are the useful thing to show.
+        """
+        max_lines = node.fit.max_lines
+        # The width comparison reuses _FIT_WIDTH_MARGIN for the reason it exists: absorbing
+        # SkParagraph's longest-line-vs-max-width boundary jitter, the same comparison made here.
+        if (
+            node.fit.policy == "shrink_to_fit"
+            and not result.converged
+            and max_lines is not None
+            and result.line_count > max_lines
+            and result.width_pt <= bounds.w + _FIT_WIDTH_MARGIN
+        ):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-LAY-057",
+                    f"Text node {node.id!r} still needs {result.line_count} lines at its "
+                    f"{result.resolved_size_pt:.1f}pt shrink floor but 'max_lines' is "
+                    f"{max_lines}, and overflow is 'error'",
+                    hint="Widen the box, lower 'fit.min_size', or raise 'max_lines'. "
+                    "Enlarging the box height will not help.",
+                    **_loc(node),
+                )
+            )
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-LAY-050",
+                f"Text node {node.id!r} overflows its box "
+                f"({result.width_pt:.1f}x{result.height_pt:.1f}pt into "
+                f"{bounds.w:.1f}x{bounds.h:.1f}pt) and overflow is 'error'",
+                hint="Enlarge the box, shrink the text, or set overflow to clip/allow.",
+                **_loc(node),
+            )
+        )
 
     def _measure_text(
         self,

@@ -127,6 +127,121 @@ def test_overflow_error_raises_lay050(tmp_path: Path) -> None:
     assert exc.value.diagnostics[0].code == "ARC-LAY-050"
 
 
+# ------------------------------------------------- max_lines at the shrink floor (ARC-LAY-057)
+#
+# A footer that shrank to its min_size floor and *still* needs two lines used to be reported as
+# ARC-LAY-050 "overflows its box (WxH into WxH)", which points at the box height. Enlarging the
+# height cannot fix a max_lines violation — the measured height is just what those lines occupy,
+# so the same number comes back — and a real author lost a debugging cycle to it. The line cap
+# is the binding constraint and gets its own code. The box below is deliberately given far more
+# height than the text needs (60pt for an 18pt block), so the test fails if the code ever goes
+# back to blaming box geometry.
+_FLOOR_MAX_LINES = """
+    - id: footer-venue-2
+      type: text
+      text: "The Hollow Chapel at Marrow Lane, Old Town Quarter, Saturday the fourteenth"
+      style: {font: Inter, font_size: 16pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 7.5pt, max_lines: 1, overflow: %s}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 187.5pt, h: 60pt}
+"""
+
+
+def test_max_lines_at_shrink_floor_raises_lay057_not_lay050(tmp_path: Path) -> None:
+    with pytest.raises(DiagnosticError) as exc:
+        _solve(tmp_path, _FLOOR_MAX_LINES % "error")
+    diag = exc.value.diagnostics[0]
+    assert diag.code == "ARC-LAY-057"
+    assert diag.code != "ARC-LAY-050"
+
+
+def test_lay057_message_reports_lines_cap_and_floor(tmp_path: Path) -> None:
+    """The message must carry the line count, the cap, and the floor — not a WxH pair."""
+    with pytest.raises(DiagnosticError) as exc:
+        _solve(tmp_path, _FLOOR_MAX_LINES % "error")
+    diag = exc.value.diagnostics[0]
+    assert "2 lines" in diag.message  # measured line count at the floor
+    assert "'max_lines' is 1" in diag.message  # the cap it violates
+    assert "7.5pt shrink floor" in diag.message  # the floor it reached
+    # The height pair is exactly what misled the original author; it must not reappear.
+    assert "60.0pt" not in diag.message
+    assert diag.hint is not None
+    assert "Enlarging the box height will not help" in diag.hint
+
+
+def test_lay057_hint_is_actionable_widening_the_box_fixes_it(tmp_path: Path) -> None:
+    """The hint leads 'widen the box', so widening must actually resolve the error."""
+    layout = _solve(tmp_path, _FLOOR_MAX_LINES.replace("w: 187.5pt", "w: 340pt") % "error")
+    node = _find(layout.root, "footer-venue-2")
+    assert node.overflow.kind != "overflowing"
+
+
+@pytest.mark.parametrize("overflow", ["clip", "allow"])
+def test_max_lines_at_floor_keeps_non_error_policies_soft(tmp_path: Path, overflow: str) -> None:
+    """clip/allow must not become a hard error just because max_lines is the cause."""
+    layout = _solve(tmp_path, _FLOOR_MAX_LINES % overflow)
+    node = _find(layout.root, "footer-venue-2")
+    assert node.overflow.kind == ("clipped" if overflow == "clip" else "overflowing")
+    # Non-convergence at the floor is still only the ARC-LAY-051 warning, and the render lives.
+    assert any(w.code == "ARC-LAY-051" for w in layout.warnings)
+    assert not has_errors(list(layout.warnings))
+
+
+def test_truncate_with_max_lines_does_not_error(tmp_path: Path) -> None:
+    """'truncate' trims to fit rather than overflowing, so no ARC-LAY-050/057 is raised."""
+    layout = _solve(
+        tmp_path,
+        _FLOOR_MAX_LINES.replace("policy: shrink_to_fit, min_size: 7.5pt, ", "policy: truncate, ")
+        % "error",
+    )
+    node = _find(layout.root, "footer-venue-2")
+    assert isinstance(node.resolved_content, ResolvedText)
+    assert node.resolved_content.text.endswith("…")
+
+
+def test_genuine_box_overflow_still_raises_lay050(tmp_path: Path) -> None:
+    """No max_lines in play: the box really is too small, so ARC-LAY-050 is the honest code."""
+    with pytest.raises(DiagnosticError) as exc:
+        _solve(
+            tmp_path,
+            """
+    - id: t
+      type: text
+      text: "Way too much text to ever fit here at all no matter what"
+      style: {font: Inter, font_size: 40pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 20pt, overflow: error}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 60pt, h: 20pt}
+""",
+        )
+    assert exc.value.diagnostics[0].code == "ARC-LAY-050"
+
+
+def test_box_too_narrow_for_one_glyph_still_raises_lay050(tmp_path: Path) -> None:
+    """max_lines is violated too, but no line fits the width — that is real box geometry.
+
+    Widening is the only fix and ARC-LAY-050's measured-vs-box width pair shows exactly why,
+    so the line-cap code must not swallow this case.
+    """
+    with pytest.raises(DiagnosticError) as exc:
+        _solve(
+            tmp_path,
+            """
+    - id: t
+      type: text
+      text: "MMMMMMMM"
+      style: {font: Inter, font_size: 40pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 20pt, max_lines: 1, overflow: error}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 4pt, h: 300pt}
+""",
+        )
+    assert exc.value.diagnostics[0].code == "ARC-LAY-050"
+
+
 def test_overflow_clip_records_state(tmp_path: Path) -> None:
     layout = _solve(
         tmp_path,
