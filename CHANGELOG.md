@@ -4,6 +4,46 @@ All notable changes to Arcavex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses semantic versioning for both
 the engine and the IR schema.
 
+## [Unreleased]
+
+### Changed — **breaking**: unknown fields are now rejected in every authoring scope
+
+Arcavex promised that "unknown fields are rejected rather than silently ignored, so a misspelled
+property cannot quietly do nothing." That held only for a handful of node sub-blocks. At the
+template root, in `formats`, in a `canvas`, in a variable declaration, on a **node top level**, and
+in an `effects[]` entry, an invented field validated clean and did nothing.
+
+That is the worst possible failure for a template language meant to be authored by an AI agent: the
+engine answered `OK template is valid`, so the author kept building on a field that was inert. In
+the case that prompted this, an agent invented `condition:` on nodes, shipped three nodes relying on
+it, and wrote the invented behaviour into handoff documentation as a real engine constraint.
+Deleting every `condition:` line produced a byte-identical render.
+
+**This is a breaking change for any template carrying a junk field — and it is the fix for fields
+that quietly did nothing.** A template that validates now has no inert lines in it. If a template
+starts failing, the reported field was never doing anything; delete it, or move it to the scope the
+hint names. No template shipped in this repository needed a change.
+
+- **Five new diagnostics**: `ARC-TPL-064` (unknown node field), `ARC-TPL-065` (template root),
+  `ARC-TPL-066` (format / canvas), `ARC-TPL-067` (variable declaration), `ARC-TPL-068` (effect
+  entry). `ARC-TPL-051` now also covers the `transform`, `mask`, `padding`, and `repeat`/`if`
+  construct mappings, which were permissive too.
+- **`ARC-TPL-064` names the real home of a wrong-scope field** instead of only rejecting it. There
+  is no per-node `condition:` (the hint points at the structural `if:` / `node:` construct);
+  `opacity`/`color`/`font_size` belong in `style`; `width`/`height` in `constraints.size`; `x`/`y`
+  in `constraints.anchor`; `rotation` in `transform`. A field that is real but belongs to another
+  node kind is told which kind owns it.
+- **Fields that are authored-but-deliberately-unsupported keep their own, more useful diagnostic**:
+  `line_height` still reports `ARC-TPL-053` and a stack's `wrap` still reports `ARC-LAY-056`.
+- A guard test walks the whole authoring surface and asserts every scope rejects an unknown key, so
+  a scope added later cannot silently reintroduce this.
+
+### Fixed
+
+- `make docs-diagnostics` no longer rewrites every generated file with CRLF on Windows (the
+  declared reference platform), which made a one-entry edit look like a 118-file change. The
+  previously CRLF-committed files are normalized to LF.
+
 ## [0.1.0] — 2026-07-15
 
 First tagged release: a local-first, headless, deterministic, template-driven rendering engine.

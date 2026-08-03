@@ -117,6 +117,126 @@ _SIZE_MAP_KEYS = frozenset({"value", "aspect", "min", "max"})
 _RUN_KEYS = frozenset({
     "text", "font", "font_size", "font_weight", "italic", "color", "letter_spacing",
 })
+_MASK_KEYS = frozenset({"component", "params"})
+_TRANSFORM_KEYS = frozenset({"rotate", "scale", "translate", "origin"})
+_PADDING_KEYS = frozenset({"top", "right", "bottom", "left"})
+
+# Outer authoring scopes (P0-1). Until these existed strictness was the exception rather than
+# the rule: it held only where a whitelist constant happened to exist, so an invented field at
+# node/root/format/canvas/variable/effect level validated clean and then did nothing — the
+# failure mode ARC-TPL-051's own catalog text promises the engine does not have. Every mapping
+# an author writes is now checked against exactly one of these sets.
+#
+# Keys that are authored-but-unsupported stay *inside* the whitelist on purpose, so their own
+# specific diagnostic still wins over a generic "unknown field": ``wrap`` (ARC-LAY-056) is the
+# node-level counterpart of ``line_height`` (ARC-TPL-053) in _STYLE_KEYS.
+_NODE_COMMON_KEYS = frozenset({
+    "id", "type", "style", "style_role", "constraints", "effects", "effect_preset",
+    "mask", "transform", "visible", "z",
+})
+# Per-kind fields. ``hstack``/``vstack`` are *not* node types (see _NODE_TYPES) — they are
+# ``layout:`` values on a group — so the stack settings belong to ``group``. ``direction`` and
+# ``clip`` are likewise read only on the group branch of _build_node, and ``d`` only on path.
+_NODE_KIND_KEYS: dict[str, frozenset[str]] = {
+    "group": frozenset({
+        "children", "direction", "clip", "layout", "gap", "padding",
+        "main_align", "cross_align", "wrap",
+    }),
+    "text": frozenset({"text", "runs", "paragraph", "fit"}),
+    "image": frozenset({"asset", "fit"}),
+    "shape": frozenset({"shape", "generator", "params"}),
+    "path": frozenset({"d"}),
+}
+_IF_KEYS = frozenset({"if", "node"})
+_REPEAT_KEYS = frozenset({"repeat", "as", "key", "node"})
+# ``styles`` is deliberately absent: it is a still-unsupported section with its own
+# ARC-TPL-093, raised by _collect_unsupported_sections before this check runs. ``functions`` is
+# absent because it is not a template section at all — the function table is injected by the
+# registry at construction time, never authored.
+_ROOT_KEYS = frozenset({
+    "version", "style", "variables", "formats", "locales", "preview_data", "root", "seed",
+})
+_FORMAT_KEYS = frozenset({"canvas", "patch"})
+_CANVAS_KEYS = frozenset({"width", "height", "dpi", "bleed"})
+_VARIABLE_KEYS = frozenset({"type", "required", "default", "doc", "enum"})
+_EFFECT_KEYS = frozenset({"name", "params", "preset"})
+
+# Wrong-scope hints for ARC-TPL-064 (P0-1). A generic rejection tells an author the field is
+# wrong; these tell them where it actually goes, which is the difference between one failed
+# validate and a rebuilt mental model. Keyed by the invented spelling an author (very often an
+# LLM carrying habits over from another template language) is most likely to reach for.
+_STYLE_FIELD_HINT = "Move it into the node's 'style:' block."
+_NODE_FIELD_ALIASES: dict[str, str] = {
+    # The single highest-frequency invention: every other template language has a per-node
+    # conditional, and Arcavex's gate is a structural construct in the parent's children list.
+    "condition": (
+        "Arcavex has no per-node condition; gate a node with the structural 'if:' / 'node:' "
+        "construct in the parent's 'children:' list."
+    ),
+    "when": (
+        "Arcavex has no per-node condition; gate a node with the structural 'if:' / 'node:' "
+        "construct in the parent's 'children:' list."
+    ),
+    "show_if": (
+        "Arcavex has no per-node condition; gate a node with the structural 'if:' / 'node:' "
+        "construct in the parent's 'children:' list, or set 'visible:'."
+    ),
+    "visible_if": (
+        "Arcavex has no per-node condition; gate a node with the structural 'if:' / 'node:' "
+        "construct in the parent's 'children:' list, or set 'visible:'."
+    ),
+    # Paint properties live in the style block, never on the node.
+    "opacity": _STYLE_FIELD_HINT,
+    "color": _STYLE_FIELD_HINT,
+    "fill": _STYLE_FIELD_HINT,
+    "stroke": _STYLE_FIELD_HINT,
+    "stroke_width": _STYLE_FIELD_HINT,
+    "corner_radius": _STYLE_FIELD_HINT,
+    "font": _STYLE_FIELD_HINT,
+    "font_size": _STYLE_FIELD_HINT,
+    "font_weight": _STYLE_FIELD_HINT,
+    "italic": _STYLE_FIELD_HINT,
+    "letter_spacing": _STYLE_FIELD_HINT,
+    "align": "Set 'align' inside the node's 'style:' block, or 'paragraph.align' on a text node.",
+    "text_align": (
+        "Set 'align' inside the node's 'style:' block, or 'paragraph.align' on a text node."
+    ),
+    "line_height": (
+        "Line height is not supported in this build (see ARC-TPL-053); it would live in "
+        "'style:', not on the node."
+    ),
+    # Geometry lives in the constraints block.
+    "width": "Set the width as 'constraints.size.w'.",
+    "height": "Set the height as 'constraints.size.h'.",
+    "size": "Set the size as 'constraints.size' ({w: ..., h: ...}).",
+    "x": "Position the node with 'constraints.anchor' (e.g. 'anchor: {left: 40pt}').",
+    "y": "Position the node with 'constraints.anchor' (e.g. 'anchor: {top: 40pt}').",
+    "position": "Position the node with 'constraints.anchor' (e.g. 'anchor: {top: 40pt}').",
+    "anchor": "Anchors live one level down, as 'constraints.anchor'.",
+    "margin": (
+        "Arcavex has no margin; offset the node with 'constraints.anchor', or set 'padding' on "
+        "the enclosing 'layout: hstack|vstack' group."
+    ),
+    # Transform.
+    "rotation": "Rotate with 'transform: {rotate: <degrees>}'.",
+    "rotate": "Rotate with 'transform: {rotate: <degrees>}'.",
+    "angle": "Rotate with 'transform: {rotate: <degrees>}'.",
+    "scale": "Scaling lives in 'transform: {scale: ...}', and is not supported in this build.",
+    "translate": "Translate with 'transform: {translate: [dx, dy]}'.",
+    # Misc habits from other systems.
+    "z_index": "Order siblings with 'z:'.",
+    "zindex": "Order siblings with 'z:'.",
+    "hidden": "Use 'visible: false' instead.",
+    "name": "Identify a node with 'id:'.",
+    "class": "Apply a style pack role with 'style_role:'.",
+    "classes": "Apply a style pack role with 'style_role:'.",
+    "src": "Reference an image file with 'asset:' on an 'image' node.",
+    "source": "Reference an image file with 'asset:' on an 'image' node.",
+    "url": "Reference an image file with 'asset:' on an 'image' node.",
+    "content": "Text content goes in 'text:' (or a 'runs:' list) on a 'text' node.",
+    "label": "Text content goes in 'text:' (or a 'runs:' list) on a 'text' node.",
+    "value": "Text content goes in 'text:' (or a 'runs:' list) on a 'text' node.",
+}
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -265,6 +385,10 @@ class Compiler:
             diags.extend(self._validate_locales_shape(source))
             if has_errors(diags):
                 return CompileResult(None, diags, inferred)
+            # Runs after the unsupported-section sweep so a deferred section keeps its own
+            # specific diagnostic (e.g. 'styles' -> ARC-TPL-093) instead of being reported as a
+            # merely-unknown root key.
+            self._validate_authoring_surface(source)
 
             # Resolve the opted-in style pack first: it is the lowest resolution layer (its
             # palettes feed expressions and its roles/presets feed nodes), sitting under the
@@ -380,6 +504,7 @@ class Compiler:
             diags.extend(self._validate_locales_shape(source))
             if has_errors(diags):
                 return ResolvedResult(ok=False, diagnostics=diags)
+            self._validate_authoring_surface(source)
             self._style_pack = self._resolve_style(source, None)
             style_ref = (
                 f"{self._style_pack.name}@{self._style_pack.version}"
@@ -1081,7 +1206,6 @@ class Compiler:
         id_suffix: str,
         inherited_direction: str | None = None,
     ) -> CompiledNode:
-        self._reject_unsupported_constructs(raw, template, keypath)
         if inherited_direction is None:
             inherited_direction = self._default_direction
 
@@ -1125,6 +1249,10 @@ class Compiler:
                     hint=f"Use one of: {', '.join(sorted(_NODE_TYPES))}.",
                 )
             )
+        # Runs once the id and kind are known so the rejection can name the node and list the
+        # vocabulary for *this* kind (P0-1). Structural constructs never reach here: they are
+        # expanded by _expand_child, which hands _build_node the construct's inner 'node'.
+        self._reject_unknown_node_fields(raw, str(node_type), template, node_id, keypath)
 
         transform = self._parse_transform(raw, template, node_id, keypath)
         constraints = self._parse_constraints(
@@ -1374,6 +1502,10 @@ class Compiler:
         id_suffix: str,
         inherited_direction: str,
     ) -> list[CompiledNode]:
+        self._reject_unknown_keys(
+            child, _IF_KEYS, "construct", template, "", keypath,
+            subject=f"Construct at {keypath}",
+        )
         node_raw = self._construct_node(child, template, keypath)
         condition = self._eval_structural(
             child.get("if"), context, template, keypath, "if", line_of(child, "if")
@@ -1400,6 +1532,10 @@ class Compiler:
         inherited_direction: str,
         parent_is_stack: bool,
     ) -> list[CompiledNode]:
+        self._reject_unknown_keys(
+            child, _REPEAT_KEYS, "construct", template, "", keypath,
+            subject=f"Construct at {keypath}",
+        )
         node_raw = self._construct_node(child, template, keypath)
         as_name = child.get("as")
         if not isinstance(as_name, str) or not as_name:
@@ -1610,11 +1746,93 @@ class Compiler:
             ) from exc
 
     # ------------------------------------------------------------------- sub-parsers
-    def _reject_unsupported_constructs(
-        self, raw: dict[str, Any], template: Path, keypath: str
+    def _reject_unknown_node_fields(
+        self, raw: dict[str, Any], node_type: str, template: Path, node_id: str, keypath: str
     ) -> None:
-        # All Phase-0 node-level constructs are now supported; effects/masks/shapes are parsed.
-        return None
+        """Reject any node-level field the compiler does not read (ARC-TPL-064, P0-1).
+
+        The node top level is where an AI author invents fields, so a plain "unknown field" is
+        the least useful thing to say. Three answers are tried in order of how much they tell
+        the author:
+
+        1. a known wrong-scope invention (``condition``, ``opacity``, ``width``) -> where it
+           actually belongs;
+        2. a field that is real but belongs to a *different* node kind -> which kind, derived
+           from _NODE_KIND_KEYS rather than restated in a table;
+        3. otherwise the valid fields for this node's kind.
+        """
+        allowed = _NODE_COMMON_KEYS | _NODE_KIND_KEYS.get(node_type, frozenset())
+        for key in raw:
+            name = str(key)
+            if name in allowed:
+                continue
+            alias = _NODE_FIELD_ALIASES.get(name)
+            if alias is not None:
+                hint = alias
+            else:
+                owners = sorted(k for k, keys in _NODE_KIND_KEYS.items() if name in keys)
+                if owners:
+                    kinds = " or ".join(repr(k) for k in owners)
+                    hint = (
+                        f"{name!r} is a {kinds} field, but this node is {node_type!r}. "
+                        f"Valid fields for a {node_type!r} node are: {', '.join(sorted(allowed))}."
+                    )
+                else:
+                    hint = (
+                        f"Valid fields for a {node_type!r} node are: "
+                        f"{', '.join(sorted(allowed))}."
+                    )
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-064",
+                    f"Node {node_id!r} has unknown field {name!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.{name}",
+                    line=line_of(raw, name),
+                    hint=hint,
+                )
+            )
+
+    def _validate_authoring_surface(self, source: TemplateSource) -> None:
+        """Reject unknown keys in the template-level scopes (P0-1).
+
+        Covers the template root, every declared format and its canvas, and every variable
+        declaration. Formats are checked in full rather than only the one being resolved, so
+        ``validate`` reports junk in a format the current run does not select.
+        """
+        raw = source.raw
+        self._reject_unknown_keys(
+            raw, _ROOT_KEYS, "top-level", source.template_path, "", "",
+            code="ARC-TPL-065", subject="Template",
+        )
+        formats = raw.get("formats")
+        if isinstance(formats, dict):
+            fmt_file = source.file_for("formats")
+            for fmt_name, spec in formats.items():
+                if not isinstance(spec, dict):
+                    continue
+                self._reject_unknown_keys(
+                    spec, _FORMAT_KEYS, "format", fmt_file, "", f"formats.{fmt_name}",
+                    code="ARC-TPL-066", subject=f"Format {str(fmt_name)!r}",
+                )
+                canvas_raw = spec.get("canvas")
+                if isinstance(canvas_raw, dict):
+                    self._reject_unknown_keys(
+                        canvas_raw, _CANVAS_KEYS, "canvas", fmt_file, "",
+                        f"formats.{fmt_name}.canvas",
+                        code="ARC-TPL-066", subject=f"Format {str(fmt_name)!r}",
+                    )
+        variables = raw.get("variables")
+        if isinstance(variables, dict):
+            var_file = source.file_for("variables")
+            for var_name, decl in variables.items():
+                if not isinstance(decl, dict):
+                    continue
+                self._reject_unknown_keys(
+                    decl, _VARIABLE_KEYS, "declaration", var_file, "",
+                    f"variables.{var_name}",
+                    code="ARC-TPL-067", subject=f"Variable {str(var_name)!r}",
+                )
 
     def _parse_effects(
         self,
@@ -1650,6 +1868,16 @@ class Compiler:
                         hint="Write 'effects:' as a YAML list of {name, params} entries.",
                     )
                 )
+            # Checked against the *authored* list, not the merged `entries`, so the reported
+            # index matches what the author wrote even when an `effect_preset` shorthand has
+            # prepended a synthesized entry. Runs before the no-registry early return below so
+            # a junk key is rejected in isolated unit tests too (P0-1).
+            for i, entry in enumerate(raw_effects):
+                if isinstance(entry, dict):
+                    self._reject_unknown_keys(
+                        entry, _EFFECT_KEYS, "effect", template, node_id,
+                        f"{keypath}.effects[{i}]", code="ARC-TPL-068",
+                    )
             entries.extend(raw_effects)
         if not entries:
             return ()
@@ -1882,6 +2110,9 @@ class Compiler:
                     hint="Write 'mask: {component: diamond_grid, params: {...}}'.",
                 )
             )
+        self._reject_unknown_keys(
+            mask, _MASK_KEYS, "mask", template, node_id, f"{keypath}.mask"
+        )
         component = mask.get("component")
         if not isinstance(component, str) or not component:
             raise DiagnosticError(
@@ -2029,6 +2260,7 @@ class Compiler:
             return 0.0, 0.0, 0.0, 0.0
         kp = f"{keypath}.padding"
         if isinstance(value, dict):
+            self._reject_unknown_keys(value, _PADDING_KEYS, "padding", template, node_id, kp)
             return (
                 _dim(value.get("top", 0), template, f"{kp}.top").to_pt(dpi),
                 _dim(value.get("right", 0), template, f"{kp}.right").to_pt(dpi),
@@ -2261,6 +2493,9 @@ class Compiler:
         t = raw.get("transform")
         if not isinstance(t, dict):
             return Transform()
+        self._reject_unknown_keys(
+            t, _TRANSFORM_KEYS, "transform", template, node_id, f"{keypath}.transform"
+        )
         t_line = line_of(raw, "transform")
         rotate = _float_field(t.get("rotate", 0.0), template, f"{keypath}.transform.rotate", t_line)
         scale = t.get("scale", 1.0)
@@ -2498,21 +2733,32 @@ class Compiler:
         template: Path,
         node_id: str,
         keypath: str,
+        *,
+        code: str = "ARC-TPL-051",
+        subject: str | None = None,
     ) -> None:
         """Reject any key not in ``allowed`` with a located error listing the valid fields (CR-2).
 
         This turns a misspelled field (``font_wieght``, ``kerning``) into an authoring error at
         validation time rather than a silently ignored no-op.
+
+        ``code`` and ``subject`` let the outer authoring scopes (P0-1) reuse this raiser while
+        still reporting themselves accurately: a template root or a variable declaration is not
+        a node, so it gets its own code and its own "Template"/"Variable 'x'" subject instead of
+        the node-level default.
         """
         for key in mapping:
             if str(key) not in allowed:
                 valid = ", ".join(sorted(allowed))
+                who = subject if subject is not None else f"Node {node_id!r}"
                 raise DiagnosticError(
                     diagnostic(
-                        "ARC-TPL-051",
-                        f"Node {node_id!r} has unknown {block} field {str(key)!r}",
+                        code,
+                        f"{who} has unknown {block} field {str(key)!r}",
                         file=str(template),
-                        keypath=f"{keypath}.{key}",
+                        # The template root has no enclosing keypath, so the offending key *is*
+                        # the whole path there.
+                        keypath=f"{keypath}.{key}" if keypath else str(key),
                         line=line_of(mapping, str(key)),
                         hint=f"Valid {block} fields are: {valid}.",
                     )

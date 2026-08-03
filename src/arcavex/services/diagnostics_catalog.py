@@ -215,11 +215,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-TPL-051",
-            "Unknown field",
-            "A style, paragraph, fit, constraints, size, or run block contains a field name "
-            "the compiler does not recognize (often a typo such as 'font_wieght'). Unknown "
-            "fields are rejected rather than silently ignored, so a misspelled property cannot "
-            "quietly do nothing.",
+            "Unknown field in a node sub-block",
+            "A node sub-block — style, paragraph, fit, constraints, size, run, transform, "
+            "mask, padding, or a repeat/if construct — contains a field name the compiler does "
+            "not recognize (often a typo such as 'font_wieght'). Unknown fields are rejected "
+            "rather than silently ignored, so a misspelled property cannot quietly do nothing. "
+            "The node top level and the template-level scopes carry their own codes: "
+            "ARC-TPL-064 (node), ARC-TPL-065 (template root), ARC-TPL-066 (format/canvas), "
+            "ARC-TPL-067 (variable declaration), and ARC-TPL-068 (effect entry).",
             "Fix the field name; the diagnostic lists the valid fields for that block.",
         ),
         _e(
@@ -301,6 +304,53 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "repeat iteration cap exceeded",
             "A repeat would produce more than the allowed number of items.",
             "Reduce the collection to at most 1000 items.",
+        ),
+        _e(
+            "ARC-TPL-064",
+            "Unknown node field",
+            "A node's top level carries a field the compiler never reads. This is the scope "
+            "where an invented field is most damaging: it validates clean, does nothing, and "
+            "the author keeps building on the belief that it works. Arcavex has no per-node "
+            "'condition' (gate a node with the structural 'if:' / 'node:' construct), no "
+            "node-level paint fields (they live in 'style:'), and no node-level geometry "
+            "fields (they live in 'constraints:' and 'transform:').",
+            "Read the hint: it names where a wrong-scope field actually belongs, or which node "
+            "kind owns it, and otherwise lists the valid fields for this node's kind.",
+        ),
+        _e(
+            "ARC-TPL-065",
+            "Unknown template root field",
+            "The template's top level declares a section the engine does not read. Only "
+            "'version', 'variables', 'formats', 'locales', 'preview_data', 'style', 'root', "
+            "and 'seed' are template sections; anything else would be silently ignored.",
+            "Remove the section or correct its name; the diagnostic lists the valid ones.",
+        ),
+        _e(
+            "ARC-TPL-066",
+            "Unknown format or canvas field",
+            "A 'formats.<name>' entry, or its 'canvas' block, carries a field the engine does "
+            "not read. A format holds only 'canvas' and an optional 'patch'; a canvas holds "
+            "'width', 'height', 'dpi', and an optional 'bleed'. Every declared format is "
+            "checked, not only the one being rendered.",
+            "Correct the field name; a canvas size belongs in 'width'/'height' and a per-format "
+            "override belongs in 'patch'.",
+        ),
+        _e(
+            "ARC-TPL-067",
+            "Unknown variable-declaration field",
+            "A 'variables.<name>' declaration carries a field the engine does not read. A "
+            "declaration holds 'type', 'required', 'default', 'enum', and 'doc'.",
+            "Correct the field name; describe the variable with 'doc' and constrain it with "
+            "'type'/'enum'.",
+        ),
+        _e(
+            "ARC-TPL-068",
+            "Unknown effect-entry field",
+            "An entry in a node's 'effects:' list carries a field the engine does not read. An "
+            "entry is a bare effect name, an inline '{name, params}', or a '{preset: name}' "
+            "reference into the style pack's effect presets.",
+            "Put per-effect settings inside 'params:', and reference a style-pack preset with "
+            "'preset:'.",
         ),
         _e(
             "ARC-TPL-070",

@@ -25,8 +25,43 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**142** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**147** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
+
+## Unknown fields are always rejected
+
+Every mapping you can author is checked against a known vocabulary. A field the engine does not
+read is a **located error**, never a silent no-op — so a misspelling (`font_wieght`) and an
+invented field (`condition:` on a node) both fail validation instead of quietly doing nothing.
+
+| Scope | Code |
+|---|---|
+| template root | `ARC-TPL-065` |
+| `formats.<name>` and its `canvas` | `ARC-TPL-066` |
+| `variables.<name>` declaration | `ARC-TPL-067` |
+| node top level | `ARC-TPL-064` |
+| `effects[]` entry | `ARC-TPL-068` |
+| node sub-blocks — `style`, `paragraph`, `fit`, `constraints`, `size`, `runs[]`, `transform`, `mask`, `padding`, and the `repeat`/`if` constructs | `ARC-TPL-051` |
+| `locales.<name>` | `ARC-TPL-099` |
+
+`ARC-TPL-064` goes further than rejecting the field: where an invented name has an obvious real
+home it says so, rather than only listing the vocabulary.
+
+```console
+$ arcavex validate poster.yaml
+ERROR ARC-TPL-064 Node 'org-3' has unknown field 'condition'
+  poster.yaml:48  root.children[2].condition
+  hint: Arcavex has no per-node condition; gate a node with the structural 'if:' / 'node:'
+        construct in the parent's 'children:' list.
+```
+
+The same applies to `opacity`/`color`/`font_size` (they belong in `style`), `width`/`height`
+(`constraints.size`), `x`/`y` (`constraints.anchor`), and `rotation` (`transform`). A field that
+is real but belongs to a different node kind names that kind.
+
+A field that is *authored but deliberately unsupported* keeps its own, more specific
+diagnostic instead: `line_height` reports `ARC-TPL-053` and a stack's `wrap` reports
+`ARC-LAY-056`.
 
 ## Exit codes
 
@@ -45,7 +80,7 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 
 | Prefix | Count | Domain | Representative codes |
 |---|---|---|---|
-| `ARC-TPL` | 57 | Template loading, variables, formats, nodes, constructs, expressions, patches, locales, authoring | `ARC-TPL-014` missing variable, `ARC-TPL-051` unknown field, `ARC-TPL-061` repeat+if, `ARC-TPL-097` section defined twice, `ARC-TPL-100` undeclared locale |
+| `ARC-TPL` | 62 | Template loading, variables, formats, nodes, constructs, expressions, patches, locales, authoring | `ARC-TPL-014` missing variable, `ARC-TPL-051` unknown sub-block field, `ARC-TPL-064` unknown node field, `ARC-TPL-061` repeat+if, `ARC-TPL-097` section defined twice, `ARC-TPL-100` undeclared locale |
 | `ARC-LAY` | 17 | Anchor/layout solver, sizes, stacks, fit policies | `ARC-LAY-030` under-constrained, `ARC-LAY-052` sibling cycle, `ARC-LAY-054` stack child anchors, `ARC-LAY-050` overflow=error |
 | `ARC-IR` | 8 | Dimensions, sizes, colors, duplicate ids, masks | `ARC-IR-011` invalid dimension, `ARC-IR-020` duplicate id, `ARC-IR-030` invalid color |
 | `ARC-RND` | 8 | Fonts/glyphs, resource budgets, deferred render features | `ARC-RND-011` missing glyph, `ARC-RND-020..023` budget (exit 4) |
