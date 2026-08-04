@@ -18,13 +18,13 @@ arcavex render examples/hello-poster/template.yaml \
 
 ## Install, and teach your assistant to use it
 
-Releases attach a built wheel to the [GitHub release page](https://github.com/payam-ranjbar/arcavex/releases);
-install it, or install from a checkout:
-
 ```bash
-uv pip install arcavex-0.1.0-py3-none-any.whl   # or: uv pip install -e ".[dev]" from a clone
-arcavex doctor                                   # confirm skia, ICU, fonts, exporters
+uv pip install arcavex     # or: uv pip install -e ".[dev]" from a clone
+arcavex doctor             # confirm skia, ICU, fonts, exporters
 ```
+
+Releases also attach the wheel to the
+[GitHub release page](https://github.com/payam-ranjbar/arcavex/releases).
 
 Then install the bundled design skill so an AI assistant knows the workflow rather than
 rediscovering it:
@@ -93,42 +93,16 @@ Everything below is reachable within two clicks from this index.
 | [Contributing](docs/contributing.md) | Dev setup, make targets, golden/ADR process. |
 | [ADRs](docs/adr/README.md) · [Backlog](docs/backlog.md) · [Changelog](CHANGELOG.md) | Decisions, deferred work, release notes. |
 
-## Showcase — the reference poster
+## Examples
 
-The flagship example is [`examples/reference-poster/`](examples/reference-poster/): a faithful,
-reusable reproduction of the IPEN "یک فنجان تجربه" (A Cup of Experience) event poster, rendered
-entirely by the engine across **5 formats × 2 locales from one node tree** — no hand-compositing. It
-demonstrates the split-template layout, a keyed `repeat` over a guest list inside an `hstack`, the
-`diamond_grid` and `circle` masks, locale direction/digit policies, per-format reflow patches, and
-fit policies that keep realistic long values readable.
-
-The ten curated finals (`portrait square story landscape a4` × `en fa`) live under
-[`outputs/final/`](examples/reference-poster/outputs/final/):
-
-| Format | English | Farsi (RTL, Persian digits) |
-|---|---|---|
-| portrait (4:5, native) | [poster.portrait.en.png](examples/reference-poster/outputs/final/poster.portrait.en.png) | [poster.portrait.fa.png](examples/reference-poster/outputs/final/poster.portrait.fa.png) |
-| square (1:1) | [poster.square.en.png](examples/reference-poster/outputs/final/poster.square.en.png) | [poster.square.fa.png](examples/reference-poster/outputs/final/poster.square.fa.png) |
-| story (9:16) | [poster.story.en.png](examples/reference-poster/outputs/final/poster.story.en.png) | [poster.story.fa.png](examples/reference-poster/outputs/final/poster.story.fa.png) |
-| landscape (16:9) | [poster.landscape.en.png](examples/reference-poster/outputs/final/poster.landscape.en.png) | [poster.landscape.fa.png](examples/reference-poster/outputs/final/poster.landscape.fa.png) |
-| A4 (print) | [poster.a4.en.png](examples/reference-poster/outputs/final/poster.a4.en.png) · [.pdf](examples/reference-poster/outputs/final/poster.a4.en.pdf) | [poster.a4.fa.png](examples/reference-poster/outputs/final/poster.a4.fa.png) · [.pdf](examples/reference-poster/outputs/final/poster.a4.fa.pdf) |
+The shipped examples live under [`examples/`](examples/): `future-archive-poster` (a multi-format
+bilingual system with a custom raster extension), `graphic-style-lab` (four art directions across
+announcement, product ad, movie poster and video thumbnail), and `extensions/` (a minimal
+extension with its golden fixture).
 
 ```bash
-# Standalone (preview data, native 4:5 portrait)
-arcavex render examples/reference-poster --format portrait
-
-# Farsi story (RTL, Persian digits)
-arcavex render examples/reference-poster \
-  --data examples/reference-poster/data/poster.fa.yaml \
-  --format story --locale fa -o poster.story.fa.png
+arcavex render examples/future-archive-poster/template.yaml --format square -o out.png
 ```
-
-All ten render clean; the acceptance contract is pinned by `tests/e2e/test_reference_poster.py`, and
-the visual design-review matrix ([docs](docs/agent-runs/reference-poster-design-matrix.md)) records
-10/10 PASS. The [bilingual-template tutorial](docs/tutorials/bilingual-template.md) walks it as a
-worked example. Other examples: `examples/hello-poster` (the minimal render),
-`examples/ipen-bilingual` (locales, stacks, masks, rotation, fit policies), and
-`examples/pop-art-grid` (a Warhol grid using effects, loops, and style packs).
 
 ## Showcase — Future Archive, authored through MCP
 
@@ -376,6 +350,6 @@ scope, wrapping stacks, `line_height`, vector PDF/CMYK, cross-platform bit-exact
 **[docs/known-limitations.md](docs/known-limitations.md)**. Every `ARC-…` diagnostic is catalogued in
 **[docs/diagnostics.md](docs/diagnostics.md)** and explained on the spot by `arcavex explain CODE`.
 
-See the `examples/ipen-bilingual/` bilingual poster for locales, stacks, masks, sibling anchors,
+See the `examples/future-archive-poster/` bilingual system for locales, stacks, masks, sibling anchors,
 rotation, and fit policies in one template, and `arcavex-technical-design-spec-v1.1.md` for the full
 specification.

@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO_TEMPLATE = _REPO_ROOT / "examples" / "hello-poster" / "template.yaml"
-HELLO_DATA = _REPO_ROOT / "examples" / "hello-poster" / "data.yaml"
+HELLO_TEMPLATE = _REPO_ROOT / "tests" / "fixtures" / "basic-poster" / "template.yaml"
+HELLO_DATA = _REPO_ROOT / "tests" / "fixtures" / "basic-poster" / "data.yaml"
 
 
 def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:

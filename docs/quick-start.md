@@ -16,8 +16,8 @@ Arcavex engine 0.1.0
 ## 1. Render the hello poster
 
 ```console
-$ arcavex render examples/hello-poster/template.yaml \
-    --data examples/hello-poster/data.yaml --format square -o hello.png
+$ arcavex render poster.yaml \
+    --data event.yaml --format square -o hello.png
 Rendered hello.png
 ```
 
@@ -25,8 +25,8 @@ The `-o` extension chooses the exporter. With no `-o`, Arcavex writes a determin
 and reports it first (on failure too, so you always learn what would have been written):
 
 ```console
-$ arcavex render examples/hello-poster/template.yaml \
-    --data examples/hello-poster/data.yaml --format square
+$ arcavex render poster.yaml \
+    --data event.yaml --format square
 inferred: output=hello-poster.square.png
 Rendered hello-poster.square.png
 ```
@@ -37,9 +37,9 @@ Content is separate from the template — edit data, not the node tree. Copy the
 headline, and re-render:
 
 ```console
-$ cp examples/hello-poster/data.yaml mydata.yaml
+$ cp event.yaml mydata.yaml
 # edit mydata.yaml:  title: "My Event"
-$ arcavex render examples/hello-poster/template.yaml \
+$ arcavex render poster.yaml \
     --data mydata.yaml --format square -o mine.png
 Rendered mine.png
 ```
@@ -48,7 +48,7 @@ To see the contract a template expects before you edit — its variables, format
 functions — ask it:
 
 ```console
-$ arcavex template inspect examples/hello-poster/template.yaml
+$ arcavex template inspect poster.yaml
 variables (2):
   title: string (required) Main headline
   subtitle: string (optional) Supporting line under the title
@@ -63,8 +63,8 @@ nodes:
 The hello poster declares two canvases. Switch with `--format`:
 
 ```console
-$ arcavex render examples/hello-poster/template.yaml \
-    --data examples/hello-poster/data.yaml --format story -o hello-story.png
+$ arcavex render poster.yaml \
+    --data event.yaml --format story -o hello-story.png
 Rendered hello-story.png
 ```
 
@@ -75,8 +75,8 @@ The bilingual IPEN example declares `en` and `fa`. Requesting `--locale fa` appl
 inference:
 
 ```console
-$ arcavex render examples/ipen-bilingual/template.yaml \
-    --data examples/ipen-bilingual/data.yaml --format square --locale fa -o ipen-fa.png
+$ arcavex render examples/future-archive-poster/template.yaml \
+    --data examples/future-archive-poster/data/en.yaml --format square --locale fa -o ipen-fa.png
 inferred: data_overlay=data.fa.yaml
 Rendered ipen-fa.png
 ```
@@ -84,7 +84,7 @@ Rendered ipen-fa.png
 Requesting a locale the template does not declare is a located error, never a silent ignore:
 
 ```console
-$ arcavex render examples/hello-poster/template.yaml … --locale zz …
+$ arcavex render poster.yaml … --locale zz …
 ERROR ARC-TPL-100 Template does not declare locale 'zz'
   hint: Declare it under 'locales:', or use one of: (none).
 ```
@@ -96,15 +96,15 @@ sets lossy quality (JPEG, lossy WebP; default 90); `--lossless` selects lossless
 raster-embedded RGB at the target DPI with correct physical page size and trim/bleed boxes.
 
 ```console
-$ arcavex render examples/hello-poster/template.yaml -d examples/hello-poster/data.yaml \
+$ arcavex render poster.yaml -d event.yaml \
     -f square -o out.jpg --quality 85
 Rendered out.jpg
 
-$ arcavex render examples/hello-poster/template.yaml -d examples/hello-poster/data.yaml \
+$ arcavex render poster.yaml -d event.yaml \
     -f square -o out.webp --lossless
 Rendered out.webp
 
-$ arcavex render examples/ipen-bilingual/template.yaml -d examples/ipen-bilingual/data.yaml \
+$ arcavex render examples/future-archive-poster/template.yaml -d examples/future-archive-poster/data/en.yaml \
     -f a4 --locale fa -o poster.pdf
 inferred: data_overlay=data.fa.yaml
 Rendered poster.pdf
@@ -157,7 +157,7 @@ Lalezar, Vazirmatn. Install another with 'arcavex font add <path/to/font.ttf>'.
 originating layer — the answer to "why is this value what it is?":
 
 ```console
-$ arcavex template inspect examples/ipen-bilingual/template.yaml \
+$ arcavex template inspect examples/future-archive-poster/template.yaml \
     --resolved --format a4 --locale fa
 resolved format=a4 locale=fa direction=rtl digits=fa style=-
   nodes.hero.constraints.size.h = 38% <- format:a4 (set)
@@ -181,9 +181,9 @@ reference with '| default(...)'.
 
 - **Author your own template** → [tutorials/building-a-template.md](tutorials/building-a-template.md)
   (start from `arcavex template new`).
-- **Go bilingual** → [tutorials/bilingual-template.md](tutorials/bilingual-template.md), the
+- **Go bilingual** → the `examples/future-archive-poster/` system, which renders four ratios in
   reference poster as a worked example.
 - **The full authoring vocabulary** → [template-schema.md](template-schema.md).
 - **Every command and flag** → [cli.md](cli.md).
-- **The flagship example** → the [reference poster](../examples/reference-poster/README.md),
+- **The flagship example** → the [reference poster](../examples/future-archive-poster/README.md),
   5 formats × 2 locales from one node tree.

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
-_IPEN = _REPO / "examples" / "ipen-bilingual"
+_IPEN = _REPO / "tests" / "fixtures" / "bilingual-poster"
 _TEMPLATE = _IPEN / "template.yaml"
 _DATA = _IPEN / "data.yaml"
 

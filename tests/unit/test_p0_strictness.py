@@ -373,7 +373,7 @@ def _repo_templates() -> list[Path]:
 
 def test_repo_ships_templates_to_sweep() -> None:
     """Guards the sweep below against silently matching nothing."""
-    assert len(_repo_templates()) >= 8, _repo_templates()
+    assert len(_repo_templates()) >= 7, _repo_templates()
 
 
 # Codes a shipped template may legitimately still produce under a *bare* facade, with the

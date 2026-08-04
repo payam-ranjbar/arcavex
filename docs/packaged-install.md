@@ -105,12 +105,12 @@ Render both quick-start scenes from the installed package (absolute paths to the
 checkout, output written into the neutral directory):
 
 ```console
-$ arcavex render examples/hello-poster/template.yaml \
-    --data examples/hello-poster/data.yaml --format square -o hello.png
+$ arcavex render poster.yaml \
+    --data event.yaml --format square -o hello.png
 Rendered hello.png
 
-$ arcavex render examples/ipen-bilingual/template.yaml \
-    --data examples/ipen-bilingual/data.yaml --format a4 --locale fa -o ipen.pdf
+$ arcavex render examples/future-archive-poster/template.yaml \
+    --data examples/future-archive-poster/data/en.yaml --format a4 --locale fa -o ipen.pdf
 inferred: data_overlay=data.fa.yaml
 Rendered ipen.pdf
 ```

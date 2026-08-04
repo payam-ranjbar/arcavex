@@ -141,32 +141,32 @@ def test_halftone_sksl_golden(facade, tmp_path):  # noqa: ANN001,ANN201
     compare_to_golden("halftone-sksl", array)
 
 
-def test_pop_art_grid_golden(facade):  # noqa: ANN001,ANN201
-    """Golden case #3: the full pop-art Warhol grid example."""
-    template = _REPO / "examples" / "pop-art-grid" / "template.yaml"
-    data = _REPO / "examples" / "pop-art-grid" / "data.yaml"
+def test_basic_poster_golden(facade):  # noqa: ANN001,ANN201
+    """Golden case #3: a full multi-node poster render (shapes, image, shrink-to-fit text)."""
+    template = _REPO / "tests" / "fixtures" / "basic-poster" / "template.yaml"
+    data = _REPO / "tests" / "fixtures" / "basic-poster" / "data.yaml"
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
-        out = Path(td) / "popart.png"
+        out = Path(td) / "basic.png"
         result = facade.render_file(template, data=data, format_name="square", output=out)
         assert result.ok, [d.model_dump() for d in result.diagnostics]
         array = load_png(out)
-    compare_to_golden("pop-art-grid", array)
+    compare_to_golden("basic-poster", array)
 
 
 @pytest.mark.parametrize("locale", ["en", "fa"])
-def test_ipen_square_golden(facade, locale):  # noqa: ANN001,ANN201
-    """Golden case #2 (square format): the IPEN bilingual poster in each locale."""
-    template = _REPO / "examples" / "ipen-bilingual" / "template.yaml"
-    data = _REPO / "examples" / "ipen-bilingual" / "data.yaml"
+def test_bilingual_square_golden(facade, locale):  # noqa: ANN001,ANN201
+    """Golden case #2 (square format): the bilingual fixture in each locale."""
+    template = _REPO / "tests" / "fixtures" / "bilingual-poster" / "template.yaml"
+    data = _REPO / "tests" / "fixtures" / "bilingual-poster" / "data.yaml"
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
-        out = Path(td) / f"ipen-{locale}.png"
+        out = Path(td) / f"bilingual-{locale}.png"
         result = facade.render_file(
             template, data=data, format_name="square", locale=locale, output=out
         )
         assert result.ok, [d.model_dump() for d in result.diagnostics]
         array = load_png(out)
-    compare_to_golden(f"ipen-square-{locale}", array)
+    compare_to_golden(f"bilingual-square-{locale}", array)

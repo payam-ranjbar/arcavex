@@ -1,0 +1,92 @@
+# The bilingual variant of the end-to-end fixture: same structure as basic-poster, exercised
+# through both locales. All content is invented. It covers the structural features the suite needs — formats, locales, stacks,
+# images, shrink-to-fit text, format patches — without shipping a real design or real imagery.
+version: 0.1.0
+variables:
+  title: {type: string, required: true, doc: "Headline shown at the top of the poster."}
+  subtitle: {type: string, required: false, default: "", doc: "Supporting line under the title."}
+  day: {type: string, required: false, default: "01 JAN 2027", doc: "Event date."}
+  time: {type: string, required: false, default: "20:00", doc: "Event start time."}
+formats:
+  square: {canvas: {width: 1080px, height: 1080px, dpi: 96}}
+  story:
+    canvas: {width: 1080px, height: 1920px, dpi: 72}
+    patch:
+      - {set: "nodes.title.style.font_size", value: 88pt}
+  a4:
+    canvas: {width: 210mm, height: 297mm, dpi: 96}
+    patch:
+      - {set: "nodes.hero.constraints.size.h", value: 160px}
+locales:
+  en: {direction: ltr, digits: en}
+  fa:
+    direction: rtl
+    digits: fa
+    fonts: {Inter: [Vazirmatn, Inter]}
+    patch:
+      - {set: "nodes.subtitle.paragraph.align", value: start}
+preview_data:
+  title: "Preview Title"
+  subtitle: "Preview subtitle"
+root:
+  type: group
+  id: root
+  children:
+    - id: background
+      type: shape
+      shape: rect
+      style: {fill: "#12131A"}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: fill, h: fill}
+    - id: hero
+      type: image
+      asset: logo.png
+      fit: contain
+      constraints:
+        anchor: {top: parent.top+56pt, start: parent.start+56pt}
+        size: {w: 200px, h: 200px}
+    - id: accent-bar
+      type: shape
+      shape: rect
+      style: {fill: "#F07828"}
+      transform: {rotate: -4}
+      constraints:
+        anchor: {top: hero.bottom+48px, start: parent.start+56pt}
+        size: {w: 240px, h: 16px}
+    - id: title
+      type: text
+      text: "{{ title }}"
+      style: {font: Inter, font_size: 72pt, color: "#F5F5F2", font_weight: 700}
+      paragraph: {align: start, direction: auto}
+      fit: {policy: shrink_to_fit, min_size: 24pt, max_lines: 3}
+      constraints:
+        anchor: {top: accent-bar.bottom+40px, start: parent.start+56pt}
+        size: {w: 80%, h: fit_content}
+    - id: subtitle
+      type: text
+      text: "{{ subtitle }}"
+      style: {font: Inter, font_size: 28pt, color: "#9AA0AE"}
+      paragraph: {align: start, direction: auto}
+      fit: {policy: shrink_to_fit, min_size: 12pt, max_lines: 2}
+      constraints:
+        anchor: {top: title.bottom+32px, start: parent.start+56pt}
+        size: {w: 80%, h: fit_content}
+    - id: footer
+      type: group
+      layout: vstack
+      gap: 12px
+      constraints:
+        anchor: {bottom: parent.bottom-56pt, start: parent.start+56pt}
+        size: {w: 60%, h: 140px}
+      children:
+        - id: date-day
+          type: text
+          text: "{{ day }}"
+          style: {font: Inter, font_size: 30pt, color: "#F5F5F2", font_weight: 700}
+          constraints: {size: {w: fill, h: fit_content}}
+        - id: date-time
+          type: text
+          text: "{{ time }}"
+          style: {font: Inter, font_size: 22pt, color: "#9AA0AE"}
+          constraints: {size: {w: fill, h: fit_content}}

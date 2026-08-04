@@ -17,8 +17,8 @@ from arcavex.kernel.diagnostics import Diagnostic
 from arcavex.kernel.ir.models import LayoutNode
 from arcavex.services.template.compiler import Compiler
 
-_EXAMPLE = Path("examples/ipen-bilingual/template.yaml")
-_EXAMPLE_DATA = Path("examples/ipen-bilingual/data.yaml")
+_EXAMPLE = Path("tests/fixtures/bilingual-poster/template.yaml")
+_EXAMPLE_DATA = Path("tests/fixtures/bilingual-poster/data.yaml")
 
 
 def fake_measure(req: MeasureRequest) -> MeasureResult:

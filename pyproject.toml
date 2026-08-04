@@ -8,8 +8,21 @@ version = "0.1.0"
 description = "Local-first, headless, deterministic, template-driven rendering engine."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary" }
-authors = [{ name = "Arcavex" }]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Payam Ranjbar" }]
+keywords = ["rendering", "design", "poster", "skia", "deterministic", "mcp", "svg", "layout"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
 # Every dependency carries a floor and an upper bound so a fresh resolve cannot pick an untested
 # major. The version in each trailing comment is the one CI and the reference machine verified.
 # tests/unit/test_packaging.py fails on any requirement added without both bounds.
@@ -34,6 +47,12 @@ dev = [
     "pillow>=12.3,<13",             # 12.3.0
     "mcp>=1.28,<2",                 # 1.28.1 — 2.0.0 removed mcp.server.fastmcp
 ]
+
+[project.urls]
+Homepage = "https://github.com/payam-ranjbar/arcavex"
+Repository = "https://github.com/payam-ranjbar/arcavex"
+Issues = "https://github.com/payam-ranjbar/arcavex/issues"
+Changelog = "https://github.com/payam-ranjbar/arcavex/blob/main/CHANGELOG.md"
 
 [project.scripts]
 arcavex = "arcavex.clients.cli:main"

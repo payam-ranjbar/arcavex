@@ -19,7 +19,7 @@ from arcavex.bootstrap import build_facade
 from arcavex.services.runs import RunStore, format_run_id, utc_now
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO = REPO_ROOT / "examples" / "hello-poster"
+HELLO = REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 
 
 def _sha(path: Path) -> str:

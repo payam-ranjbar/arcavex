@@ -78,7 +78,7 @@ constraints:
 
 - Physical edges: `top`/`bottom`/`left`/`right`/`center_x`/`center_y`. The **logical** `start`/`end`
   edges resolve through the group's direction — the key to a mirrored RTL layout (covered in the
-  [bilingual tutorial](bilingual-template.md)).
+  `examples/future-archive-poster/`).
 - Offsets accept units (`+64px`, `+16pt`, `-6mm`) and even `{{ }}` expressions, so per-item offsets
   work.
 - Missing or duplicated anchors are located errors (`ARC-LAY-030`/`031`); anchoring to a sibling that
@@ -180,6 +180,6 @@ look. See [overlap kinds](../cli.md#overlap-kinds).
 
 ## Next
 
-- Make it bilingual → [A bilingual template](bilingual-template.md).
+- Make it bilingual → see `examples/future-archive-poster/`, which renders EN and FA from one tree.
 - The complete authoring vocabulary → [template-schema.md](../template-schema.md).
 - Every command and flag → [cli.md](../cli.md).

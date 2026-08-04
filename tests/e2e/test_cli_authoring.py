@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_HELLO = _REPO_ROOT / "examples" / "hello-poster"
+_HELLO = _REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 
 
 def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -85,7 +85,7 @@ def test_template_inspect_json_golden() -> None:
     payload = json.loads(proc.stdout)
     assert payload["response_version"] == 1
     assert payload["ok"] is True
-    assert {v["name"] for v in payload["variables"]} == {"title", "subtitle"}
+    assert {v["name"] for v in payload["variables"]} == {"title", "subtitle", "day", "time"}
     assert {f["name"] for f in payload["formats"]} == {"square", "story"}
     assert "title" in {n["id"] for n in payload["nodes"]}
     fn_names = {f["name"] for f in payload["functions"]}

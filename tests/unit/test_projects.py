@@ -11,7 +11,7 @@ from arcavex.services.library import Library
 from arcavex.services.projects import ProjectService, template_stem
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO = REPO_ROOT / "examples" / "hello-poster"
+HELLO = REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 
 
 def _service(tmp_path: Path) -> ProjectService:

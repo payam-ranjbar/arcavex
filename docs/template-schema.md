@@ -332,7 +332,7 @@ direction/digits and each applied patch with the value it produced and its origi
 last op on a path is marked effective), so you can answer "where did this value come from?":
 
 ```console
-$ arcavex template inspect examples/ipen-bilingual/template.yaml \
+$ arcavex template inspect examples/future-archive-poster/template.yaml \
     --resolved --format a4 --locale fa
 resolved format=a4 locale=fa direction=rtl digits=fa style=-
   nodes.hero.constraints.size.h = 38% <- format:a4 (set)
@@ -375,10 +375,10 @@ defaults, and ranges — that CLI is the source of truth. The v1 built-ins:
 
 When text sits over a textured effect panel (halftone, grain, noise), give it a solid plate or a
 high-contrast fill plus a dark drop-shadow — the dot/speckle mesh eats a same-toned label.
-`examples/pop-art-grid`'s title bar is a flat plate over the halftone for exactly this reason.
+`examples/graphic-style-lab`'s title bar is a flat plate over the halftone for exactly this reason.
 
 Shape nodes may use a `generator:` (`starburst`, `speech_bubble`, `qr_code`). See
-`examples/pop-art-grid` for a Warhol grid using effects, loops, and style packs together.
+`examples/graphic-style-lab` for a Warhol grid using effects, loops, and style packs together.
 
 ## Exit codes
 

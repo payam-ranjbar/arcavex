@@ -141,13 +141,14 @@ def test_generous_but_reasonable_margin_is_not_warned_about(tmp_path: Path) -> N
 def test_no_bundled_asset_trips_the_warning() -> None:
     """Calibration guard for COVERAGE_WARN_BELOW.
 
-    The threshold sits below `examples/hello-poster/logo.png` (0.483) and above the reference
-    case (0.197). A bundled asset landing in that gap fails here, so the number is re-derived
-    from measurement rather than left to drift.
+    The threshold sits below the lowest-coverage shipped asset (0.444) and above the reference
+    case (0.197). An asset landing in that gap fails here, so the number is re-derived from
+    measurement rather than left to drift.
     """
     repo_root = Path(__file__).resolve().parents[2]
     offenders = []
-    for path in sorted((repo_root / "examples").rglob("*.png")):
+    roots = [repo_root / "examples", repo_root / "tests" / "fixtures"]
+    for path in sorted(p for root in roots for p in root.rglob("*.png")):
         box = opaque_box(path)
         if box is not None and box.coverage < COVERAGE_WARN_BELOW:
             offenders.append(f"{path.relative_to(repo_root)} at {box.coverage:.1%}")

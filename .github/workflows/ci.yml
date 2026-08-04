@@ -117,13 +117,43 @@ jobs:
           uv venv /tmp/arcavex-install
           uv pip install --python /tmp/arcavex-install dist/*.whl pypdfium2
 
-      - name: Render the quick-start from the installed package
+      # The template is written here rather than taken from examples/: this job verifies the
+      # *wheel*, so it must not depend on repository content the wheel does not ship.
+      - name: Write a smoke-test template
+        run: |
+          mkdir -p /tmp/smoke
+          cat > /tmp/smoke/template.yaml <<'YAML'
+          version: 0.1.0
+          formats:
+            square: {canvas: {width: 600px, height: 600px, dpi: 96}}
+            a4: {canvas: {width: 210mm, height: 297mm, dpi: 96}}
+          preview_data: {}
+          root:
+            type: group
+            id: root
+            children:
+              - id: background
+                type: shape
+                shape: rect
+                style: {fill: "#12131A"}
+                constraints:
+                  anchor: {top: parent.top, left: parent.left}
+                  size: {w: fill, h: fill}
+              - id: title
+                type: text
+                text: "Packaged install OK"
+                style: {font: Inter, font_size: 36pt, color: "#F5F5F2", font_weight: 700}
+                fit: {policy: shrink_to_fit, min_size: 12pt, max_lines: 2}
+                constraints:
+                  anchor: {top: parent.top+40pt, start: parent.start+40pt}
+                  size: {w: 80%, h: fit_content}
+          YAML
+
+      - name: Render from the installed package
         run: |
           uv run --python /tmp/arcavex-install arcavex doctor --json
           uv run --python /tmp/arcavex-install arcavex render \
-            examples/hello-poster/template.yaml \
-            --data examples/hello-poster/data.yaml \
-            --format square -o /tmp/installed.png
+            /tmp/smoke/template.yaml --format square -o /tmp/installed.png
           test -s /tmp/installed.png
 
       # Render an A4 PDF and open it with a real reader (pypdfium2) so the packaged install is
@@ -132,9 +162,7 @@ jobs:
       - name: Render and validate a PDF with pypdfium2
         run: |
           uv run --python /tmp/arcavex-install arcavex render \
-            examples/ipen-bilingual/template.yaml \
-            --data examples/ipen-bilingual/data.yaml \
-            --format a4 --locale fa -o /tmp/installed.pdf
+            /tmp/smoke/template.yaml --format a4 -o /tmp/installed.pdf
           test -s /tmp/installed.pdf
           # The venv interpreter directly, not `uv run python`: inside a project directory the
           # latter resolves imports against the project environment, so pypdfium2 — installed
