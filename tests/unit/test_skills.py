@@ -107,13 +107,16 @@ def test_presets_match_the_documented_layouts() -> None:
     assert targets["agents"].path.replace("\\", "/").endswith(".agents/skills/" + SKILL_NAME)
 
 
-def test_codex_and_chatgpt_are_aliases_of_one_destination() -> None:
+@pytest.mark.parametrize("alias", ["codex", "chatgpt"])
+def test_codex_and_chatgpt_are_aliases_of_one_destination(
+    alias: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """They implement the same standard at the same path; two entries would install twice."""
-    service = SkillService()
-    for alias in ("codex", "chatgpt"):
-        report = service.list_targets()
-        assert report.ok
-    assert len(service.list_targets().targets) == 2
+    monkeypatch.chdir(tmp_path)
+    report = SkillService().install(targets=[alias], project=True)
+    assert report.ok, report.diagnostics
+    assert report.installed == [str(tmp_path / ".agents" / "skills" / SKILL_NAME)]
+    assert len(SkillService().list_targets().targets) == 2
 
 
 def test_project_scope_installs_beside_the_repository(
