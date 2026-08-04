@@ -932,6 +932,36 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "around a mark — the warning is expected.",
         ),
         _e(
+            "ARC-SKL-001",
+            "Unknown skill install target",
+            "'arcavex skill install --target' was given a name that is not a known assistant. "
+            "The known targets are fixed because each names a directory layout the engine writes "
+            "to; anything else is reachable with '--path'.",
+            "Use one of the listed targets, or pass '--path DIR' to install anywhere else.",
+        ),
+        _e(
+            "ARC-SKL-002",
+            "Could not write the skill",
+            "Copying the bundled skill into a destination failed — the directory is not writable, "
+            "a path component is a file, or the disk is full.",
+            "Check the destination is writable, or pass '--path DIR' to choose another location.",
+        ),
+        _e(
+            "ARC-SKL-003",
+            "Skill already installed",
+            "A skill directory of the same name already exists at the destination. Installation "
+            "stops rather than overwriting, because a user or another tool may have edited it.",
+            "Pass '--force' to replace it with the version shipped in this build.",
+        ),
+        _e(
+            "ARC-SKL-004",
+            "No bundled skill in this installation",
+            "The engine could not find the skill to install. A wheel ships it at "
+            "'arcavex/_bundled/skill'; a source checkout provides 'skills/arcavex-design-studio'. "
+            "Neither was present.",
+            "Reinstall from a wheel built with the skill included, or run from a source checkout.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",

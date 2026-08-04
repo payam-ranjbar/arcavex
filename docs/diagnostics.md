@@ -25,7 +25,7 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**155** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**159** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
 
 ## Unknown fields are always rejected
@@ -92,6 +92,7 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 | `ARC-EXP` | 4 | Exporters (write, encode, PDF, extension) | `ARC-EXP-001` export write failed, `ARC-EXP-011` unsupported extension |
 | `ARC-LIB` | 4 | Versioned library publish/resolve | `ARC-LIB-002` version immutable, `ARC-LIB-003` ambiguous bare name |
 | `ARC-RUN` | 2 | Recorded runs, rerun drift | `ARC-RUN-001` run not found, `ARC-RUN-002` input drift |
+| `ARC-SKL` | 4 | Bundled design-skill installation | `ARC-SKL-001` unknown target, `ARC-SKL-003` already installed |
 | `ARC-INT` | 1 | Wrapped internal error (exit 5) | `ARC-INT-999` |
 
 Browse the full per-code detail under [`docs/diagnostics/`](diagnostics/), or ask the engine with

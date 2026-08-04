@@ -1,0 +1,73 @@
+name: release
+
+# Tag-triggered release. Pushing a `v*` tag builds the wheel and sdist, verifies the built wheel
+# installs and renders in a clean environment, and attaches both to a GitHub Release.
+#
+# Publishing to a package index is deliberately not wired: the project licence is Proprietary, so
+# where (and whether) the artifact is published is a distribution decision, not a CI default. Add a
+# publish step here once that is settled.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build and verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install skia system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libglib2.0-0t64 libfontconfig1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Check the tag matches the packaged version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
+          echo "tag=$TAG packaged=$PKG"
+          test "$TAG" = "$PKG" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $PKG"
+            exit 1
+          }
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      # A release artifact nobody has installed is a guess. Install the built wheel into a clean
+      # environment and use it, rather than trusting that the repo working tree behaved.
+      - name: Verify the built wheel in a clean environment
+        run: |
+          uv venv /tmp/verify
+          uv pip install --python /tmp/verify dist/*.whl
+          /tmp/verify/bin/arcavex --version
+          /tmp/verify/bin/arcavex doctor
+          /tmp/verify/bin/arcavex render \
+            examples/hello-poster/template.yaml \
+            --data examples/hello-poster/data.yaml \
+            --format square -o /tmp/release-check.png
+          test -s /tmp/release-check.png
+          # The bundled skill must survive packaging, or `skill install` is broken for pip users.
+          /tmp/verify/bin/arcavex skill install --path /tmp/skillcheck
+          test -f /tmp/skillcheck/arcavex-design-studio/SKILL.md
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true

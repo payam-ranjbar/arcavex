@@ -36,6 +36,7 @@ from arcavex.services.orchestrator import Orchestrator
 from arcavex.services.pipeline import render_to_file
 from arcavex.services.projects import ProjectService
 from arcavex.services.runs import RunStore
+from arcavex.services.skills import SkillService
 from arcavex.services.style import StyleResolver
 from arcavex.services.template import Compiler
 from arcavex.services.template.expressions import FunctionTable, UnknownFunctionError, Value
@@ -173,6 +174,7 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         # Font management resolves its directories on every call rather than capturing the ones
         # this engine loaded, so 'font add' always writes to the home currently in effect.
         fonts=FontService(),
+        skills=SkillService(),
         budget=budget,
         engine_version=engine_version(),
     )

@@ -71,6 +71,10 @@ ext_app = typer.Typer(add_completion=False, help="Trusted local extension comman
 app.add_typer(ext_app, name="ext")
 font_app = typer.Typer(add_completion=False, help="Font install/inspect commands (spec §4.3).")
 app.add_typer(font_app, name="font")
+skill_app = typer.Typer(
+    add_completion=False, help="Install the bundled design skill into an AI assistant."
+)
+app.add_typer(skill_app, name="skill")
 
 
 def _engine_version() -> str:
@@ -1888,6 +1892,66 @@ def _print_font_list(console: Console, report: FontListReport) -> None:
             console.print(f"  [dim]{_esc(file.name)}[/dim]")
     console.print(f"[dim]install fonts into:[/dim] {report.install_dir}")
     console.print("[dim]add one with:[/dim] arcavex font add <path/to/font.ttf>")
+
+# --------------------------------------------------------------------------- skill install
+@skill_app.command("install")
+def skill_install(
+    target: list[str] = typer.Option(
+        [],
+        "--target",
+        "-t",
+        help="Harness to install into (claude-code, codex, chatgpt). Repeatable. "
+        "Default: every known harness.",
+    ),
+    path: Path | None = typer.Option(
+        None, "--path", help="Install into this directory instead of a known harness location."
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing installation."),
+    list_only: bool = typer.Option(
+        False, "--list", help="Show every destination without writing anything."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Install the bundled design skill so an AI assistant knows how to drive Arcavex."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    if list_only:
+        report = facade.list_skill_targets(path)
+    else:
+        report = facade.install_skill(list(target) or None, path, force)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_skill_report(console, report, list_only=list_only)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+def _print_skill_report(console: Console, report: object, *, list_only: bool) -> None:
+    """Print install destinations and what was written."""
+    targets = report.targets  # type: ignore[attr-defined]
+    if targets:
+        table = Table(box=None, pad_edge=False)
+        table.add_column("target", style="bold")
+        table.add_column("path")
+        table.add_column("state")
+        for entry in targets:
+            state = "installed" if entry.installed else "not installed"
+            if not entry.verified:
+                state += " (path unverified)"
+            table.add_row(entry.label, entry.path, state)
+        console.print(table)
+    installed = report.installed  # type: ignore[attr-defined]
+    if installed:
+        console.print(f"Installed {report.skill} to {len(installed)} location(s):")  # type: ignore[attr-defined]
+        for where in installed:
+            console.print(f"  {where}")
+        console.print("Restart the assistant to pick it up.")
+    elif not list_only and report.ok:  # type: ignore[attr-defined]
+        console.print("Nothing to do.")
 
 
 def main() -> None:

@@ -16,6 +16,38 @@ arcavex render examples/hello-poster/template.yaml \
     --data examples/hello-poster/data.yaml --format square -o out.png
 ```
 
+## Install, and teach your assistant to use it
+
+Releases attach a built wheel to the [GitHub release page](https://github.com/payam-ranjbar/arcavex/releases);
+install it, or install from a checkout:
+
+```bash
+uv pip install arcavex-0.1.0-py3-none-any.whl   # or: uv pip install -e ".[dev]" from a clone
+arcavex doctor                                   # confirm skia, ICU, fonts, exporters
+```
+
+Then install the bundled design skill so an AI assistant knows the workflow rather than
+rediscovering it:
+
+```bash
+arcavex skill install            # every known assistant; --list to preview, --path DIR for others
+```
+
+The skill gives the assistant the role of a senior designer: establish the art direction before
+composing, treat every aspect ratio as its own problem, check for overlaps and tight margins rather
+than trusting a clean validation — and, when the built-in vocabulary cannot express a style,
+**author the missing effect** instead of dropping it:
+
+```bash
+arcavex ext scaffold effect ./my-effect --name grain-warp   # a working effect, not a stub
+arcavex ext validate ./my-effect && arcavex ext test ./my-effect
+arcavex ext add ./my-effect && arcavex ext enable grain-warp
+```
+
+That loop needs a shell, so it works from Claude Code, Codex, Cursor, or any assistant with code
+execution. The MCP server is the higher-level surface — authoring, previewing, rendering — and does
+not expose extension authoring.
+
 The output extension selects the format — `.png`, `.jpg`/`.jpeg`, `.webp`, or `.pdf`. `--quality`
 sets the lossy encoder quality (JPEG, lossy WebP) and `--lossless` selects lossless WebP. PDF is
 raster-embedded RGB at the target DPI with the correct physical page size and trim/bleed boxes, so

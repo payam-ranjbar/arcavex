@@ -388,6 +388,53 @@ class FontActionReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class SkillTargetInfo(BaseModel):
+    """One destination `arcavex skill install` can write to.
+
+    ``verified`` distinguishes a layout this project tests against from one taken from a vendor's
+    documented configuration directory, which that vendor may move.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    label: str
+    path: str
+    installed: bool
+    verified: bool = False
+
+
+class SkillInstallReport(BaseModel):
+    """The result of ``arcavex skill install`` / ``--list``.
+
+    ``targets`` describes every destination considered; ``installed`` lists the ones written this
+    run, so a no-op (already present, no ``--force``) is distinguishable from a write.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    skill: str
+    source: str
+    targets: list[SkillTargetInfo] = Field(default_factory=list)
+    installed: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class SkillServiceProtocol(Protocol):
+    """The skill installer injected by bootstrap.
+
+    Returns versioned kernel result models and does not raise across the facade boundary.
+    """
+
+    def list_targets(self, path: Path | None) -> SkillInstallReport: ...
+
+    def install(
+        self, *, targets: list[str] | None, path: Path | None, force: bool
+    ) -> SkillInstallReport: ...
+
+
 class FontServiceProtocol(Protocol):
     """The font install/inspect service injected by bootstrap (spec §4.3).
 
@@ -1407,6 +1454,7 @@ class Facade:
         extensions: ExtensionServiceProtocol | None = None,
         extension_load_diagnostics: list[Diagnostic] | None = None,
         fonts: FontServiceProtocol | None = None,
+        skills: SkillServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
     ) -> None:
@@ -1437,6 +1485,7 @@ class Facade:
         self._extensions = extensions
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
         self._fonts = fonts
+        self._skills = skills
         self._budget = budget
         self._engine_version = engine_version
 
@@ -2025,6 +2074,46 @@ class Facade:
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return FontActionReport(
                 ok=False, diagnostics=[internal_error("font remove failed", detail=repr(exc))]
+            )
+
+    # ----------------------------------------------------------------------- skill install
+    def list_skill_targets(self, path: Path | None = None) -> SkillInstallReport:
+        """List every destination the bundled design skill can install to. Never raises."""
+        if self._skills is None:  # pragma: no cover - always wired in production
+            return SkillInstallReport(
+                ok=False, skill="", source="", diagnostics=[_unwired("skills")]
+            )
+        try:
+            return self._skills.list_targets(None if path is None else Path(path))
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return SkillInstallReport(
+                ok=False,
+                skill="",
+                source="",
+                diagnostics=[internal_error("skill list failed", detail=repr(exc))],
+            )
+
+    def install_skill(
+        self,
+        targets: list[str] | None = None,
+        path: Path | None = None,
+        force: bool = False,
+    ) -> SkillInstallReport:
+        """Install the bundled design skill into one or more harnesses. Never raises."""
+        if self._skills is None:  # pragma: no cover - always wired in production
+            return SkillInstallReport(
+                ok=False, skill="", source="", diagnostics=[_unwired("skills")]
+            )
+        try:
+            return self._skills.install(
+                targets=targets, path=None if path is None else Path(path), force=force
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return SkillInstallReport(
+                ok=False,
+                skill="",
+                source="",
+                diagnostics=[internal_error("skill install failed", detail=repr(exc))],
             )
 
     def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:
