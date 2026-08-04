@@ -1900,13 +1900,19 @@ def skill_install(
         [],
         "--target",
         "-t",
-        help="Harness to install into (claude-code, codex, chatgpt). Repeatable. "
+        help="Harness to install into (claude-code, agents). Repeatable. "
         "Default: every known harness.",
     ),
     path: Path | None = typer.Option(
         None, "--path", help="Install into this directory instead of a known harness location."
     ),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing installation."),
+    project: bool = typer.Option(
+        False,
+        "--project",
+        help="Install into the current directory instead of your home directory, so the "
+        "skill travels with the repository.",
+    ),
     list_only: bool = typer.Option(
         False, "--list", help="Show every destination without writing anything."
     ),
@@ -1920,9 +1926,9 @@ def skill_install(
     console = Console(no_color=no_color)
     facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
     if list_only:
-        report = facade.list_skill_targets(path)
+        report = facade.list_skill_targets(path, project)
     else:
-        report = facade.install_skill(list(target) or None, path, force)
+        report = facade.install_skill(list(target) or None, path, force, project)
     if json_out:
         _emit_json(report)
     elif not quiet:

@@ -30,8 +30,15 @@ Then install the bundled design skill so an AI assistant knows the workflow rath
 rediscovering it:
 
 ```bash
-arcavex skill install            # every known assistant; --list to preview, --path DIR for others
+arcavex skill install            # Claude Code + Codex/ChatGPT; --list previews, --force overwrites
+arcavex skill install --project  # into this repo instead, so it travels with a clone
 ```
+
+The skill follows the [Agent Skills](https://agentskills.io) open standard, which fixes the
+`SKILL.md` format but not where a host looks for it — so the installer writes to each tool's own
+location: `~/.claude/skills` for Claude Code, `~/.agents/skills` for Codex and the ChatGPT desktop
+app. `--target` selects one (`claude-code`, `agents`; `codex` and `chatgpt` are accepted aliases for
+the same destination), and `--path DIR` covers anything else.
 
 The skill gives the assistant the role of a senior designer: establish the art direction before
 composing, treat every aspect ratio as its own problem, check for overlaps and tight margins rather

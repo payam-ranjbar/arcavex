@@ -25,21 +25,30 @@ SKILL_NAME = "arcavex-design-studio"
 class _Target:
     key: str
     label: str
-    #: Path relative to the user's home directory.
+    #: Directory relative to the user's home (personal) or the working directory (project).
     relative: str
     verified: bool
+    aliases: tuple[str, ...] = ()
 
 
-# `claude-code` is the layout this project tests against. The others follow each tool's documented
-# user-level configuration directory; they are marked unverified because that convention is the
-# vendor's to change, and `--path` exists precisely so a moved directory is never a blocker.
+# The Agent Skills standard fixes the SKILL.md *format*, not where a host looks for it, so each
+# tool needs its own destination. Both paths below are from the vendors' own documentation:
+# Claude Code reads `.claude/skills`, and Codex and the ChatGPT desktop app both implement the
+# open standard at `.agents/skills` — they are one destination, not two.
 _TARGETS: tuple[_Target, ...] = (
     _Target("claude-code", "Claude Code", ".claude/skills", True),
-    _Target("codex", "Codex", ".codex/skills", False),
-    _Target("chatgpt", "ChatGPT", ".chatgpt/skills", False),
+    _Target(
+        "agents",
+        "Codex / ChatGPT (Agent Skills standard)",
+        ".agents/skills",
+        True,
+        aliases=("codex", "chatgpt"),
+    ),
 )
 
-_TARGETS_BY_KEY = {t.key: t for t in _TARGETS}
+_TARGETS_BY_KEY = {
+    key: target for target in _TARGETS for key in (target.key, *target.aliases)
+}
 
 
 def bundled_skill_dir() -> Path | None:
@@ -57,8 +66,14 @@ def bundled_skill_dir() -> Path | None:
     return None
 
 
-def target_infos(explicit: Path | None = None) -> list[SkillTargetInfo]:
-    """Describe every install destination and whether the skill is already present."""
+def target_infos(
+    explicit: Path | None = None, *, project: bool = False
+) -> list[SkillTargetInfo]:
+    """Describe every install destination and whether the skill is already present.
+
+    ``project`` resolves the same layouts against the working directory instead of the home
+    directory, so a campaign repository can carry the skill for whoever clones it.
+    """
     if explicit is not None:
         destination = Path(explicit).expanduser().resolve() / SKILL_NAME
         return [
@@ -74,7 +89,8 @@ def target_infos(explicit: Path | None = None) -> list[SkillTargetInfo]:
     for target in _TARGETS:
         # The user's real home, not ARCAVEX_HOME: a harness reads its skills from its own config
         # directory, which is independent of where the engine keeps fonts and extensions.
-        destination = Path.home() / target.relative / SKILL_NAME
+        base = Path.cwd() if project else Path.home()
+        destination = base / target.relative / SKILL_NAME
         out.append(
             SkillTargetInfo(
                 key=target.key,
@@ -90,7 +106,9 @@ def target_infos(explicit: Path | None = None) -> list[SkillTargetInfo]:
 class SkillService:
     """Copies the bundled skill into one or more harness skill directories."""
 
-    def list_targets(self, path: Path | None = None) -> SkillInstallReport:
+    def list_targets(
+        self, path: Path | None = None, *, project: bool = False
+    ) -> SkillInstallReport:
         """Report every destination without writing anything."""
         source = bundled_skill_dir()
         if source is None:
@@ -99,7 +117,7 @@ class SkillService:
             ok=True,
             skill=SKILL_NAME,
             source=str(source),
-            targets=target_infos(path),
+            targets=target_infos(path, project=project),
             installed=[],
         )
 
@@ -109,6 +127,7 @@ class SkillService:
         targets: list[str] | None = None,
         path: Path | None = None,
         force: bool = False,
+        project: bool = False,
     ) -> SkillInstallReport:
         """Copy the skill to each requested target; never raises.
 
@@ -140,7 +159,8 @@ class SkillService:
                         )
                     ],
                 )
-            wanted = [t for t in target_infos() if t.key in keys]
+            resolved = {_TARGETS_BY_KEY[k].key for k in keys}
+            wanted = [t for t in target_infos(project=project) if t.key in resolved]
 
         installed: list[str] = []
         diagnostics: list[Diagnostic] = []

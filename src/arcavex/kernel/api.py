@@ -428,10 +428,15 @@ class SkillServiceProtocol(Protocol):
     Returns versioned kernel result models and does not raise across the facade boundary.
     """
 
-    def list_targets(self, path: Path | None) -> SkillInstallReport: ...
+    def list_targets(self, path: Path | None, *, project: bool) -> SkillInstallReport: ...
 
     def install(
-        self, *, targets: list[str] | None, path: Path | None, force: bool
+        self,
+        *,
+        targets: list[str] | None,
+        path: Path | None,
+        force: bool,
+        project: bool,
     ) -> SkillInstallReport: ...
 
 
@@ -2077,14 +2082,18 @@ class Facade:
             )
 
     # ----------------------------------------------------------------------- skill install
-    def list_skill_targets(self, path: Path | None = None) -> SkillInstallReport:
+    def list_skill_targets(
+        self, path: Path | None = None, project: bool = False
+    ) -> SkillInstallReport:
         """List every destination the bundled design skill can install to. Never raises."""
         if self._skills is None:  # pragma: no cover - always wired in production
             return SkillInstallReport(
                 ok=False, skill="", source="", diagnostics=[_unwired("skills")]
             )
         try:
-            return self._skills.list_targets(None if path is None else Path(path))
+            return self._skills.list_targets(
+                None if path is None else Path(path), project=project
+            )
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return SkillInstallReport(
                 ok=False,
@@ -2098,6 +2107,7 @@ class Facade:
         targets: list[str] | None = None,
         path: Path | None = None,
         force: bool = False,
+        project: bool = False,
     ) -> SkillInstallReport:
         """Install the bundled design skill into one or more harnesses. Never raises."""
         if self._skills is None:  # pragma: no cover - always wired in production
@@ -2106,7 +2116,10 @@ class Facade:
             )
         try:
             return self._skills.install(
-                targets=targets, path=None if path is None else Path(path), force=force
+                targets=targets,
+                path=None if path is None else Path(path),
+                force=force,
+                project=project,
             )
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return SkillInstallReport(

@@ -80,6 +80,13 @@ def test_unknown_target_is_named(tmp_path: Path) -> None:
     assert diag.hint is not None and "claude-code" in diag.hint
 
 
+def test_alias_resolves_to_its_destination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    report = SkillService().install(targets=["codex"], project=True)
+    assert report.ok, report.diagnostics
+    assert (tmp_path / ".agents" / "skills" / SKILL_NAME / "SKILL.md").is_file()
+
+
 def test_list_targets_writes_nothing(tmp_path: Path) -> None:
     report = SkillService().list_targets(tmp_path)
     assert report.ok
@@ -87,12 +94,36 @@ def test_list_targets_writes_nothing(tmp_path: Path) -> None:
     assert not (tmp_path / SKILL_NAME).exists()
 
 
-def test_presets_are_marked_verified_or_not() -> None:
-    """The Claude Code layout is tested here; the others are the vendor's to move."""
+def test_presets_match_the_documented_layouts() -> None:
+    """Both destinations come from vendor documentation, so both are verified.
+
+    The Agent Skills standard fixes the file format, not the install path: Claude Code reads
+    `.claude/skills` and Codex/ChatGPT read `.agents/skills`.
+    """
     targets = {t.key: t for t in SkillService().list_targets().targets}
-    assert targets["claude-code"].verified is True
-    assert targets["codex"].verified is False
-    assert targets["chatgpt"].verified is False
+    assert set(targets) == {"claude-code", "agents"}
+    assert all(t.verified for t in targets.values())
+    assert targets["claude-code"].path.replace("\\", "/").endswith(".claude/skills/" + SKILL_NAME)
+    assert targets["agents"].path.replace("\\", "/").endswith(".agents/skills/" + SKILL_NAME)
+
+
+def test_codex_and_chatgpt_are_aliases_of_one_destination() -> None:
+    """They implement the same standard at the same path; two entries would install twice."""
+    service = SkillService()
+    for alias in ("codex", "chatgpt"):
+        report = service.list_targets()
+        assert report.ok
+    assert len(service.list_targets().targets) == 2
+
+
+def test_project_scope_installs_beside_the_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--project puts the skill in the working directory so it travels with a clone."""
+    monkeypatch.chdir(tmp_path)
+    report = SkillService().install(targets=["agents"], project=True)
+    assert report.ok, report.diagnostics
+    assert (tmp_path / ".agents" / "skills" / SKILL_NAME / "SKILL.md").is_file()
 
 
 def test_targets_are_not_under_arcavex_home(

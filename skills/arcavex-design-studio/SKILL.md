@@ -1,6 +1,6 @@
 ---
 name: arcavex-design-studio
-description: Act as a senior graphic designer using the Arcavex rendering engine to build reusable, multi-format design systems — posters, flyers, event graphics, social tiles, stories/reels, covers, album art, thumbnails. Use whenever the user wants any of those, mentions Arcavex, a brand kit, a design brief, bilingual or RTL (Farsi/Arabic) layout, or one design across several aspect ratios or languages. Also use for establishing or critiquing an art direction, preparing assets, and authoring custom Arcavex effects when the built-in vocabulary cannot express the intended style. Not for one-off raster edits to a single existing image.
+description: Design posters, flyers, event graphics, social tiles, stories, reels, covers, album art, and video thumbnails with the Arcavex rendering engine — acting as a senior graphic designer, not a rendering service. Use for Arcavex, design briefs, brand kits, art direction, bilingual or RTL (Farsi/Arabic) layout, and one design across several aspect ratios or languages. Also for establishing or critiquing an art direction, preparing assets, and authoring custom Arcavex effects when the built-in vocabulary cannot express the style. Not for one-off raster edits to a single existing image.
 ---
 
 # Arcavex Design Studio
