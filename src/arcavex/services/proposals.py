@@ -17,9 +17,16 @@ from arcavex.kernel.api import (
     ProposalListReport,
 )
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic
-from arcavex.services.fsutil import atomic_write_text
+from arcavex.services.fsutil import atomic_create_text, atomic_write_text
+from arcavex.services.project_locking import (
+    ensure_project_path_safe,
+    project_mutation_lock,
+)
 from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import Project, ProjectService
+
+_MAX_PROPOSAL_BYTES = 1_048_576
+_MAX_JSON_DEPTH = 64
 
 
 class ProposalService:
@@ -55,13 +62,21 @@ class ProposalService:
             )
         except ValidationError as exc:
             raise _invalid_proposal(command_id, str(exc)) from exc
-        path = self._path(loaded, canonical_id)
-        if path.exists():
-            raise _invalid_command(command_id, "a proposal with this command ID already exists")
         try:
-            _write(path, proposal)
+            payload = _serialize(proposal)
         except (PydanticSerializationError, TypeError, ValueError) as exc:
             raise _invalid_proposal(command_id, str(exc)) from exc
+        with project_mutation_lock(loaded.root):
+            loaded = self._projects.load(loaded.root)
+            queue = _prepare_queue(loaded)
+            path = queue / f"{canonical_id}.json"
+            ensure_project_path_safe(loaded.root, path)
+            try:
+                _create(path, payload, loaded)
+            except FileExistsError as exc:
+                raise _invalid_command(
+                    command_id, "a proposal with this command ID already exists"
+                ) from exc
         return proposal
 
     def list_proposals(
@@ -72,7 +87,13 @@ class ProposalService:
         proposals: list[ProjectProposal] = []
         diagnostics: list[Diagnostic] = []
         queue = _queue_dir(loaded)
-        if queue.is_dir():
+        try:
+            ensure_project_path_safe(loaded.root, queue)
+        except DiagnosticError as exc:
+            diagnostics.extend(exc.diagnostics)
+        else:
+            queue_exists = queue.is_dir()
+        if not diagnostics and queue_exists:
             for path in sorted(queue.glob("*.json"), key=lambda item: item.name):
                 proposal, entry_diagnostics = _read(path, loaded)
                 diagnostics.extend(entry_diagnostics)
@@ -94,40 +115,42 @@ class ProposalService:
     ) -> ProposalActionReport:
         """Authorize a current proposal without executing or mutating authored source."""
         loaded = self._projects.resolve(start, project)
-        proposal, failure = self._target(loaded, command_id)
-        if failure is not None:
-            return failure
-        assert proposal is not None
-        snapshot = self._snapshots.snapshot(project=loaded.root)
-        if snapshot.project_revision != proposal.base_project_revision:
+        with project_mutation_lock(loaded.root):
+            loaded = self._projects.load(loaded.root)
+            proposal, failure = self._target(loaded, command_id)
+            if failure is not None:
+                return failure
+            assert proposal is not None
+            snapshot = self._snapshots.snapshot(project=loaded.root)
+            if snapshot.project_revision != proposal.base_project_revision:
+                return ProposalActionReport(
+                    ok=False,
+                    canonical_path=str(loaded.root.resolve()),
+                    project_revision=snapshot.project_revision,
+                    proposal=proposal,
+                    diagnostics=[
+                        diagnostic(
+                            "ARC-PRJ-011",
+                            "Proposal base project revision is stale",
+                            file=str(self._path(loaded, str(proposal.command_id))),
+                            hint=(
+                                "Reload the project, inspect the changed revision manifest, and "
+                                "submit a new proposal against the current project revision."
+                            ),
+                        )
+                    ],
+                )
+            if proposal.state == "rejected":
+                return self._state_failure(loaded, proposal, snapshot.project_revision)
+            if proposal.state == "pending":
+                proposal = proposal.model_copy(update={"state": "authorized"})
+                _write(self._path(loaded, str(proposal.command_id)), proposal, loaded)
             return ProposalActionReport(
-                ok=False,
+                ok=True,
                 canonical_path=str(loaded.root.resolve()),
                 project_revision=snapshot.project_revision,
                 proposal=proposal,
-                diagnostics=[
-                    diagnostic(
-                        "ARC-PRJ-011",
-                        "Proposal base project revision is stale",
-                        file=str(self._path(loaded, str(proposal.command_id))),
-                        hint=(
-                            "Reload the project, inspect the changed revision manifest, and "
-                            "submit a new proposal against the current project revision."
-                        ),
-                    )
-                ],
             )
-        if proposal.state == "rejected":
-            return self._state_failure(loaded, proposal, snapshot.project_revision)
-        if proposal.state == "pending":
-            proposal = proposal.model_copy(update={"state": "authorized"})
-            _write(self._path(loaded, str(proposal.command_id)), proposal)
-        return ProposalActionReport(
-            ok=True,
-            canonical_path=str(loaded.root.resolve()),
-            project_revision=snapshot.project_revision,
-            proposal=proposal,
-        )
 
     def reject(
         self,
@@ -139,30 +162,40 @@ class ProposalService:
     ) -> ProposalActionReport:
         """Persist an explicit, inspectable rejection without deleting the queue record."""
         loaded = self._projects.resolve(start, project)
-        proposal, failure = self._target(loaded, command_id)
-        if failure is not None:
-            return failure
-        assert proposal is not None
-        if proposal.state == "authorized":
+        with project_mutation_lock(loaded.root):
+            loaded = self._projects.load(loaded.root)
+            proposal, failure = self._target(loaded, command_id)
+            if failure is not None:
+                return failure
+            assert proposal is not None
             snapshot = self._snapshots.snapshot(project=loaded.root)
-            return self._state_failure(loaded, proposal, snapshot.project_revision)
-        if proposal.state == "pending":
-            proposal = proposal.model_copy(
-                update={"state": "rejected", "rejection_reason": reason}
+            if proposal.state == "authorized":
+                return self._state_failure(loaded, proposal, snapshot.project_revision)
+            if proposal.state == "pending":
+                proposal = proposal.model_copy(
+                    update={"state": "rejected", "rejection_reason": reason}
+                )
+                _write(self._path(loaded, str(proposal.command_id)), proposal, loaded)
+            return ProposalActionReport(
+                ok=True,
+                canonical_path=str(loaded.root.resolve()),
+                project_revision=snapshot.project_revision,
+                proposal=proposal,
             )
-            _write(self._path(loaded, str(proposal.command_id)), proposal)
-        return ProposalActionReport(
-            ok=True,
-            canonical_path=str(loaded.root.resolve()),
-            project_revision=self._snapshots.snapshot(project=loaded.root).project_revision,
-            proposal=proposal,
-        )
 
     def _target(
         self, loaded: Project, command_id: str
     ) -> tuple[ProjectProposal | None, ProposalActionReport | None]:
         canonical_id = _command_id(command_id)
         path = self._path(loaded, canonical_id)
+        try:
+            ensure_project_path_safe(loaded.root, path)
+        except DiagnosticError as exc:
+            return None, ProposalActionReport(
+                ok=False,
+                canonical_path=str(loaded.root.resolve()),
+                diagnostics=list(exc.diagnostics),
+            )
         if not path.is_file():
             return None, ProposalActionReport(
                 ok=False,
@@ -212,6 +245,18 @@ def _queue_dir(project: Project) -> Path:
     return project.root / ".arcavex" / "pending"
 
 
+def _prepare_queue(project: Project) -> Path:
+    working = project.root / ".arcavex"
+    ensure_project_path_safe(project.root, working)
+    working.mkdir(exist_ok=True)
+    ensure_project_path_safe(project.root, working)
+    queue = working / "pending"
+    ensure_project_path_safe(project.root, queue)
+    queue.mkdir(exist_ok=True)
+    ensure_project_path_safe(project.root, queue)
+    return queue
+
+
 def _command_id(value: str) -> str:
     try:
         parsed = UUID(value)
@@ -248,14 +293,40 @@ def _invalid_proposal(command_id: str, detail: str) -> DiagnosticError:
 
 def _read(path: Path, project: Project) -> tuple[ProjectProposal | None, list[Diagnostic]]:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        ensure_project_path_safe(project.root, path)
+        if path.stat().st_size > _MAX_PROPOSAL_BYTES:
+            raise ValueError(
+                f"proposal exceeds size limit of {_MAX_PROPOSAL_BYTES} bytes"
+            )
+        ensure_project_path_safe(project.root, path)
+        content = path.read_bytes()
+        if len(content) > _MAX_PROPOSAL_BYTES:
+            raise ValueError(
+                f"proposal exceeds size limit of {_MAX_PROPOSAL_BYTES} bytes"
+            )
+        raw = json.loads(content.decode("utf-8"))
+        if _exceeds_json_depth(raw, _MAX_JSON_DEPTH):
+            raise ValueError(
+                f"proposal JSON exceeds nesting limit of {_MAX_JSON_DEPTH} levels"
+            )
         proposal = ProjectProposal.model_validate(raw)
         if path.stem != str(proposal.command_id):
             raise ValueError("filename does not match command_id")
         if proposal.project_path != str(project.root.resolve()):
             raise ValueError("project_path does not match this project")
         return proposal, []
-    except (OSError, UnicodeError, json.JSONDecodeError, ValidationError, ValueError) as exc:
+    except DiagnosticError as exc:
+        return None, list(exc.diagnostics)
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValidationError,
+        ValueError,
+        RecursionError,
+        MemoryError,
+        OverflowError,
+    ) as exc:
         return None, [
             diagnostic(
                 "ARC-PRJ-010",
@@ -269,11 +340,34 @@ def _read(path: Path, project: Project) -> tuple[ProjectProposal | None, list[Di
         ]
 
 
-def _write(path: Path, proposal: ProjectProposal) -> None:
-    payload = json.dumps(
+def _exceeds_json_depth(value: object, limit: int) -> bool:
+    stack: list[tuple[object, int]] = [(value, 1)]
+    while stack:
+        current, depth = stack.pop()
+        if depth > limit:
+            return True
+        if isinstance(current, dict):
+            stack.extend((item, depth + 1) for item in current.values())
+        elif isinstance(current, list):
+            stack.extend((item, depth + 1) for item in current)
+    return False
+
+
+def _write(path: Path, proposal: ProjectProposal, project: Project) -> None:
+    payload = _serialize(proposal)
+    ensure_project_path_safe(project.root, path)
+    atomic_write_text(path, payload + "\n")
+
+
+def _create(path: Path, payload: str, project: Project) -> None:
+    ensure_project_path_safe(project.root, path)
+    atomic_create_text(path, payload + "\n")
+
+
+def _serialize(proposal: ProjectProposal) -> str:
+    return json.dumps(
         proposal.model_dump(mode="json"),
         ensure_ascii=False,
         indent=2,
         sort_keys=True,
     )
-    atomic_write_text(path, payload + "\n")

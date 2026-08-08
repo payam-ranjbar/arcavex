@@ -23,6 +23,7 @@ from arcavex.kernel.api import AutomationPolicy, ProjectUIMetadata
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
 from arcavex.services.fsutil import atomic_write_text
 from arcavex.services.library import Library, ResolvedTemplate, is_library_ref
+from arcavex.services.project_locking import project_mutation_lock
 from arcavex.services.template.loader import load_template, load_yaml
 
 PROJECT_FILE = "project.yaml"
@@ -229,8 +230,41 @@ class ProjectService:
         self, project: Project, metadata: ProjectUIMetadata
     ) -> ProjectUIMetadata:
         """Atomically persist canonical project-owned editor metadata."""
-        _dump_yaml_atomic(project.root / PROJECT_UI_FILE, _ui_metadata_dict(metadata))
+        with project_mutation_lock(project.root):
+            self.load(project.root)
+            _dump_yaml_atomic(project.root / PROJECT_UI_FILE, _ui_metadata_dict(metadata))
         return metadata
+
+    def save_automation_policy(
+        self, project: Project, policy: AutomationPolicy
+    ) -> Project:
+        """Merge only automation into round-trip YAML, preserving unknown authored content."""
+        with project_mutation_lock(project.root):
+            path = project.root / PROJECT_FILE
+            raw = load_yaml(path)
+            if not isinstance(raw, dict):
+                raise self._invalid(project.root, "project.yaml is not a mapping")
+            if policy == AutomationPolicy():
+                raw.pop("automation", None)
+            else:
+                existing = raw.get("automation")
+                automation: dict[str, Any]
+                if isinstance(existing, dict):
+                    automation = existing
+                else:
+                    automation = {}
+                    raw["automation"] = automation
+                automation["version"] = policy.version
+                if policy.mode == "unrestricted":
+                    automation.pop("mode", None)
+                else:
+                    automation["mode"] = policy.mode
+                if policy.extensions == "unrestricted":
+                    automation.pop("extensions", None)
+                else:
+                    automation["extensions"] = policy.extensions
+            _dump_yaml_atomic(path, raw)
+            return self.load(project.root)
 
     def set_status(self, project: Project, status: str) -> Project:
         """Set the project's ``status`` (one of draft/review/approved/published) and persist it."""

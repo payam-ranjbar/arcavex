@@ -66,6 +66,7 @@ from arcavex.services.config import RuntimeConfig
 from arcavex.services.fsutil import atomic_write_text, home_dir
 from arcavex.services.imaging import dssim_files
 from arcavex.services.library import Library, is_library_ref
+from arcavex.services.project_locking import project_mutation_lock
 from arcavex.services.project_policy import ProjectPolicyService
 from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import Project, ProjectService, template_stem
@@ -217,8 +218,10 @@ class Orchestrator:
         metadata: ProjectUIMetadata,
     ) -> ProjectUIMetadataReport:
         loaded = self._projects.resolve(start, project)
-        self._projects.save_ui_metadata(loaded, metadata)
-        return self._ui_metadata_report(loaded)
+        with project_mutation_lock(loaded.root):
+            loaded = self._projects.load(loaded.root)
+            self._projects.save_ui_metadata(loaded, metadata)
+            return self._ui_metadata_report(loaded)
 
     def project_policy(
         self, start: Path | None, project: Path | None

@@ -10,6 +10,7 @@ from arcavex.kernel.api import (
     ExtensionMode,
     ProjectPolicyReport,
 )
+from arcavex.services.project_locking import project_mutation_lock
 from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import Project, ProjectService
 
@@ -41,10 +42,10 @@ class ProjectPolicyService:
         """Persist a validated policy atomically and return its fresh revisions."""
         loaded = self._projects.resolve(start, project)
         policy = AutomationPolicy(mode=mode, extensions=extensions)
-        manifest = loaded.manifest.model_copy(update={"automation": policy})
-        updated = Project(root=loaded.root, manifest=manifest)
-        self._projects.save(updated)
-        return self._report(updated)
+        with project_mutation_lock(loaded.root):
+            loaded = self._projects.load(loaded.root)
+            updated = self._projects.save_automation_policy(loaded, policy)
+            return self._report(updated)
 
     def _report(self, project: Project) -> ProjectPolicyReport:
         snapshot = self._snapshots.snapshot(project=project.root)
