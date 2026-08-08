@@ -5,10 +5,55 @@ Local-first, headless, deterministic, template-driven rendering engine built on 
 A one-file YAML template plus data renders to an image or PDF with no project or configuration
 required.
 
+Arcavex is the substrate a designer — human or AI — works *on*: byte-reproducible output, an
+inspectable layout model, coded diagnostics, and recorded provenance, reachable from a CLI and an
+MCP server. It checks that a design is well-formed; it does not judge whether it is any good, and
+[says so plainly](docs/known-limitations.md#validation-checks-geometry-not-design). Something still
+has to look at the picture.
+
 ```bash
 arcavex render examples/hello-poster/template.yaml \
     --data examples/hello-poster/data.yaml --format square -o out.png
 ```
+
+## Install, and teach your assistant to use it
+
+```bash
+uv pip install arcavex     # or: uv pip install -e ".[dev]" from a clone
+arcavex doctor             # confirm skia, ICU, fonts, exporters
+```
+
+Releases also attach the wheel to the
+[GitHub release page](https://github.com/payam-ranjbar/arcavex/releases).
+
+Then install the bundled design skill so an AI assistant knows the workflow rather than
+rediscovering it:
+
+```bash
+arcavex skill install            # Claude Code + Codex/ChatGPT; --list previews, --force overwrites
+arcavex skill install --project  # into this repo instead, so it travels with a clone
+```
+
+The skill follows the [Agent Skills](https://agentskills.io) open standard, which fixes the
+`SKILL.md` format but not where a host looks for it — so the installer writes to each tool's own
+location: `~/.claude/skills` for Claude Code, `~/.agents/skills` for Codex and the ChatGPT desktop
+app. `--target` selects one (`claude-code`, `agents`; `codex` and `chatgpt` are accepted aliases for
+the same destination), and `--path DIR` covers anything else.
+
+The skill gives the assistant the role of a senior designer: establish the art direction before
+composing, treat every aspect ratio as its own problem, check for overlaps and tight margins rather
+than trusting a clean validation — and, when the built-in vocabulary cannot express a style,
+**author the missing effect** instead of dropping it:
+
+```bash
+arcavex ext scaffold effect ./my-effect --name grain-warp   # a working effect, not a stub
+arcavex ext validate ./my-effect && arcavex ext test ./my-effect
+arcavex ext add ./my-effect && arcavex ext enable grain-warp
+```
+
+That loop needs a shell, so it works from Claude Code, Codex, Cursor, or any assistant with code
+execution. The MCP server is the higher-level surface — authoring, previewing, rendering — and does
+not expose extension authoring.
 
 The output extension selects the format — `.png`, `.jpg`/`.jpeg`, `.webp`, or `.pdf`. `--quality`
 sets the lossy encoder quality (JPEG, lossy WebP) and `--lossless` selects lossless WebP. PDF is
@@ -41,49 +86,23 @@ Everything below is reachable within two clicks from this index.
 | [Diagnostics](docs/diagnostics.md) | The coded-diagnostic catalog, exit codes, and `explain`. |
 | [Architecture](docs/architecture.md) | The microkernel map, pipeline, SPI contracts, determinism, provenance. |
 | [Extension guide](docs/extension-guide.md) | Trusted local extensions: the SDK, manifest, gates, trust model. |
-| [Known limitations](docs/known-limitations.md) | Honest list of what is deferred and where perf misses. |
+| [Known limitations](docs/known-limitations.md) | Honest list of what is deferred, where perf misses, and [why validation checks geometry rather than design](docs/known-limitations.md#validation-checks-geometry-not-design). |
 | [Performance](docs/performance.md) | Measured actuals vs the spec §8.2 targets. |
 | [Testing](docs/testing.md) | The test layers and the per-platform golden strategy. |
 | [Packaged install](docs/packaged-install.md) | The clean-venv wheel transcript (byte-identical proof). |
 | [Contributing](docs/contributing.md) | Dev setup, make targets, golden/ADR process. |
 | [ADRs](docs/adr/README.md) · [Backlog](docs/backlog.md) · [Changelog](CHANGELOG.md) | Decisions, deferred work, release notes. |
 
-## Showcase — the reference poster
+## Examples
 
-The flagship example is [`examples/reference-poster/`](examples/reference-poster/): a faithful,
-reusable reproduction of the IPEN "یک فنجان تجربه" (A Cup of Experience) event poster, rendered
-entirely by the engine across **5 formats × 2 locales from one node tree** — no hand-compositing. It
-demonstrates the split-template layout, a keyed `repeat` over a guest list inside an `hstack`, the
-`diamond_grid` and `circle` masks, locale direction/digit policies, per-format reflow patches, and
-fit policies that keep realistic long values readable.
-
-The ten curated finals (`portrait square story landscape a4` × `en fa`) live under
-[`outputs/final/`](examples/reference-poster/outputs/final/):
-
-| Format | English | Farsi (RTL, Persian digits) |
-|---|---|---|
-| portrait (4:5, native) | [poster.portrait.en.png](examples/reference-poster/outputs/final/poster.portrait.en.png) | [poster.portrait.fa.png](examples/reference-poster/outputs/final/poster.portrait.fa.png) |
-| square (1:1) | [poster.square.en.png](examples/reference-poster/outputs/final/poster.square.en.png) | [poster.square.fa.png](examples/reference-poster/outputs/final/poster.square.fa.png) |
-| story (9:16) | [poster.story.en.png](examples/reference-poster/outputs/final/poster.story.en.png) | [poster.story.fa.png](examples/reference-poster/outputs/final/poster.story.fa.png) |
-| landscape (16:9) | [poster.landscape.en.png](examples/reference-poster/outputs/final/poster.landscape.en.png) | [poster.landscape.fa.png](examples/reference-poster/outputs/final/poster.landscape.fa.png) |
-| A4 (print) | [poster.a4.en.png](examples/reference-poster/outputs/final/poster.a4.en.png) · [.pdf](examples/reference-poster/outputs/final/poster.a4.en.pdf) | [poster.a4.fa.png](examples/reference-poster/outputs/final/poster.a4.fa.png) · [.pdf](examples/reference-poster/outputs/final/poster.a4.fa.pdf) |
+The shipped examples live under [`examples/`](examples/): `future-archive-poster` (a multi-format
+bilingual system with a custom raster extension), `graphic-style-lab` (four art directions across
+announcement, product ad, movie poster and video thumbnail), and `extensions/` (a minimal
+extension with its golden fixture).
 
 ```bash
-# Standalone (preview data, native 4:5 portrait)
-arcavex render examples/reference-poster --format portrait
-
-# Farsi story (RTL, Persian digits)
-arcavex render examples/reference-poster \
-  --data examples/reference-poster/data/poster.fa.yaml \
-  --format story --locale fa -o poster.story.fa.png
+arcavex render examples/future-archive-poster/template.yaml --format square -o out.png
 ```
-
-All ten render clean; the acceptance contract is pinned by `tests/e2e/test_reference_poster.py`, and
-the visual design-review matrix ([docs](docs/agent-runs/reference-poster-design-matrix.md)) records
-10/10 PASS. The [bilingual-template tutorial](docs/tutorials/bilingual-template.md) walks it as a
-worked example. Other examples: `examples/hello-poster` (the minimal render),
-`examples/ipen-bilingual` (locales, stacks, masks, rotation, fit policies), and
-`examples/pop-art-grid` (a Warhol grid using effects, loops, and style packs).
 
 ## Showcase — Future Archive, authored through MCP
 
@@ -179,6 +198,9 @@ Full flags and verified examples are in the [CLI reference](docs/cli.md); this i
 | `style inspect NAME [--json]` | Show a style pack's palettes, fonts, effect presets, and role defaults. |
 | `effects list [--json]` | List registered effects with their category and each param's type, default, and range. |
 | `effects inspect NAME [--json]` | Show one effect's category and full parameter schema. |
+| `font list [--json]` | List every resolvable font family, marking bundled vs installed, and name the install directory. |
+| `font add PATH [--license PATH]` | Install a `.ttf` into `$ARCAVEX_HOME/fonts` and report the family name templates must use. |
+| `font remove FAMILY [--json]` | Remove an installed font family; a family bundled with the engine is refused. |
 | `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, exporters, cache, temp dir, paths, config) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
@@ -281,10 +303,10 @@ transport is stdio only (no network).
 | `mcp tools [--json]` | Print the tool catalog (names, descriptions, and input/output JSON schemas) for discovery. |
 
 Wire it into an MCP client (e.g. Claude Desktop) as a stdio server running `arcavex mcp serve`.
-The catalog (24 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_validate`/`_patch`,
+The catalog (25 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_validate`/`_patch`,
 `arcavex_project_create`/`_list`/`_status`/`_clone`/`_render`, `arcavex_render_record`,
 `arcavex_data_set`/`_import`, `arcavex_asset_add`/`_annotate`,
-`arcavex_style_list`/`_inspect`/`arcavex_effects_list`,
+`arcavex_style_list`/`_inspect`/`arcavex_effects_list`/`arcavex_font_list`,
 `arcavex_render_preview` (returns the PNG as image content, `debug=true` overlays the layout),
 `arcavex_layout_inspect`, `arcavex_render`, `arcavex_run_list`/`_diff`/`_rerun`, and
 `arcavex_diagnostic_explain`. Every tool delegates to a facade method that is also reachable from
@@ -300,7 +322,10 @@ The intended authoring loop (also the server's advertised `instructions`):
    typo (`fontsize` for `font_size`) is a located `ARC-TPL-051`, not a silent write; an op that
    does not name exactly one verb is a located `ARC-TPL-092`.
 3. `arcavex_template_validate` → `arcavex_render_preview` (see the image) →
-   `arcavex_layout_inspect` (resolved geometry, overlaps a compile-clean validate misses).
+   `arcavex_layout_inspect` (resolved geometry, overlaps a compile-clean validate misses). Each
+   overlap is classified `content` (the layout boxes genuinely collide — act on it) or `halo`
+   (only the effect-grown paint boxes touch, e.g. a drop-shadow reaching over a neighbour), so an
+   agent that cannot see the render filters on `kind` instead of confirming each one by eye.
 4. To author real content: `arcavex_project_create` → `arcavex_data_set` / `arcavex_data_import`
    (a keypath matching no declared variable warns with `ARC-TPL-112`) → `arcavex_project_render`
    for a recorded run that `arcavex_run_list`/`_diff`/`_rerun` then operate on.
@@ -325,6 +350,6 @@ scope, wrapping stacks, `line_height`, vector PDF/CMYK, cross-platform bit-exact
 **[docs/known-limitations.md](docs/known-limitations.md)**. Every `ARC-…` diagnostic is catalogued in
 **[docs/diagnostics.md](docs/diagnostics.md)** and explained on the spot by `arcavex explain CODE`.
 
-See the `examples/ipen-bilingual/` bilingual poster for locales, stacks, masks, sibling anchors,
+See the `examples/future-archive-poster/` bilingual system for locales, stacks, masks, sibling anchors,
 rotation, and fit policies in one template, and `arcavex-technical-design-spec-v1.1.md` for the full
 specification.

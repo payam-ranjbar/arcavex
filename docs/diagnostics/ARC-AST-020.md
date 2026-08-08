@@ -1,0 +1,5 @@
+# ARC-AST-020 — Image is mostly transparent padding for its fit mode
+
+An image node uses 'fit: contain' or 'fit: cover' and the asset's opaque artwork covers less than 40% of the canvas it declares; the rest is transparent padding. Both fit modes scale the canvas into the box, so the artwork is scaled by the same proportion and renders smaller than the box implies — a 512x512 asset whose mark is a 452x114 band draws that mark at under a fifth of the box area. This is a warning: the render follows 'fit' correctly. The measurement is the alpha bounding box, recorded at ingest; a pixel counts as ink at alpha 8 or above, so an anti-aliasing border cannot expand the box. 'fit: fill' is not checked because it does not preserve aspect, so padding distorts the artwork rather than shrinking it.
+
+**Typical fix:** Trim the asset to its alpha bounding box so its canvas matches its artwork; the template does not change. If the padding is deliberate — reserved optical margin around a mark — the warning is expected.

@@ -24,7 +24,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from arcavex.kernel.contracts.types import (
     ExportOptions,
     MeasureFn,
-    RenderOptions,
 )
 from arcavex.kernel.diagnostics import (
     Diagnostic,
@@ -41,6 +40,8 @@ from arcavex.kernel.ir.models import (
     LayoutDocument,
     LayoutNode,
 )
+from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Rect
+from arcavex.kernel.pipeline import layout_and_render
 from arcavex.kernel.registry import Registries
 
 _EXPORTER_BY_EXT: dict[str, str] = {
@@ -58,6 +59,36 @@ _DEFAULT_EXPORT_QUALITY = 90
 
 # Machine-readable responses carry this so consumers key on a version, not a shape.
 RESPONSE_VERSION = 1
+
+# ---------------------------------------------------------------- layout-inspection constants
+#
+# Tolerance for comparing resolved coordinates. The solver rounds geometry to
+# GEOMETRY_QUANTUM_PT, so an exact edge test would turn on the last bit of an accumulated
+# coordinate; ten quanta is far above that noise and still 0.0098pt — 1/7000 inch, under a
+# hundredth of a pixel at 300 dpi, so no intersection a reader could see is discarded by it.
+_GEOMETRY_EPS_PT = 10 * GEOMETRY_QUANTUM_PT
+
+# A leaf covering at least this fraction of its parent region is treated as a background, so
+# enclosing a sibling is layering rather than a collision. Area is the only signal available
+# here: nothing in the IR declares intent, and a node's own paint order says nothing about
+# whether it is a backdrop for a *sibling*. It therefore misjudges the edges in both directions —
+# a thin diagonal strip spanning the region qualifies, a true background at 0.88 does not. An
+# explicit authoring flag would replace it; see docs/backlog.md.
+_BACKDROP_AREA_FRACTION = 0.9
+
+# Resolution of the canvas-coverage grid used by `covered_fraction` and `free_regions`. 64x64
+# over the shortest supported canvas edge is a cell of a few points, fine enough to locate an
+# empty slab and coarse enough to stay O(1) per node. Coverage is therefore an approximation
+# biased upward: a node smaller than one cell still marks the whole cell.
+_COVERAGE_GRID_CELLS = 64
+
+# Reported precision of `covered_fraction`. The grid resolves 1/4096 of the canvas, so four
+# decimals report every distinguishable value and no more.
+_COVERAGE_DECIMALS = 4
+
+# Shortest run of empty grid rows reported as a free region: one row is a sliver at the
+# resolution of the grid rather than usable space.
+_MIN_FREE_BAND_ROWS = 2
 
 # A project/provenance result model — every one carries ``ok`` and ``diagnostics``, so the
 # facade's never-raises boundary helper is generic over the concrete report it returns.
@@ -293,6 +324,135 @@ class EffectListReport(BaseModel):
     ok: bool
     effects: list[EffectInfo] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+# ----------------------------------------------------------------------------- fonts (§4.3)
+class FontFileInfo(BaseModel):
+    """One font file backing a family, and whether it came from the install directory."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    path: str
+    installed: bool
+
+
+class FontFamilyInfo(BaseModel):
+    """A resolvable font family: its files, and where they came from.
+
+    ``bundled`` and ``installed`` are separate flags rather than one enum because they are not
+    exclusive — installing an extra weight of a bundled family is legitimate, and a single
+    "source" field would have to misreport that case.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    family: str
+    bundled: bool
+    installed: bool
+    files: list[FontFileInfo] = Field(default_factory=list)
+
+
+class FontListReport(BaseModel):
+    """The result of ``arcavex font list`` — every family the shaper will resolve.
+
+    ``install_dir`` names the directory ``font add`` writes to, so "where do I put a font?" is
+    answered by the output rather than by prose buried in the docs.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    install_dir: str
+    families: list[FontFamilyInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class FontActionReport(BaseModel):
+    """The result of ``arcavex font add`` / ``arcavex font remove``.
+
+    ``family`` is the name the ENGINE resolves for the font — read from the file with the shaper's
+    own resolver, never guessed from the filename — because that is the name a template must
+    write in ``style.font``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    family: str | None = None
+    files: list[str] = Field(default_factory=list)
+    license: str | None = None
+    install_dir: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class SkillTargetInfo(BaseModel):
+    """One destination `arcavex skill install` can write to.
+
+    ``verified`` distinguishes a layout this project tests against from one taken from a vendor's
+    documented configuration directory, which that vendor may move.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    label: str
+    path: str
+    installed: bool
+    verified: bool = False
+
+
+class SkillInstallReport(BaseModel):
+    """The result of ``arcavex skill install`` / ``--list``.
+
+    ``targets`` describes every destination considered; ``installed`` lists the ones written this
+    run, so a no-op (already present, no ``--force``) is distinguishable from a write.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    skill: str
+    source: str
+    targets: list[SkillTargetInfo] = Field(default_factory=list)
+    installed: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class SkillServiceProtocol(Protocol):
+    """The skill installer injected by bootstrap.
+
+    Returns versioned kernel result models and does not raise across the facade boundary.
+    """
+
+    def list_targets(self, path: Path | None, *, project: bool) -> SkillInstallReport: ...
+
+    def install(
+        self,
+        *,
+        targets: list[str] | None,
+        path: Path | None,
+        force: bool,
+        project: bool,
+    ) -> SkillInstallReport: ...
+
+
+class FontServiceProtocol(Protocol):
+    """The font install/inspect service injected by bootstrap (spec §4.3).
+
+    Every method returns a versioned kernel result model and does not raise across the facade
+    boundary. The concrete implementation lives in ``services.fonts`` and reads/writes the font
+    store under the Arcavex home.
+    """
+
+    def list_fonts(self) -> FontListReport: ...
+
+    def add_font(self, source: Path, license_path: Path | None) -> FontActionReport: ...
+
+    def remove_font(self, family: str) -> FontActionReport: ...
 
 
 class RenderResult(BaseModel):
@@ -814,13 +974,31 @@ class LayoutNodeReport(BaseModel):
 
 
 class SiblingOverlap(BaseModel):
-    """Two sibling nodes whose resolved bounds intersect."""
+    """Two sibling nodes whose resolved bounds intersect, classified by what collides.
+
+    ``kind``:
+
+    - ``content`` — the nodes' layout bounds (post-rotation AABB, no effect growth) intersect.
+      ``rect_pt`` is the colliding area, so its size is the depth to correct.
+    - ``halo`` — only the effect-grown ``paint_bounds`` intersect: the drop-shadow, glow or
+      torn-paper amplitude of one node reaches over its neighbour. ``rect_pt`` is then the
+      paint intersection, the only one that exists.
+
+    Scope: pairs are enumerated per group, so two nodes in different groups are never compared.
+    An empty list means no sibling collisions, not that nothing on the canvas collides — on the
+    reference poster, 20-22 intersecting cross-group pairs go unreported per format. Callers
+    needing a whole-canvas check compare ``bounds_pt`` across the tree themselves; the reason the
+    scope is not simply widened is in docs/backlog.md.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     a: str
     b: str
     rect_pt: tuple[float, float, float, float]
+    # Additive under response_version 1 and defaulted, so a payload serialised before the field
+    # existed still parses and a consumer that ignores it is unaffected (spec §2 rule 5).
+    kind: Literal["content", "halo"] = "content"
 
 
 class LayoutReport(BaseModel):
@@ -1280,6 +1458,8 @@ class Facade:
         orchestrator: OrchestratorProtocol | None = None,
         extensions: ExtensionServiceProtocol | None = None,
         extension_load_diagnostics: list[Diagnostic] | None = None,
+        fonts: FontServiceProtocol | None = None,
+        skills: SkillServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
     ) -> None:
@@ -1309,6 +1489,8 @@ class Facade:
         self._orchestrator = orchestrator
         self._extensions = extensions
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
+        self._fonts = fonts
+        self._skills = skills
         self._budget = budget
         self._engine_version = engine_version
 
@@ -1523,23 +1705,10 @@ class Facade:
             )
 
         canvas = compiled.document.canvas
-        effective_dpi = dpi or canvas.dpi
-        width_px = max(1, round(canvas.width_pt * effective_dpi / 72.0))
-        height_px = max(1, round(canvas.height_pt * effective_dpi / 72.0))
-        if self._budget is not None:
-            # Pre-flight the resource budgets before allocating the surface, located on the
-            # template whose canvas/DPI produced it (spec §8.3).
-            self._budget.check_surface(width_px, height_px, file=str(template))
-
-        solver = self._registries.layouts.get(self._default_layout)
-        layout = solver.solve(compiled.document, self._measure)
-        diagnostics.extend(layout.warnings)
-
-        backend = self._registries.backends.get(self._default_backend)
-        started = time.monotonic()
-        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=debug))
-        if self._budget is not None:
-            self._budget.check_wall_ms((time.monotonic() - started) * 1000.0, file=str(template))
+        surface, _, warnings = self._layout_and_render(
+            compiled.document, dpi, debug=debug, file=str(template)
+        )
+        diagnostics.extend(warnings)
 
         exporter = self._registries.exporters.get(exporter_name)
         opts = ExportOptions(
@@ -1576,6 +1745,46 @@ class Facade:
             content_sha256=report.content_sha256,
             inferred=inferred,
         )
+
+    def _layout_and_render(
+        self,
+        document: CompiledDocument,
+        dpi: int | None,
+        *,
+        debug: bool = False,
+        file: str | None = None,
+    ) -> tuple[Any, LayoutDocument, list[Diagnostic]]:
+        """Solve and render ``document`` with this facade's registered components."""
+        return layout_and_render(
+            solver=self._registries.layouts.get(self._default_layout),
+            backend=self._registries.backends.get(self._default_backend),
+            measure=self._measure,
+            document=document,
+            dpi=dpi,
+            debug=debug,
+            budget=self._budget,
+            file=file,
+        )
+
+    def _export_replace(self, surface: Any, out_path: Path, dpi: int | None) -> Any:
+        """Export ``surface`` to ``out_path`` via a same-directory temp file and ``os.replace``.
+
+        A watcher never observes a torn PNG, and a failed render leaves the previous file intact.
+        """
+        exporter = self._registries.exporters.get("png")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_name = tempfile.mkstemp(
+            dir=str(out_path.parent), prefix=".preview-", suffix=".png"
+        )
+        os.close(tmp_fd)
+        tmp_path = Path(tmp_name)
+        try:
+            report = exporter.export(surface, tmp_path, ExportOptions(dpi=dpi))
+            os.replace(tmp_path, out_path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        return report
 
     def _try_layout(self, document: CompiledDocument) -> list[Diagnostic]:
         try:
@@ -1834,6 +2043,92 @@ class Facade:
                 ok=False, diagnostics=[internal_error("ext disable failed", detail=repr(exc))]
             )
 
+    # ----------------------------------------------------------------------- fonts (§4.3)
+    def list_fonts(self) -> FontListReport:
+        """List every resolvable font family, bundled or installed (spec §4.3). Never raises."""
+        if self._fonts is None:  # pragma: no cover - always wired in production
+            return FontListReport(ok=False, install_dir="", diagnostics=[_unwired("fonts")])
+        try:
+            return self._fonts.list_fonts()
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontListReport(
+                ok=False,
+                install_dir="",
+                diagnostics=[internal_error("font list failed", detail=repr(exc))],
+            )
+
+    def add_font(self, source: Path, license_path: Path | None = None) -> FontActionReport:
+        """Install a font into the Arcavex home and report its resolved family. Never raises."""
+        if self._fonts is None:  # pragma: no cover - always wired in production
+            return FontActionReport(ok=False, diagnostics=[_unwired("fonts")])
+        try:
+            return self._fonts.add_font(
+                Path(source), None if license_path is None else Path(license_path)
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontActionReport(
+                ok=False, diagnostics=[internal_error("font add failed", detail=repr(exc))]
+            )
+
+    def remove_font(self, family: str) -> FontActionReport:
+        """Remove an installed font family; a bundled family is refused. Never raises."""
+        if self._fonts is None:  # pragma: no cover - always wired in production
+            return FontActionReport(ok=False, diagnostics=[_unwired("fonts")])
+        try:
+            return self._fonts.remove_font(family)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontActionReport(
+                ok=False, diagnostics=[internal_error("font remove failed", detail=repr(exc))]
+            )
+
+    # ----------------------------------------------------------------------- skill install
+    def list_skill_targets(
+        self, path: Path | None = None, project: bool = False
+    ) -> SkillInstallReport:
+        """List every destination the bundled design skill can install to. Never raises."""
+        if self._skills is None:  # pragma: no cover - always wired in production
+            return SkillInstallReport(
+                ok=False, skill="", source="", diagnostics=[_unwired("skills")]
+            )
+        try:
+            return self._skills.list_targets(
+                None if path is None else Path(path), project=project
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return SkillInstallReport(
+                ok=False,
+                skill="",
+                source="",
+                diagnostics=[internal_error("skill list failed", detail=repr(exc))],
+            )
+
+    def install_skill(
+        self,
+        targets: list[str] | None = None,
+        path: Path | None = None,
+        force: bool = False,
+        project: bool = False,
+    ) -> SkillInstallReport:
+        """Install the bundled design skill into one or more harnesses. Never raises."""
+        if self._skills is None:  # pragma: no cover - always wired in production
+            return SkillInstallReport(
+                ok=False, skill="", source="", diagnostics=[_unwired("skills")]
+            )
+        try:
+            return self._skills.install(
+                targets=targets,
+                path=None if path is None else Path(path),
+                force=force,
+                project=project,
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return SkillInstallReport(
+                ok=False,
+                skill="",
+                source="",
+                diagnostics=[internal_error("skill install failed", detail=repr(exc))],
+            )
+
     def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:
         """Scaffold a new renderable one-file template directory. Never raises."""
         if self._authoring is None:  # pragma: no cover - always wired in production
@@ -2018,26 +2313,9 @@ class Facade:
         out_path = self.preview_path(template, resolved_format)
 
         render_start = time.perf_counter()
-        solver = self._registries.layouts.get(self._default_layout)
-        layout = solver.solve(compiled.document, self._measure)
-        diagnostics.extend(layout.warnings)
-        backend = self._registries.backends.get(self._default_backend)
-        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=debug))
-        exporter = self._registries.exporters.get("png")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic write: export to a unique temp file in the same directory, then os.replace so
-        # a watcher never observes a torn PNG and a failed render leaves the old file intact.
-        tmp_fd, tmp_name = tempfile.mkstemp(
-            dir=str(out_path.parent), prefix=".preview-", suffix=".png"
-        )
-        os.close(tmp_fd)
-        tmp_path = Path(tmp_name)
-        try:
-            report = exporter.export(surface, tmp_path, ExportOptions(dpi=dpi))
-            os.replace(tmp_path, out_path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
+        surface, _, warnings = self._layout_and_render(compiled.document, dpi, debug=debug)
+        diagnostics.extend(warnings)
+        report = self._export_replace(surface, out_path, dpi)
         render_ms = (time.perf_counter() - render_start) * 1000.0
 
         return PreviewResult(
@@ -2279,30 +2557,9 @@ class Facade:
     def _render_document(
         self, document: CompiledDocument, out_path: Path, dpi: int | None
     ) -> tuple[Any, list[Diagnostic]]:
-        """Lay out, render, and atomically export a compiled document to ``out_path``.
-
-        Shared by project preview; mirrors the direct-preview atomic write so a failed render
-        leaves any prior image intact.
-        """
-        solver = self._registries.layouts.get(self._default_layout)
-        layout = solver.solve(document, self._measure)
-        warnings = list(layout.warnings)
-        backend = self._registries.backends.get(self._default_backend)
-        surface = backend.render(layout, RenderOptions(dpi=dpi, debug=False))
-        exporter = self._registries.exporters.get("png")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_name = tempfile.mkstemp(
-            dir=str(out_path.parent), prefix=".preview-", suffix=".png"
-        )
-        os.close(tmp_fd)
-        tmp_path = Path(tmp_name)
-        try:
-            report = exporter.export(surface, tmp_path, ExportOptions(dpi=dpi))
-            os.replace(tmp_path, out_path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        return report, warnings
+        """Lay out, render, and atomically export a compiled document to ``out_path``."""
+        surface, _, warnings = self._layout_and_render(document, dpi)
+        return self._export_replace(surface, out_path, dpi), warnings
 
     def rerun(self, run_dir: Path) -> RerunReport:
         """Reproduce a recorded run into a new run dir (byte-identical on match). Never raises."""
@@ -2626,37 +2883,84 @@ def _derive_anchors(
     return out
 
 
+def _content_aabb(node: LayoutNode) -> Rect:
+    """Return the node's ink footprint: its layout ``bounds`` AABB, without effect growth.
+
+    ``paint_bounds`` folds two unrelated expansions together — the post-rotation AABB, which is
+    real geometry the node occupies, and the effects' declared bounds expansion, which is only
+    an allocation request so a blur or tear is not clipped. Collision reporting needs the first
+    without the second, otherwise a drop-shadow reads as a collision.
+
+    Rotated nodes still contribute their post-transform AABB, matching what siblings anchor to
+    (CR-14); the AABB of a rotated node is coarser than its ink, which is why such a pair is
+    reported as ``content`` and left to the author to judge.
+    """
+    if node.render_bounds == node.bounds:
+        # Nothing grew the box, so paint_bounds already *is* the content AABB. Reusing it keeps
+        # the solver's 1/1024pt geometry quantization intact instead of re-deriving a rect that
+        # differs from it in the last decimal.
+        return node.paint_bounds
+    if not node.rotate_deg:
+        return node.bounds
+    b, m = node.bounds, node.absolute_transform
+    corners = [
+        m.apply(b.x, b.y), m.apply(b.right, b.y),
+        m.apply(b.right, b.bottom), m.apply(b.x, b.bottom),
+    ]
+    xs = [c[0] for c in corners]
+    ys = [c[1] for c in corners]
+    return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
+
+def _classify_overlap(
+    ca: Rect, cb: Rect, pa: Rect, pb: Rect
+) -> tuple[Literal["content", "halo"], tuple[float, float, float, float]] | None:
+    """Classify a sibling pair from its content and paint rects, or ``None`` if they clear.
+
+    Content wins when the ink footprints themselves intersect, and the rect reported is then the
+    content intersection — so the number an author reads is the real collision depth rather than
+    a blur radius. Otherwise only the effect-grown boxes touch, which is spill.
+    """
+    content = _intersection(ca, cb)
+    if content is not None:
+        return "content", content
+    halo = _intersection(pa, pb)
+    if halo is not None:
+        return "halo", halo
+    return None
+
+
 def _collect_overlaps(
     children: tuple[LayoutNode, ...], overlaps: list[SiblingOverlap], region: object
 ) -> None:
-    visible = [c for c in children if c.visible]
+    visible = [(c, _content_aabb(c)) for c in children if c.visible]
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
-            a, b = visible[i], visible[j]
-            # Rotated nodes contribute their post-transform AABB to overlap reporting (CR-14).
-            ra, rb = a.paint_bounds, b.paint_bounds
-            rect = _intersection(ra, rb)
-            if rect is None:
+            (a, ca), (b, cb) = visible[i], visible[j]
+            classified = _classify_overlap(ca, cb, a.paint_bounds, b.paint_bounds)
+            if classified is None:
                 continue
             # DX-8/RR2-9: containment is suppressed as noise only when the *container* is a
             # backdrop — a group, or a full-bleed node covering nearly the whole parent region.
             # A regular content node that fully swallows a sibling is a genuine bug and is still
             # reported, rather than hidden just because it happens to enclose the other.
-            if _contains(ra, rb) and _is_backdrop(a, region):
+            if _contains(ca, cb) and _is_backdrop(a, ca, region):
                 continue
-            if _contains(rb, ra) and _is_backdrop(b, region):
+            if _contains(cb, ca) and _is_backdrop(b, cb, region):
                 continue
+            kind, rect = classified
             overlaps.append(
-                SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect)
+                SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect, kind=kind)
             )
 
 
-def _is_backdrop(node: LayoutNode, region: object) -> bool:
+def _is_backdrop(node: LayoutNode, content: Rect, region: object) -> bool:
     """Whether ``node`` is a backdrop-like container within ``region`` (full-bleed or a group).
 
-    Groups are structural containers, not collisions; a leaf that covers ~the whole parent
+    Groups are structural containers, not collisions; a leaf that covers nearly the whole parent
     region is a background. Either legitimately encloses siblings, so their containment is not
-    reported as an overlap bug.
+    reported as an overlap bug. The test reads ``content`` rather than ``paint_bounds`` so a
+    generous shadow cannot promote an ordinary node into a backdrop.
     """
     if node.kind == "group":
         return True
@@ -2664,15 +2968,14 @@ def _is_backdrop(node: LayoutNode, region: object) -> bool:
     region_area = rw * rh
     if region_area <= 0:
         return False
-    pb = node.paint_bounds
-    return bool((pb.w * pb.h) >= 0.9 * region_area)
+    return bool((content.w * content.h) >= _BACKDROP_AREA_FRACTION * region_area)
 
 
 def _contains(outer: object, inner: object) -> bool:
-    """Whether ``outer`` fully contains ``inner`` (small tolerance for quantization)."""
+    """Whether ``outer`` fully contains ``inner``, within the geometry tolerance."""
     ox, oy, ow, oh = outer.x, outer.y, outer.w, outer.h  # type: ignore[attr-defined]
     ix, iy, iw, ih = inner.x, inner.y, inner.w, inner.h  # type: ignore[attr-defined]
-    eps = 0.01
+    eps = _GEOMETRY_EPS_PT
     return bool(
         ox - eps <= ix
         and oy - eps <= iy
@@ -2686,51 +2989,20 @@ def _intersection(a: object, b: object) -> tuple[float, float, float, float] | N
     bx, by, bw, bh = b.x, b.y, b.w, b.h  # type: ignore[attr-defined]
     x0, y0 = max(ax, bx), max(ay, by)
     x1, y1 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
-    if x1 - x0 > 0.01 and y1 - y0 > 0.01:
+    if x1 - x0 > _GEOMETRY_EPS_PT and y1 - y0 > _GEOMETRY_EPS_PT:
         return (x0, y0, x1 - x0, y1 - y0)
     return None
 
 
-def _covered_fraction(layout: LayoutDocument, cells: int = 64) -> float:
-    """Approximate the fraction of the canvas covered by any leaf node (coarse grid)."""
-    w, h = layout.canvas.width_pt, layout.canvas.height_pt
-    if w <= 0 or h <= 0:
-        return 0.0
-    grid = [[False] * cells for _ in range(cells)]
+def _coverage_grid(layout: LayoutDocument, cells: int) -> list[list[bool]] | None:
+    """Mark a ``cells``x``cells`` grid true wherever a visible leaf node's bounds fall.
 
-    def mark(node: LayoutNode) -> None:
-        if node.children:
-            for child in node.children:
-                mark(child)
-            return
-        if not node.visible:
-            return
-        b = node.bounds
-        cx0 = max(0, int(b.x / w * cells))
-        cx1 = min(cells, int((b.x + b.w) / w * cells) + 1)
-        cy0 = max(0, int(b.y / h * cells))
-        cy1 = min(cells, int((b.y + b.h) / h * cells) + 1)
-        for cy in range(cy0, cy1):
-            for cx in range(cx0, cx1):
-                grid[cy][cx] = True
-
-    mark(layout.root)
-    covered = sum(row.count(True) for row in grid)
-    return round(covered / (cells * cells), 4)
-
-
-def _free_regions(
-    layout: LayoutDocument, cells: int = 64, min_rows: int = 2
-) -> list[tuple[float, float, float, float]]:
-    """Return maximal full-width empty horizontal bands, largest first (spec §6.1.1).
-
-    Rows of the coarse coverage grid that are entirely uncovered are merged into vertical
-    bands; a band is reported when it spans at least ``min_rows`` rows (so trivial slivers are
-    dropped). This is the summary that makes an unfilled top/bottom slab obvious.
+    ``None`` when the canvas has no area. A cell is marked if any part of a node touches it, so
+    coverage derived from this grid rounds small nodes up to a whole cell.
     """
     w, h = layout.canvas.width_pt, layout.canvas.height_pt
     if w <= 0 or h <= 0:
-        return []
+        return None
     grid = [[False] * cells for _ in range(cells)]
 
     def mark(node: LayoutNode) -> None:
@@ -2750,6 +3022,33 @@ def _free_regions(
                 grid[cy][cx] = True
 
     mark(layout.root)
+    return grid
+
+
+def _covered_fraction(layout: LayoutDocument, cells: int = _COVERAGE_GRID_CELLS) -> float:
+    """Approximate the fraction of the canvas covered by any leaf node (coarse grid)."""
+    grid = _coverage_grid(layout, cells)
+    if grid is None:
+        return 0.0
+    covered = sum(row.count(True) for row in grid)
+    return round(covered / (cells * cells), _COVERAGE_DECIMALS)
+
+
+def _free_regions(
+    layout: LayoutDocument,
+    cells: int = _COVERAGE_GRID_CELLS,
+    min_rows: int = _MIN_FREE_BAND_ROWS,
+) -> list[tuple[float, float, float, float]]:
+    """Return maximal full-width empty horizontal bands, largest first (spec §6.1.1).
+
+    Rows of the coverage grid that are entirely uncovered are merged into vertical bands; a band
+    is reported when it spans at least ``min_rows`` rows. This is the summary that makes an
+    unfilled top/bottom slab obvious.
+    """
+    w, h = layout.canvas.width_pt, layout.canvas.height_pt
+    grid = _coverage_grid(layout, cells)
+    if grid is None:
+        return []
     empty_rows = [cy for cy in range(cells) if not any(grid[cy])]
     bands: list[tuple[int, int]] = []
     run_start: int | None = None

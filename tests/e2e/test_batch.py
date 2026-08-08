@@ -10,7 +10,7 @@ import pytest
 from arcavex.bootstrap import build_facade
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO = REPO_ROOT / "examples" / "hello-poster"
+HELLO = REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 
 
 def _outputs_by_project(report) -> dict[str, str]:  # noqa: ANN001 - BatchReport

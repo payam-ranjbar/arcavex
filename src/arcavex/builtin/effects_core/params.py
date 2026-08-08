@@ -9,4 +9,10 @@ from __future__ import annotations
 
 from arcavex.sdk.params import RGBA, Points, RGBAColor
 
-__all__ = ["RGBA", "Points", "RGBAColor"]
+# Multiple of sigma at which a Gaussian's contribution stops being visible, and therefore the
+# factor every blur-based effect grows its paint region by in ``bounds_expansion``. Under-
+# declaring clips the blur; the SDK golden harness checks the declaration against the measured
+# spread. Shared so blur, glow and drop-shadow cannot drift apart on the same question.
+GAUSSIAN_VISIBLE_SIGMAS = 3.0
+
+__all__ = ["RGBA", "GAUSSIAN_VISIBLE_SIGMAS", "Points", "RGBAColor"]

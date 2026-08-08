@@ -215,11 +215,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-TPL-051",
-            "Unknown field",
-            "A style, paragraph, fit, constraints, size, or run block contains a field name "
-            "the compiler does not recognize (often a typo such as 'font_wieght'). Unknown "
-            "fields are rejected rather than silently ignored, so a misspelled property cannot "
-            "quietly do nothing.",
+            "Unknown field in a node sub-block",
+            "A node sub-block — style, paragraph, fit, constraints, size, run, transform, "
+            "mask, padding, or a repeat/if construct — contains a field name the compiler does "
+            "not recognize (often a typo such as 'font_wieght'). Unknown fields are rejected "
+            "rather than silently ignored, so a misspelled property cannot quietly do nothing. "
+            "The node top level and the template-level scopes carry their own codes: "
+            "ARC-TPL-064 (node), ARC-TPL-065 (template root), ARC-TPL-066 (format/canvas), "
+            "ARC-TPL-067 (variable declaration), and ARC-TPL-068 (effect entry).",
             "Fix the field name; the diagnostic lists the valid fields for that block.",
         ),
         _e(
@@ -301,6 +304,53 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "repeat iteration cap exceeded",
             "A repeat would produce more than the allowed number of items.",
             "Reduce the collection to at most 1000 items.",
+        ),
+        _e(
+            "ARC-TPL-064",
+            "Unknown node field",
+            "A node's top level carries a field the compiler never reads. This is the scope "
+            "where an invented field is most damaging: it validates clean, does nothing, and "
+            "the author keeps building on the belief that it works. Arcavex has no per-node "
+            "'condition' (gate a node with the structural 'if:' / 'node:' construct), no "
+            "node-level paint fields (they live in 'style:'), and no node-level geometry "
+            "fields (they live in 'constraints:' and 'transform:').",
+            "Read the hint: it names where a wrong-scope field actually belongs, or which node "
+            "kind owns it, and otherwise lists the valid fields for this node's kind.",
+        ),
+        _e(
+            "ARC-TPL-065",
+            "Unknown template root field",
+            "The template's top level declares a section the engine does not read. Only "
+            "'version', 'variables', 'formats', 'locales', 'preview_data', 'style', 'root', "
+            "and 'seed' are template sections; anything else would be silently ignored.",
+            "Remove the section or correct its name; the diagnostic lists the valid ones.",
+        ),
+        _e(
+            "ARC-TPL-066",
+            "Unknown format or canvas field",
+            "A 'formats.<name>' entry, or its 'canvas' block, carries a field the engine does "
+            "not read. A format holds only 'canvas' and an optional 'patch'; a canvas holds "
+            "'width', 'height', 'dpi', and an optional 'bleed'. Every declared format is "
+            "checked, not only the one being rendered.",
+            "Correct the field name; a canvas size belongs in 'width'/'height' and a per-format "
+            "override belongs in 'patch'.",
+        ),
+        _e(
+            "ARC-TPL-067",
+            "Unknown variable-declaration field",
+            "A 'variables.<name>' declaration carries a field the engine does not read. A "
+            "declaration holds 'type', 'required', 'default', 'enum', and 'doc'.",
+            "Correct the field name; describe the variable with 'doc' and constrain it with "
+            "'type'/'enum'.",
+        ),
+        _e(
+            "ARC-TPL-068",
+            "Unknown effect-entry field",
+            "An entry in a node's 'effects:' list carries a field the engine does not read. An "
+            "entry is a bare effect name, an inline '{name, params}', or a '{preset: name}' "
+            "reference into the style pack's effect presets.",
+            "Put per-effect settings inside 'params:', and reference a style-pack preset with "
+            "'preset:'.",
         ),
         _e(
             "ARC-TPL-070",
@@ -575,8 +625,10 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "size within the ≤ 8 measurement iterations, so it still overflows. This is a "
             "warning: the text is clipped or allowed per the overflow policy and the render "
             "still succeeds.",
-            "Raise min_size so a fitting size exists, enlarge the box, or switch the policy to "
-            "'truncate'.",
+            "Lower min_size so a smaller, fitting size exists, enlarge the box, or switch the "
+            "policy to 'truncate'. Note the direction: 'min_size' is the floor of the shrink "
+            "search, so raising it removes the smallest candidates, which are the only ones "
+            "that could still fit.",
         ),
         _e(
             "ARC-LAY-052",
@@ -616,20 +668,83 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Lay wrapped rows out explicitly with nested stacks for now, or drop 'wrap'.",
         ),
         _e(
+            "ARC-LAY-057",
+            "Text still exceeds max_lines",
+            "A text node wraps onto more lines than 'max_lines' allows while each line does fit "
+            "the box width, and 'overflow' is 'error'. The binding constraint is the line cap, "
+            "not the box, so this is reported separately from ARC-LAY-050: the message names the "
+            "measured line count, the cap, and the size the text reached rather than a width x "
+            "height pair, because the measured height is simply what that many lines occupy — it "
+            "does not change when the box grows. Both fit policies that can hit the cap report "
+            "it: 'shrink_to_fit' once it has bottomed out at its 'min_size' floor (while it is "
+            "still shrinking the line count is not yet final), and 'wrap', which does no search "
+            "at all, so the authored size is the size.",
+            "Widen the box so the text needs fewer lines, or raise max_lines. Under "
+            "'shrink_to_fit' also consider lowering min_size so it can shrink further; under "
+            "'wrap' there is no floor to lower, so reduce the font size or switch to "
+            "'shrink_to_fit' with a min_size. Enlarging the box height cannot help.",
+        ),
+        _e(
             "ARC-RND-010",
-            "Font family not bundled",
-            "A text node requests a font family that is not in the bundled font database.",
-            "Use one of the available families, or add the font under library-seed/fonts.",
+            "Font family not available",
+            "A text node requests a font family the engine has not loaded. Rendering is confined "
+            "to the bundled families plus any installed under the Arcavex home — system fonts are "
+            "never consulted, because determinism requires it — so a typeface that is merely "
+            "installed on the operating system will not resolve. The name must be the font's "
+            "FAMILY (e.g. 'Lateef'), which often differs from its file name.",
+            "Use one of the families the hint lists, or install the typeface with 'arcavex font "
+            "add <path/to/font.ttf>', which reports the exact family name to write. 'arcavex "
+            "font list' shows every available family and the install directory.",
         ),
         _e(
             "ARC-RND-011",
             "Missing glyph",
-            "A text run contains a code point that no bundled font can render, so it would "
-            "paint as a tofu box. Rendering is confined to bundled fonts for determinism, so "
+            "A text run contains a code point that no loaded font can render, so it would "
+            "paint as a tofu box. Rendering is confined to the loaded fonts for determinism, so "
             "the shaper never falls back to a system font. This is a warning; the render "
             "proceeds.",
-            "Add a font that covers the reported code points under library-seed/fonts, or "
-            "remove the unsupported characters from the text.",
+            "Install a font covering the reported code points with 'arcavex font add "
+            "<path/to/font.ttf>', or remove the unsupported characters from the text.",
+        ),
+        _e(
+            "ARC-RND-030",
+            "Font file not found",
+            "'arcavex font add' was given a path that does not exist or is not a file.",
+            "Check the path; pass the .ttf file itself, not the directory containing it.",
+        ),
+        _e(
+            "ARC-RND-031",
+            "Font file is not a usable typeface",
+            "'arcavex font add' was given a file the shaper cannot read as a TrueType font, "
+            "either because of its extension or because Skia could not parse its contents. Such "
+            "a file is refused rather than installed, since it would sit in the font directory "
+            "providing no family and silently fail to resolve.",
+            "Install a .ttf file the engine can read; re-download or re-export the font, "
+            "converting from another format (.otf, .woff2) to TrueType first.",
+        ),
+        _e(
+            "ARC-RND-032",
+            "Cannot remove a bundled font family",
+            "'arcavex font remove' named a family that ships with the engine. Bundled families "
+            "back the default font stacks, so removing one would break templates that never "
+            "opted into anything unusual, and the files would return on the next reinstall.",
+            "Only families added with 'arcavex font add' can be removed; 'arcavex font list' "
+            "marks which families are bundled and which are installed.",
+        ),
+        _e(
+            "ARC-RND-033",
+            "No such installed font family",
+            "'arcavex font remove' named a family that is not installed. Names are case-"
+            "sensitive and must be the font's family name, not the file name it was added from.",
+            "Run 'arcavex font list' to see the installed family names, and pass one of those.",
+        ),
+        _e(
+            "ARC-RND-034",
+            "Font store could not be read or written",
+            "The font directory under the Arcavex home could not be read, created, or modified — "
+            "typically a permissions problem, or a file held open by another process.",
+            "Check that the Arcavex home is readable and writable; 'arcavex doctor' reports "
+            "which home directory is in effect.",
         ),
         _e(
             "ARC-RND-020",
@@ -799,6 +914,52 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "so it also catches a symlink whose target is elsewhere.",
             "Move the asset inside the template directory and reference it with a relative path "
             "that does not climb above the template root.",
+        ),
+        _e(
+            "ARC-AST-020",
+            "Image is mostly transparent padding for its fit mode",
+            "An image node uses 'fit: contain' or 'fit: cover' and the asset's opaque artwork "
+            "covers less than 40% of the canvas it declares; the rest is transparent padding. "
+            "Both fit modes scale the canvas into the box, so the artwork is scaled by the same "
+            "proportion and renders smaller than the box implies — a 512x512 asset whose mark "
+            "is a 452x114 band draws that mark at under a fifth of the box area. This is a "
+            "warning: the render follows 'fit' correctly. The measurement is the alpha bounding "
+            "box, recorded at ingest; a pixel counts as ink at alpha 8 or above, so an "
+            "anti-aliasing border cannot expand the box. 'fit: fill' is not checked because it "
+            "does not preserve aspect, so padding distorts the artwork rather than shrinking it.",
+            "Trim the asset to its alpha bounding box so its canvas matches its artwork; the "
+            "template does not change. If the padding is deliberate — reserved optical margin "
+            "around a mark — the warning is expected.",
+        ),
+        _e(
+            "ARC-SKL-001",
+            "Unknown skill install target",
+            "'arcavex skill install --target' was given a name that is not a known assistant. "
+            "The known targets are fixed because each names a directory layout the engine writes "
+            "to; anything else is reachable with '--path'.",
+            "Use one of the listed targets, or pass '--path DIR' to install anywhere else.",
+        ),
+        _e(
+            "ARC-SKL-002",
+            "Could not write the skill",
+            "Copying the bundled skill into a destination failed — the directory is not writable, "
+            "a path component is a file, or the disk is full.",
+            "Check the destination is writable, or pass '--path DIR' to choose another location.",
+        ),
+        _e(
+            "ARC-SKL-003",
+            "Skill already installed",
+            "A skill directory of the same name already exists at the destination. Installation "
+            "stops rather than overwriting, because a user or another tool may have edited it.",
+            "Pass '--force' to replace it with the version shipped in this build.",
+        ),
+        _e(
+            "ARC-SKL-004",
+            "No bundled skill in this installation",
+            "The engine could not find the skill to install. A wheel ships it at "
+            "'arcavex/_bundled/skill'; a source checkout provides 'skills/arcavex-design-studio'. "
+            "Neither was present.",
+            "Reinstall from a wheel built with the skill included, or run from a source checkout.",
         ),
         _e(
             "ARC-EXP-001",
@@ -1069,6 +1230,15 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "crash-contained golden run did not pass.",
             "Run the test directly to see the failing check; the scaffold ships a golden_test.py "
             "that drives a GoldenHarness and exits non-zero on failure.",
+        ),
+        _e(
+            "ARC-EXT-053",
+            "Extension test harness could not read test output",
+            "'ext test' could not start the golden_test.py subprocess, or could not read what it "
+            "wrote. This is an Arcavex-side failure, so the extension's own result is unknown — it "
+            "is reported apart from ARC-EXT-052, which says the extension's test really did fail.",
+            "Re-run 'arcavex ext test'. If it persists, check the extension directory is readable "
+            "and that the interpreter running Arcavex can start a subprocess.",
         ),
         _e(
             "ARC-EXT-060",

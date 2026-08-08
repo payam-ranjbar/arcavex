@@ -1,8 +1,0 @@
-# English event data. Rendering with --locale fa additionally applies data.fa.yaml (the
-# sibling overlay) plus the Farsi locale (rtl direction, Persian digits, font overrides).
-title: "A Cup of Experience"
-subtitle: "A gathering to share the experience of Iranian professionals in industry and education"
-venue: "Hunter Student Commons — Collision Space"
-day: 15
-month: "June"
-time: "17:00"

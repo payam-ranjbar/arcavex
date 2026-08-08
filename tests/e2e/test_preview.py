@@ -11,7 +11,7 @@ from arcavex.bootstrap import build_facade
 from arcavex.clients.watch import run_watch
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_HELLO = _REPO_ROOT / "examples" / "hello-poster"
+_HELLO = _REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 
 
 def _make_template(tmp_path: Path) -> tuple[Path, Path]:

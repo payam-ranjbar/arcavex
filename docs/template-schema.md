@@ -25,9 +25,20 @@ A one-file template is a YAML mapping with these sections:
 | `style:` | Opt into a style pack (palettes, presets, roles). |
 | `root:` | The node tree (a `group`). |
 
+`seed:` (an integer for deterministic noise-like effects) is also accepted. These are the **only**
+top-level sections: anything else is `ARC-TPL-065`, not a silently ignored extra.
+
+> **Unknown fields are always rejected.** Every mapping on this page has a known vocabulary, and a
+> field the engine does not read is a located error rather than a silent no-op — see
+> [Unknown fields are always rejected](diagnostics.md#unknown-fields-are-always-rejected) for the
+> code per scope. This is what makes a template's contract trustworthy: if it validates, every line
+> in it does something.
+
 ### `variables`
 
-Declared inputs, e.g. `title: {type: string, required: true, default: ..., doc: ...}`. Types are
+Declared inputs, e.g. `title: {type: string, required: true, default: ..., doc: ...}`. A
+declaration holds exactly `type`, `required`, `default`, `enum`, and `doc` (`ARC-TPL-067`
+otherwise). Types are
 `string`, `number`, `boolean`, `list`, `object`, `color`, `image`. A required variable with no
 value and no default is an error (`ARC-TPL-014`); a supplied value of the wrong type is reported
 (`ARC-TPL-015`); a value outside a declared `enum` is `ARC-TPL-017`.
@@ -103,9 +114,24 @@ Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`,
 | `path` | A vector path. Geometry effects (e.g. `torn-paper`) apply to `shape`/`path` nodes only. |
 
 Common fields on any node: `visible: true|false` (a hidden node and its subtree are not rendered),
-`z` (draw order within siblings), `style`, `constraints`, `transform` (translation + `rotate`), and
-`mask` (`{component, params}` — built-ins: `rounded_rect`, `circle`, `diamond_grid`). Any node may
-also carry an `effects:` list.
+`z` (draw order within siblings), `style`, `style_role`, `constraints`, `transform` (translation +
+`rotate`), and `mask` (`{component, params}` — built-ins: `rounded_rect`, `circle`,
+`diamond_grid`). Any node may also carry an `effects:` list or an `effect_preset:` shorthand.
+
+Beyond those, each kind adds only its own fields — and nothing else is accepted (`ARC-TPL-064`):
+
+| Kind | Additional fields |
+|---|---|
+| `group` | `children`, `direction`, `clip`, `layout`, `gap`, `padding`, `main_align`, `cross_align` |
+| `text` | `text`, `runs`, `paragraph`, `fit` |
+| `image` | `asset`, `fit` |
+| `shape` | `shape`, `generator`, `params` |
+| `path` | `d` |
+
+There is **no per-node `condition:`** — gate a node with the structural `if:`/`node:` construct
+below. Paint properties (`opacity`, `color`, `font_size`, …) live in `style:`, not on the node;
+size lives in `constraints.size`, position in `constraints.anchor`, and rotation in `transform`.
+Writing any of them at node level is a located error whose hint names the real home.
 
 ### Structural constructs — `repeat` and `if`
 
@@ -225,7 +251,11 @@ A text node may set `fit: {policy, overflow, min_size, max_lines}`:
   `[min_size, font_size]` that fits — combine with `fit_content` height + `max_lines` to hug the
   shrunk result), or `truncate` (measured-prefix ellipsis, RTL-correct placement).
 - `overflow`: `clip` (default), `allow`, or `error` (`ARC-LAY-050`, exit 1).
-- `max_lines` caps the line count; with `h: fit_content` it also caps the box height.
+- `max_lines` caps the line count; with `h: fit_content` it also caps the box height. When
+  `shrink_to_fit` reaches its `min_size` floor and the text still needs more lines than the cap
+  allows, `overflow: error` reports `ARC-LAY-057` — line count vs cap and the floor reached —
+  instead of `ARC-LAY-050`. The box height is not the constraint there, so enlarging it cannot
+  help; widen the box, lower `min_size`, or raise `max_lines`.
 - Non-convergent shrink and sub-line-height truncation emit `ARC-LAY-051` warnings with the measured
   numbers. `paragraph: {align, direction}` sets alignment (`start`/`end` follow the base direction)
   and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).
@@ -302,7 +332,7 @@ direction/digits and each applied patch with the value it produced and its origi
 last op on a path is marked effective), so you can answer "where did this value come from?":
 
 ```console
-$ arcavex template inspect examples/ipen-bilingual/template.yaml \
+$ arcavex template inspect examples/future-archive-poster/template.yaml \
     --resolved --format a4 --locale fa
 resolved format=a4 locale=fa direction=rtl digits=fa style=-
   nodes.hero.constraints.size.h = 38% <- format:a4 (set)
@@ -345,10 +375,10 @@ defaults, and ranges — that CLI is the source of truth. The v1 built-ins:
 
 When text sits over a textured effect panel (halftone, grain, noise), give it a solid plate or a
 high-contrast fill plus a dark drop-shadow — the dot/speckle mesh eats a same-toned label.
-`examples/pop-art-grid`'s title bar is a flat plate over the halftone for exactly this reason.
+`examples/graphic-style-lab`'s title bar is a flat plate over the halftone for exactly this reason.
 
 Shape nodes may use a `generator:` (`starburst`, `speech_bubble`, `qr_code`). See
-`examples/pop-art-grid` for a Warhol grid using effects, loops, and style packs together.
+`examples/graphic-style-lab` for a Warhol grid using effects, loops, and style packs together.
 
 ## Exit codes
 

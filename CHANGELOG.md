@@ -4,6 +4,180 @@ All notable changes to Arcavex are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses semantic versioning for both
 the engine and the IR schema.
 
+## [Unreleased]
+
+### Changed — **breaking**: unknown fields are now rejected in every authoring scope
+
+Arcavex promised that "unknown fields are rejected rather than silently ignored, so a misspelled
+property cannot quietly do nothing." That held only for a handful of node sub-blocks. At the
+template root, in `formats`, in a `canvas`, in a variable declaration, on a **node top level**, and
+in an `effects[]` entry, an invented field validated clean and did nothing.
+
+That is the worst possible failure for a template language meant to be authored by an AI agent: the
+engine answered `OK template is valid`, so the author kept building on a field that was inert. In
+the case that prompted this, an agent invented `condition:` on nodes, shipped three nodes relying on
+it, and wrote the invented behaviour into handoff documentation as a real engine constraint.
+Deleting every `condition:` line produced a byte-identical render.
+
+**This is a breaking change for any template carrying a junk field — and it is the fix for fields
+that quietly did nothing.** A template that validates now has no inert lines in it. If a template
+starts failing, the reported field was never doing anything; delete it, or move it to the scope the
+hint names. No template shipped in this repository needed a change.
+
+- **Five new diagnostics**: `ARC-TPL-064` (unknown node field), `ARC-TPL-065` (template root),
+  `ARC-TPL-066` (format / canvas), `ARC-TPL-067` (variable declaration), `ARC-TPL-068` (effect
+  entry). `ARC-TPL-051` now also covers the `transform`, `mask`, `padding`, and `repeat`/`if`
+  construct mappings, which were permissive too.
+- **`ARC-TPL-064` names the real home of a wrong-scope field** instead of only rejecting it. There
+  is no per-node `condition:` (the hint points at the structural `if:` / `node:` construct);
+  `opacity`/`color`/`font_size` belong in `style`; `width`/`height` in `constraints.size`; `x`/`y`
+  in `constraints.anchor`; `rotation` in `transform`. A field that is real but belongs to another
+  node kind is told which kind owns it.
+- **Fields that are authored-but-deliberately-unsupported keep their own, more useful diagnostic**:
+  `line_height` still reports `ARC-TPL-053` and a stack's `wrap` still reports `ARC-LAY-056`.
+- A guard test walks the whole authoring surface and asserts every scope rejects an unknown key, so
+  a scope added later cannot silently reintroduce this.
+
+### Fixed — generated docs
+
+- `make docs-diagnostics` no longer rewrites every generated file with CRLF on Windows (the
+  declared reference platform), which made a one-entry edit look like a 118-file change. The
+  previously CRLF-committed files are normalized to LF.
+
+### Added — overlap classification
+
+- **`SiblingOverlap.kind` on `layout inspect`** — every reported overlap is now classified as
+  `content` (the nodes' layout bounds genuinely intersect) or `halo` (only their effect-grown
+  paint bounds do, i.e. a shadow, glow or torn-paper edge reaching over a neighbour). Overlap
+  reporting previously compared `paint_bounds` alone, so a shadowed node was indistinguishable
+  from a real collision and the useful signal got filtered away with the noise. The field is
+  carried by `--json` and by the `arcavex_layout_inspect` MCP tool, so an agent that cannot see
+  the render filters structurally instead of guessing.
+
+### Changed — overlap reporting
+
+- **`layout inspect` human output** groups overlaps: `content` ones are listed under the
+  `overlaps` heading, `halo` ones demoted to a dimmed *effect spill* subsection, with a
+  `N content, M effect spill` count on the heading itself.
+- **`layout inspect` prints both boxes per node** — `bounds` (the resolved layout box) and
+  `paint` (that box grown by rotation and effect expansion). Only `bounds` was shown before,
+  which is why a halo overlap's rect looked like it came from nowhere.
+- **`rect_pt` on a `content` overlap is now the content intersection**, not the paint
+  intersection — so its width/height is the actual collision depth to correct. `halo` overlaps
+  still report the paint intersection, which is the only one that exists for them.
+- **The full-bleed backdrop suppression threshold** (a node covering ≥90% of its parent region is
+  structure, not a collision) is measured on the layout box rather than the paint box, so a
+  generous shadow can no longer promote an ordinary node into a backdrop and have its containment
+  of a sibling silently dropped.
+
+### Compatibility — overlap classification
+
+`SiblingOverlap.kind` is **additive and forward-compatible**: it defaults to `content`, so a
+payload serialised before the field existed still parses and a consumer that ignores the field is
+unaffected. `response_version` therefore stays at `1` and no migration is required. Consumers that
+want the new signal opt in by reading `kind`; the recommended filter for "real problems only" is
+`kind == "content"`. Which node pairs are reported is unchanged — verified byte-for-byte against
+the previous output across all 16 reference-poster and IPEN format × locale targets; the change is
+purely the added label plus the more precise `rect_pt` for content overlaps.
+
+### Added — font command group
+
+- **`arcavex font` command group** — the supported way to use a typeface beyond the four bundled
+  families, which previously required knowing (from prose in the docs) to drop a `.ttf` into
+  `$ARCAVEX_HOME/fonts` by hand:
+  - `font list [--json]` lists every resolvable family with its files, marks each **bundled** or
+    **installed**, and names the directory `add` writes to — the answer `doctor` never gave, since
+    it reported only the family *count*.
+  - `font add PATH [--license PATH]` installs a `.ttf` into the Arcavex home and reports the family
+    name **as the engine resolves it**, read from the file with the shaper's own resolver. A file
+    stem and its internal family name routinely differ (`Lateef-Regular.ttf` provides `Lateef`) and
+    `style.font` must name the family, so reporting the stem would hand back a name that does not
+    render. `--license` copies a licence alongside the font, following the bundled OFL convention.
+  - `font remove FAMILY` removes an installed family and its licence; a family bundled with the
+    engine is refused (`ARC-RND-032`), because it backs the default font stacks.
+- **`arcavex_font_list` MCP tool** — the legal `style.font` vocabulary is now discoverable by an
+  agent alongside `arcavex_style_list`/`arcavex_effects_list`. Installing a font stays CLI-only, in
+  the same class as `ext add`: an operator action on the machine, not an agent one.
+- **New diagnostics** `ARC-RND-030`..`ARC-RND-034` for the font store (file not found, unusable
+  typeface, bundled-family removal refused, no such installed family, unreadable/unwritable store).
+
+### Changed — font diagnostics
+
+- **`ARC-RND-010` (font family not available)** now lists the **nearest** available families ahead
+  of the full list and names `arcavex font add` in its hint, so a typo and a genuinely missing
+  typeface get different, actionable answers. Its catalog entry no longer implies the font set is
+  closed.
+
+### Fixed — font discovery
+
+- **Fonts in the default Arcavex home were silently ignored.** Font discovery read `$ARCAVEX_HOME`
+  directly and skipped the `~/.arcavex` default that `doctor` reports, so with `ARCAVEX_HOME` unset
+  a font placed in `~/.arcavex/fonts` was never registered. Discovery now resolves through
+  `fsutil.home_dir()` — the same single source of truth every other reader uses.
+
+### Changed — **breaking**: every dependency is now version-bounded
+
+The dev extra declared a bare `mcp`. A fresh `uv pip install -e ".[dev]"` resolved it to 2.0.0,
+which removed `mcp.server.fastmcp` — so a clean clone could not collect its own test suite, and a
+new contributor's first command failed. Six venvs built from the same file within one hour
+resolved three different ways (1.28.1, 1.29.0, 2.0.0).
+
+Every runtime and dev requirement now carries a floor and a cap, annotated with the version CI and
+the reference machine actually verified. This can break an environment that was silently relying on
+an out-of-range version. `tests/unit/test_packaging.py` fails on any dependency added without
+bounds. Windows — the declared reference platform — is now in the CI matrix, which no encoding
+defect below could have been caught by before.
+
+### Added — asset shape advice
+
+- **`ARC-AST-020`** warns when an image node uses `fit: contain`/`cover` and the asset's opaque
+  artwork covers less than 40% of the canvas it declares. Both fit modes scale the *canvas*, so
+  the artwork shrinks with it: a 512x512 logo whose mark is a 452x114 band renders as an
+  unreadable smudge while every existing check passes. It is raised at compile time, so `validate`
+  reports it before a pixel is drawn. The opaque bounding box is measured at ingest and recorded
+  in the asset sidecar (`opaque_bbox`, additive and defaulting to `null`, so existing sidecars
+  parse unchanged). `fit: fill` is not checked — it distorts rather than shrinks, which is visibly
+  wrong without help.
+
+### Fixed — diagnostics that pointed the wrong way
+
+- **`ARC-LAY-051` told the author to raise `min_size`.** `min_size` is the *floor* of the shrink
+  search, so raising it removes the only candidates that could still fit: measured on one node,
+  30pt → 612pt, 20pt → 264pt, 12pt → 90pt, all failing, fitting only once the floor dropped to
+  8pt. Following the hint made the failure monotonically worse. Both the catalog entry and the
+  solver's raise-site hint now say lower, and tests pin the direction behaviourally.
+- **`ARC-LAY-057` now covers `max_lines` under `policy: wrap`**, not only at the `shrink_to_fit`
+  floor. A wrapping node with a line cap still reported `ARC-LAY-050`'s measured-vs-box height
+  pair, which under `wrap` is provably inert: the same node reported an identical 76.0pt measured
+  height at box heights of 60, 80, 200 and 400pt. The message now names the authored size, and the
+  hint drops "lower `min_size`" — under `wrap` there is no floor to lower.
+
+### Fixed — the release gate itself
+
+- **`make contracts` never ran.** It invoked `python -m importlinter.cli lint`, which dispatches
+  nothing: verified by appending a deliberately forbidden `clients` → `kernel` contract, against
+  which the console script exits 1 and names the violating import chain while the module form still
+  exits 0 with no output. The architecture gate inside `make verify` had been reporting green
+  without checking anything. It now invokes the console script, and `tests/unit/test_toolchain.py`
+  fails if the no-op form returns or the tool goes quiet.
+- **Shelled-out tools lost non-ASCII output.** The Makefile exports `PYTHONIOENCODING`/`PYTHONUTF8`
+  for every target (import-linter's own output measured 552 bytes without it against 1188 with —
+  truncated, not merely missing a banner), and `scripts/benchmark.py`'s cold-start probe decodes
+  its child as UTF-8 with an explicit error handler and reports a non-zero child exit instead of
+  failing inside `float()`.
+- **Generated diagnostics docs are guarded against CRLF at the byte level.** The existing mirror
+  test reads through universal newlines and cannot see line endings by construction; the new check
+  found seven files already committed with CRLF.
+
+### Documentation
+
+- **known-limitations.md states the design-judgement boundary.** Validation checks that a design is
+  well-formed, never whether it is good — across a four-revision design session the engine reported
+  clean validation for every draft, including those rejected outright. That is correct behaviour and
+  was previously left implied. The doc names it with the evidence, says what could honestly be added
+  later (contrast, cap-height at viewing scale, safe-area assertions, optical margins) and what could
+  not, and `backlog.md` carries both as explicit non-commitments.
+
 ## [0.1.0] — 2026-07-15
 
 First tagged release: a local-first, headless, deterministic, template-driven rendering engine.

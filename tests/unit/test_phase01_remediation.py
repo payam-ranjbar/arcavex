@@ -15,7 +15,7 @@ from arcavex.bootstrap import build_facade
 from arcavex.services.template.compiler import Compiler
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_HELLO = _REPO_ROOT / "examples" / "hello-poster"
+_HELLO = _REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 
 
 def _write(tmp_path: Path, text: str) -> Path:
@@ -337,7 +337,7 @@ def test_default_output_stem_dir_and_file_equal() -> None:
     assert (
         facade._default_output_path(_HELLO, "square")
         == facade._default_output_path(_HELLO / "template.yaml", "square")
-        == Path("hello-poster.square.png")
+        == Path("basic-poster.square.png")
     )
 
 

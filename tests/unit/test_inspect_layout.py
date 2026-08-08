@@ -8,8 +8,8 @@ from arcavex.bootstrap import build_facade
 from arcavex.kernel.api import LayoutNodeReport
 
 _REPO = Path(__file__).resolve().parents[2]
-_TEMPLATE = _REPO / "examples" / "ipen-bilingual" / "template.yaml"
-_DATA = _REPO / "examples" / "ipen-bilingual" / "data.yaml"
+_TEMPLATE = _REPO / "tests" / "fixtures" / "bilingual-poster" / "template.yaml"
+_DATA = _REPO / "tests" / "fixtures" / "bilingual-poster" / "data.yaml"
 
 
 def _find(node: LayoutNodeReport, node_id: str) -> LayoutNodeReport:

@@ -10,7 +10,7 @@ from arcavex.kernel.diagnostics import DiagnosticError
 from arcavex.services.library import Library, _version_key
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO = REPO_ROOT / "examples" / "hello-poster"
+HELLO = REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 
 
 def test_publish_and_resolve_pinned(tmp_path: Path) -> None:

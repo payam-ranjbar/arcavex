@@ -34,10 +34,10 @@ def test_scaffold_refuses_existing_nonempty(tmp_path: Path) -> None:
 
 def test_inspect_reports_contract(tmp_path: Path) -> None:
     facade = build_facade()
-    report = facade.inspect_template(Path("examples/hello-poster"))
+    report = facade.inspect_template(Path("tests/fixtures/basic-poster"))
     assert report.ok
     var_names = {v.name for v in report.variables}
-    assert var_names == {"title", "subtitle"}
+    assert var_names == {"title", "subtitle", "day", "time"}
     title = next(v for v in report.variables if v.name == "title")
     assert title.type == "string" and title.required is True and title.doc
     assert {f.name for f in report.formats} == {"square", "story"}

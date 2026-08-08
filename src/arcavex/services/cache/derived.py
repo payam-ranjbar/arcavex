@@ -121,7 +121,11 @@ class DerivedImageCache:
         try:
             data = target.read_bytes()
             os.utime(target, None)  # touch for disk-LRU recency
-            return skia.Image.MakeFromEncoded(skia.Data.MakeWithoutCopy(data))
+            # MakeWithCopy, not MakeWithoutCopy: MakeFromEncoded decodes lazily, so the returned
+            # image reads these bytes after this function has returned and `data` is collectable.
+            # A non-owning Data leaves it pointing at freed memory — which read back as
+            # transparent pixels on Linux while happening to survive on Windows.
+            return skia.Image.MakeFromEncoded(skia.Data.MakeWithCopy(data))
         except (OSError, ValueError, RuntimeError):
             return None
 

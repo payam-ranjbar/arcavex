@@ -78,7 +78,7 @@ constraints:
 
 - Physical edges: `top`/`bottom`/`left`/`right`/`center_x`/`center_y`. The **logical** `start`/`end`
   edges resolve through the group's direction — the key to a mirrored RTL layout (covered in the
-  [bilingual tutorial](bilingual-template.md)).
+  `examples/future-archive-poster/`).
 - Offsets accept units (`+64px`, `+16pt`, `-6mm`) and even `{{ }}` expressions, so per-item offsets
   work.
 - Missing or duplicated anchors are located errors (`ARC-LAY-030`/`031`); anchoring to a sibling that
@@ -156,10 +156,12 @@ $ arcavex template check ./card --format square      # schema + structure, no da
 OK template is valid
 
 $ arcavex layout inspect ./card --format square       # resolved geometry + overlaps
+inferred: data=preview_data
 canvas 810x810pt (1080x1080px @ 96dpi) format=square locale=-
-root group (0.0, 0.0, 810.0, 810.0)pt
+root group bounds (0.0, 0.0, 810.0, 810.0)pt
+  paint (0.0, 0.0, 810.0, 810.0)pt
   …
-overlaps:
+coverage: 100% of canvas
 
 $ arcavex render ./card --format square -o card.png
 inferred: data=preview_data
@@ -167,10 +169,17 @@ Rendered card.png
 ```
 
 `layout inspect` shows the resolved bounds and any sibling overlaps — geometry a compile-clean
-`check`/`validate` cannot see. Use it whenever a node lands somewhere unexpected.
+`check`/`validate` cannot see. Use it whenever a node lands somewhere unexpected. The scaffold's
+nodes all clear each other, so it prints no `overlaps` section at all.
+
+Each node prints two boxes: `bounds` is the layout box, and `paint` is that box grown by rotation
+and by any effect's declared bounds expansion. Overlaps are split the same way — a `content`
+overlap means the layout boxes really intersect, while *effect spill* means only the grown boxes
+do (a drop-shadow reaching over a neighbour). Fix the first; the second is usually the intended
+look. See [overlap kinds](../cli.md#overlap-kinds).
 
 ## Next
 
-- Make it bilingual → [A bilingual template](bilingual-template.md).
+- Make it bilingual → see `examples/future-archive-poster/`, which renders EN and FA from one tree.
 - The complete authoring vocabulary → [template-schema.md](../template-schema.md).
 - Every command and flag → [cli.md](../cli.md).

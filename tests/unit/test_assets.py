@@ -13,7 +13,7 @@ from arcavex.kernel.diagnostics import DiagnosticError
 from arcavex.services.assets import AssetStore, probe_image
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LOGO = REPO_ROOT / "examples" / "hello-poster" / "logo.png"
+LOGO = REPO_ROOT / "tests" / "fixtures" / "basic-poster" / "logo.png"
 
 
 def _png_bytes(width: int, height: int) -> bytes:

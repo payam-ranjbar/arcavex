@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from arcavex.clients.cli import app
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO = REPO_ROOT / "examples" / "hello-poster"
+HELLO = REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 runner = CliRunner()
 
 

@@ -14,6 +14,65 @@ during reviews. Nothing here is required v1 scope.
 - Automatic installation of older engine versions for compatibility reruns (§12 open)
 - Hyphenation (unless a concrete template requires it — none did in v1)
 
+## Candidate: whole-canvas overlap reporting (not committed)
+
+`layout inspect` enumerates overlapping pairs **per group**, so two nodes in different groups are
+never compared. Measured on the reference poster, that leaves 20-22 intersecting cross-group pairs
+unreported per format, and 5 on the bilingual example.
+
+Simply comparing every leaf pair is wrong: nearly all of those pairs are `background` against the
+nodes drawn over it, or a card panel (`date-frame`) against its own labels in a nested group. The
+existing suppression — a container that is a group, or covers ≥90% of its parent region, is a
+backdrop — cannot classify them, because the container is not a sibling and the area test is
+relative to the wrong region.
+
+The principled rule is containment plus paint order: a node that fully contains another **and** is
+painted below it is a backdrop for it, whatever its area. That also replaces the 0.9 magic number.
+It was prototyped against every bundled example, and it is a behaviour change in both directions,
+not a pure addition:
+
+| Example / format | Reported now | Under the rule | Added | Dropped |
+|---|---|---|---|---|
+| reference-poster / square | 5 | 5 | 2 | 2 |
+| reference-poster / story | 7 | 3 | 0 | 4 |
+| reference-poster / landscape | 9 | 9 | 5 | 5 |
+| hello-poster / square | 2 | 0 | 0 | 2 |
+
+The dropped pairs are the question. `hello-poster`'s `accent` ∩ `title` disappears because the
+accent bar contains the title and is painted under it — correct if it is a highlight bar,
+a missed collision if it is not. Deciding that is a design call about what an overlap *means*,
+and it changes a field already shipped on the CLI and MCP surfaces. Not taken on that basis; the
+scope limit is documented instead, on `SiblingOverlap` and in
+[known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
+
+## Candidate: a narrow `audit` command (not committed)
+
+From the readiness audit's P3-2. Validation checks that a design is well-formed, never whether it
+is good — see
+[known-limitations.md](known-limitations.md#validation-checks-geometry-not-design) for why that
+boundary is deliberate. The only extension of it that would not compromise determinism is a
+command limited to objective, testable checks:
+
+- WCAG contrast per text node against its resolved backdrop
+- minimum rendered cap-height at a declared viewing scale ("this 15px label is illegible in feed")
+- declared safe-area assertions (`safe_area:` per format, machine-checked rather than
+  hand-computed)
+- optical-margin deviation between text left edges in one column
+
+Anything beyond those four becomes opinion. Rough estimate ~1 week. Not scheduled, and not a
+prerequisite for anything.
+
+## Candidate: image preparation (P3-1 tier two, not committed)
+
+`ARC-AST-020` (shipped) warns that an asset is mostly transparent padding. The two larger pieces
+behind it are not built:
+
+- **`fit: content-box`** — fit the opaque bounding box rather than the declared canvas, which
+  removes the need to pre-trim at all. ~2 days.
+- **`asset prep` subcommands** (`trim-alpha`, `chroma-key`, `focal-crop`) feeding the annotations
+  `asset annotate` already accepts. ~1 week. The audit had to write both of these as throwaway
+  scripts outside the engine to finish an ordinary poster.
+
 ## Landed in Phase 7 (was deferred)
 
 - **Derived-variant asset cache (§4.7)** and **per-render resource budgets (§8.3)** — both shipped

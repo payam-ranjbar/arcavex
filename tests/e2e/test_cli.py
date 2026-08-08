@@ -9,10 +9,10 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO_TEMPLATE = _REPO_ROOT / "examples" / "hello-poster" / "template.yaml"
-HELLO_DATA = _REPO_ROOT / "examples" / "hello-poster" / "data.yaml"
-POPART_TEMPLATE = _REPO_ROOT / "examples" / "pop-art-grid" / "template.yaml"
-POPART_DATA = _REPO_ROOT / "examples" / "pop-art-grid" / "data.yaml"
+HELLO_TEMPLATE = _REPO_ROOT / "tests" / "fixtures" / "basic-poster" / "template.yaml"
+HELLO_DATA = _REPO_ROOT / "tests" / "fixtures" / "basic-poster" / "data.yaml"
+POPART_TEMPLATE = _REPO_ROOT / "tests" / "fixtures" / "basic-poster" / "template.yaml"
+POPART_DATA = _REPO_ROOT / "tests" / "fixtures" / "basic-poster" / "data.yaml"
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 

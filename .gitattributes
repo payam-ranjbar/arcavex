@@ -1,0 +1,20 @@
+# Line endings are part of the committed bytes, not a property of the machine that checked the
+# repository out. Without this, Git for Windows converts every text file to CRLF on checkout
+# (core.autocrlf defaults to true there, and does on GitHub's windows runners), so a file
+# committed with LF is read back with CRLF and any byte-level comparison disagrees with the
+# object store.
+* text=auto eol=lf
+
+# Binary assets must never be transformed. Goldens in particular are compared byte-for-byte and
+# perceptually; a newline substitution inside a PNG corrupts it.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.pdf binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.ico binary
+*.dat binary

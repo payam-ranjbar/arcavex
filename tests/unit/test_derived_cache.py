@@ -51,7 +51,8 @@ def _encode(image: object) -> bytes:
 
 def _pixels(image: object) -> object:
     """Return the variant's raw pixel array — what a render actually draws (cold==warm anchor)."""
-    return image.toarray()  # type: ignore[attr-defined]
+    # Explicit colorType: the default is the platform's native surface order.
+    return image.toarray(colorType=skia.kRGBA_8888_ColorType)  # type: ignore[attr-defined]
 
 
 def test_variant_miss_then_hit(tmp_path: Path) -> None:

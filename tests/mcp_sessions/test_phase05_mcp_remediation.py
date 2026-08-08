@@ -22,7 +22,7 @@ from arcavex.clients.mcp_server import ArcavexTools
 from arcavex.kernel.api import PatchOp, PreviewResult
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_IPEN = _REPO_ROOT / "examples" / "ipen-bilingual"
+_IPEN = _REPO_ROOT / "tests" / "fixtures" / "bilingual-poster"
 
 
 @pytest.fixture()

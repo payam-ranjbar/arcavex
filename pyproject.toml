@@ -8,29 +8,51 @@ version = "0.1.0"
 description = "Local-first, headless, deterministic, template-driven rendering engine."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary" }
-authors = [{ name = "Arcavex" }]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Payam Ranjbar" }]
+keywords = ["rendering", "design", "poster", "skia", "deterministic", "mcp", "svg", "layout"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+# Every dependency carries a floor and an upper bound so a fresh resolve cannot pick an untested
+# major. The version in each trailing comment is the one CI and the reference machine verified.
+# tests/unit/test_packaging.py fails on any requirement added without both bounds.
 dependencies = [
-    "skia-python>=144.0,<145",
-    "pydantic>=2",
-    "typer",
-    "ruamel.yaml",
-    "rich",
-    "watchfiles",
-    "numpy>=1.26",
-    "segno>=1.6",
+    "skia-python>=144.0,<145",      # 144.0.post2
+    "pydantic>=2.13,<3",            # 2.13.4
+    "typer>=0.26,<0.27",            # 0.26.8 — pre-1.0, minor bumps are breaking
+    "ruamel.yaml>=0.19,<0.20",      # 0.19.1 — pre-1.0
+    "rich>=15,<16",                 # 15.0.0
+    "watchfiles>=1.2,<2",           # 1.2.0
+    "numpy>=1.26,<3",               # 2.5.1
+    "segno>=1.6,<2",                # 1.6.6
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "hypothesis",
-    "ruff",
-    "mypy",
-    "import-linter",
-    "pillow",
-    "mcp",
+    "pytest>=9.1,<10",              # 9.1.1
+    "hypothesis>=6.156,<7",         # 6.156.6
+    "ruff>=0.15.21,<0.16",          # pre-1.0: a minor bump changes which lints fire
+    "mypy>=2.2,<3",                 # 2.2.0
+    "import-linter>=2.13,<3",       # 2.13
+    "pillow>=12.3,<13",             # 12.3.0
+    "mcp>=1.28,<2",                 # 1.28.1 — 2.0.0 removed mcp.server.fastmcp
 ]
+
+[project.urls]
+Homepage = "https://github.com/payam-ranjbar/arcavex"
+Repository = "https://github.com/payam-ranjbar/arcavex"
+Issues = "https://github.com/payam-ranjbar/arcavex/issues"
+Changelog = "https://github.com/payam-ranjbar/arcavex/blob/main/CHANGELOG.md"
 
 [project.scripts]
 arcavex = "arcavex.clients.cli:main"
@@ -45,6 +67,9 @@ packages = ["src/arcavex"]
 # needs no packaging here — 'arcavex doctor' diagnoses it if a build cannot locate it (ADR-0001).
 [tool.hatch.build.targets.wheel.force-include]
 "library-seed/fonts" = "arcavex/_bundled/fonts"
+# The design skill ships in the wheel so `arcavex skill install` works from a pip install with no
+# source checkout; services.skills.bundled_skill_dir resolves this path first, then the repo.
+"skills/arcavex-design-studio" = "arcavex/_bundled/skill"
 
 [tool.ruff]
 line-length = 100

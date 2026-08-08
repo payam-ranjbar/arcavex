@@ -28,7 +28,7 @@ from arcavex.services.runs import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-HELLO = REPO_ROOT / "examples" / "hello-poster"
+HELLO = REPO_ROOT / "tests" / "fixtures" / "basic-poster"
 runner = CliRunner()
 
 _GREEN = "- set: nodes.background.style.fill\n  value: '#00ff00'\n"

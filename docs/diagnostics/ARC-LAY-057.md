@@ -1,0 +1,5 @@
+# ARC-LAY-057 — Text still exceeds max_lines
+
+A text node wraps onto more lines than 'max_lines' allows while each line does fit the box width, and 'overflow' is 'error'. The binding constraint is the line cap, not the box, so this is reported separately from ARC-LAY-050: the message names the measured line count, the cap, and the size the text reached rather than a width x height pair, because the measured height is simply what that many lines occupy — it does not change when the box grows. Both fit policies that can hit the cap report it: 'shrink_to_fit' once it has bottomed out at its 'min_size' floor (while it is still shrinking the line count is not yet final), and 'wrap', which does no search at all, so the authored size is the size.
+
+**Typical fix:** Widen the box so the text needs fewer lines, or raise max_lines. Under 'shrink_to_fit' also consider lowering min_size so it can shrink further; under 'wrap' there is no floor to lower, so reduce the font size or switch to 'shrink_to_fit' with a min_size. Enlarging the box height cannot help.

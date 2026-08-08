@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from arcavex.kernel.contracts.types import DecodeGuards
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
+from arcavex.services.assets.alpha import opaque_box
 from arcavex.services.assets.probe import ALLOWED_MIME, probe_image
 from arcavex.services.fsutil import atomic_write_text, sha256_bytes
 
@@ -39,6 +40,9 @@ class AssetRef(BaseModel):
     width: int
     height: int
     bytes: int
+    # ``(x, y, width, height)`` of the opaque pixels; None when the image is fully transparent,
+    # undecodable, or was ingested before this field existed. Defaulted so those sidecars parse.
+    opaque_bbox: tuple[int, int, int, int] | None = None
     annotations: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -89,8 +93,14 @@ class AssetStore:
                 f"over the {self._guards.max_pixels} cap",
             )
         digest = sha256_bytes(data)
+        box = opaque_box(path)
         ref = AssetRef(
-            sha256=digest, mime=probe.mime, width=probe.width, height=probe.height, bytes=size
+            sha256=digest,
+            mime=probe.mime,
+            width=probe.width,
+            height=probe.height,
+            bytes=size,
+            opaque_bbox=box.as_tuple() if box is not None else None,
         )
         self._persist(digest, data, ref)
         return ref

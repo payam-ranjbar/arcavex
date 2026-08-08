@@ -233,3 +233,74 @@ def test_reference_extension_validates_and_tests(arcavex_home: Path) -> None:
     test = runner.invoke(app, ["ext", "test", str(REFERENCE), "--json"])
     assert test.exit_code == 0, test.output
     assert json.loads(test.stdout)["passed"] is True
+
+
+# ------------------------------------------------------------------- test-output encoding
+def _scaffold_with_test(tmp_path: Path, name: str, body: str) -> Path:
+    """Scaffold a valid effect extension, then replace its golden_test.py with ``body``."""
+    ext_dir = tmp_path / name
+    scaffold = runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir), "--name", name])
+    assert scaffold.exit_code == 0, scaffold.output
+    (ext_dir / "golden_test.py").write_text(body, encoding="utf-8")
+    return ext_dir
+
+
+def test_ext_test_reads_non_ascii_output(arcavex_home: Path, tmp_path: Path) -> None:
+    """A golden test printing non-ASCII runs green and its text survives the round trip.
+
+    The child is pinned to UTF-8 so ``print`` cannot die encoding to the console codepage, and the
+    harness decodes as UTF-8 rather than the locale's. Before the fix this pair (cp1252 on the
+    reference Windows platform) broke the harness and the author was blamed with ARC-EXT-052.
+    """
+    ext_dir = _scaffold_with_test(tmp_path, "unicody", 'print("café ✓ — naïve piñata")\n')
+    result = runner.invoke(app, ["ext", "test", str(ext_dir), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["passed"] is True
+    assert not payload["diagnostics"]
+    assert "café ✓ — naïve piñata" in payload["output"]
+
+
+def test_ext_test_survives_undecodable_output(arcavex_home: Path, tmp_path: Path) -> None:
+    """Raw bytes that are not valid UTF-8 are replaced, never crash the harness.
+
+    A child may write anything to its pipe — a C library's stderr, a truncated multibyte sequence.
+    The harness must still report the child's real exit status instead of dying mid-read.
+    """
+    ext_dir = _scaffold_with_test(
+        tmp_path,
+        "bytey",
+        "import sys\n"
+        "sys.stdout.buffer.write(b'raw \\x90\\xff\\xfe bytes\\n')\n"
+        "sys.stdout.buffer.flush()\n",
+    )
+    result = runner.invoke(app, ["ext", "test", str(ext_dir), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["passed"] is True
+    assert not payload["diagnostics"]
+    # The undecodable bytes become U+FFFD; the readable text around them still arrives.
+    assert "raw" in payload["output"] and "bytes" in payload["output"]
+
+
+def test_failing_test_still_reports_052_not_a_harness_error(
+    arcavex_home: Path, tmp_path: Path
+) -> None:
+    """A failing test keeps ARC-EXT-052; ARC-EXT-053 covers only harness I/O.
+
+    The separation is the point of the fix: 052 must keep meaning "your test failed", so it may
+    not be diluted by I/O problems on the Arcavex side.
+    """
+    ext_dir = _scaffold_with_test(
+        tmp_path,
+        "failer",
+        'import sys\nprint("boom ✗ — golden mismatch")\nsys.exit(3)\n',
+    )
+    result = runner.invoke(app, ["ext", "test", str(ext_dir), "--json"])
+    assert result.exit_code != 0
+    payload = json.loads(result.stdout)
+    codes = [d["code"] for d in payload["diagnostics"]]
+    assert codes == ["ARC-EXT-052"]
+    assert "(exit 3)" in payload["diagnostics"][0]["message"]
+    # The failure detail still travels back, non-ASCII and all.
+    assert "boom ✗ — golden mismatch" in payload["output"]

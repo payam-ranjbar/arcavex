@@ -54,10 +54,14 @@ def test_diamond_grid_cells_and_gutters() -> None:
     paint.setColor(skia.ColorRED)  # image content stand-in
     canvas.drawRect(skia.Rect.MakeXYWH(0, 0, size, size), paint)
     canvas.restore()
-    arr = surface.makeImageSnapshot().toarray()  # BGRA
+    # The colorType must be stated: toarray()'s default follows the platform's native surface
+    # order, which is BGRA on Windows and RGBA on macOS arm64, so a channel index means nothing
+    # without it. Every production call site already passes one.
+    arr = surface.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)
 
     def is_red(x: int, y: int) -> bool:
-        return arr[y, x][2] > 180 and arr[y, x][0] < 80
+        px = arr[y, x]
+        return px[0] > 180 and px[2] < 80
 
     def is_white(x: int, y: int) -> bool:
         px = arr[y, x]

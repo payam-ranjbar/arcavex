@@ -27,6 +27,7 @@ from arcavex.kernel.api import (
     ExtensionActionReport,
     ExtensionListReport,
     Facade,
+    FontListReport,
     LayoutReport,
     PatchOp,
     PreviewResult,
@@ -68,6 +69,12 @@ mcp_app = typer.Typer(add_completion=False, help="MCP authoring server (spec §6
 app.add_typer(mcp_app, name="mcp")
 ext_app = typer.Typer(add_completion=False, help="Trusted local extension commands (spec §7).")
 app.add_typer(ext_app, name="ext")
+font_app = typer.Typer(add_completion=False, help="Font install/inspect commands (spec §4.3).")
+app.add_typer(font_app, name="font")
+skill_app = typer.Typer(
+    add_completion=False, help="Install the bundled design skill into an AI assistant."
+)
+app.add_typer(skill_app, name="skill")
 
 
 def _engine_version() -> str:
@@ -102,8 +109,10 @@ EXIT_BUDGET = 4
 EXIT_INTERNAL = 5
 
 # Codes that map to exit 3 (missing template/asset/font). ARC-TPL-001 = file not found;
-# ARC-AST-* = missing/undecodable asset; MISSING_FONT_CODE = font not in bundled DB.
-_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE}
+# ARC-AST-* = missing/undecodable asset; MISSING_FONT_CODE = font family not loaded;
+# ARC-RND-030 = the file 'font add' was pointed at does not exist, which is the same
+# "a named input is not there" class as a missing asset and so shares its exit code.
+_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE, "ARC-RND-030"}
 _MISSING_PREFIXES = ("ARC-AST",)
 # Resource-limit codes that map to exit 4: the expression budget, the repeat iteration cap, and
 # the per-render surface budgets (dimension/pixels/memory/wall-clock, spec §8.3).
@@ -846,13 +855,7 @@ def _print_layout_report(console: Console, report: LayoutReport) -> None:
     if report.root is not None:
         _print_layout_node(console, report.root, 0)
     if report.overlaps:
-        console.print("[bold]overlaps[/bold]:")
-        for ov in report.overlaps:
-            r = ov.rect_pt
-            console.print(
-                f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at "
-                f"({r[0]:.1f}, {r[1]:.1f}, {r[2]:.1f}, {r[3]:.1f})pt"
-            )
+        _print_overlaps(console, report)
     console.print(f"[bold]coverage[/bold]: {report.covered_fraction:.0%} of canvas")
     if report.free_regions:
         console.print("[bold]free regions[/bold] (empty horizontal bands):")
@@ -864,13 +867,46 @@ def _print_layout_report(console: Console, report: LayoutReport) -> None:
         console.print(f"[yellow]WARN {warn.code}[/yellow] {_esc(warn.message)}")
 
 
+def _rect_pt(rect: tuple[float, float, float, float]) -> str:
+    return f"({rect[0]:.1f}, {rect[1]:.1f}, {rect[2]:.1f}, {rect[3]:.1f})pt"
+
+
+def _print_overlaps(console: Console, report: LayoutReport) -> None:
+    """Print sibling overlaps with effect spill demoted below content collisions.
+
+    A halo is one node's shadow or tear reaching over its neighbour — usually the intended look.
+    Listing it alongside a real collision is what made the real one impossible to spot, so the
+    ``content`` overlaps get the heading and the ``halo`` ones a dimmed, indented subsection.
+    """
+    content = [ov for ov in report.overlaps if ov.kind == "content"]
+    halo = [ov for ov in report.overlaps if ov.kind == "halo"]
+    console.print(
+        f"[bold]overlaps[/bold]: {len(content)} content, {len(halo)} effect spill"
+    )
+    for ov in content:
+        console.print(f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}")
+    if not content:
+        console.print("  [dim]no content collisions[/dim]")
+    if halo:
+        console.print("  [dim]effect spill (paint bounds only — usually intended):[/dim]")
+        for ov in halo:
+            console.print(
+                f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
+            )
+
+
 def _print_layout_node(console: Console, node: object, depth: int) -> None:
     n = node  # LayoutNodeReport
     pad = "  " * depth
-    x, y, w, h = n.bounds_pt  # type: ignore[attr-defined]
     console.print(
         f"{pad}[cyan]{_esc(n.id)}[/cyan] [dim]{n.kind}[/dim] "  # type: ignore[attr-defined]
-        f"({x:.1f}, {y:.1f}, {w:.1f}, {h:.1f})pt"
+        f"bounds {_rect_pt(n.bounds_pt)}"  # type: ignore[attr-defined]
+    )
+    # Paint bounds get their own line rather than a suffix: a halo overlap's rect comes from
+    # this box, so it has to be readable, and at ~80 columns a second rect on the node line
+    # wraps mid-number, which makes the coordinates unreadable.
+    console.print(
+        f"{pad}  [dim]paint {_rect_pt(n.paint_bounds_pt)}[/dim]"  # type: ignore[attr-defined]
     )
     for anchor in n.anchors:  # type: ignore[attr-defined]
         console.print(
@@ -1756,6 +1792,172 @@ def _print_ext_list(console: Console, report: ExtensionListReport) -> None:
         state = "[green]enabled[/green]" if ext.enabled else "[dim]disabled[/dim]"
         components = ", ".join(f"{c.kind}:{c.name}" for c in ext.components) or "(none)"
         console.print(f"[cyan]{_esc(ext.name)}[/cyan] {ext.version} {state} — {components}")
+
+
+@font_app.command("list")
+def font_list(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List every font family the engine can resolve, marking bundled vs installed."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_fonts()
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_font_list(console, report)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+@font_app.command("add")
+def font_add(
+    path: Path = typer.Argument(..., help="Font file (.ttf) to install."),
+    license_path: Path | None = typer.Option(
+        None, "--license", help="Licence file to copy alongside the font (e.g. an OFL.txt)."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Install a font into the Arcavex home and report the family name templates must use.
+
+    The reported family is read from the file itself, so it is the name the engine will resolve —
+    a file stem and its internal family name often differ, and 'style.font' must name the family.
+    """
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.add_font(path, license_path)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(
+                f"[green]Installed[/green] {_esc(result.family)} into {result.install_dir}"
+            )
+            console.print(
+                f"  [dim]use it in a template as:[/dim] style: {{font: {_esc(result.family)}}}"
+            )
+            if result.license:
+                console.print(f"  [dim]licence:[/dim] {result.license}")
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@font_app.command("remove")
+def font_remove(
+    family: str = typer.Argument(..., help="Installed family name (not a file name)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Remove an installed font family; a family bundled with the engine is refused."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.remove_font(family)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            console.print(
+                f"[green]Removed[/green] {_esc(result.family)} ({len(result.files)} file(s))"
+            )
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+def _print_font_list(console: Console, report: FontListReport) -> None:
+    if not report.ok:
+        _print_diagnostics(console, report.diagnostics, quiet=False)
+        return
+    if not report.families:
+        console.print("[dim]no font families found[/dim]")
+    for info in report.families:
+        # Both flags can be true (an extra weight installed for a bundled family), so the label
+        # reports the union rather than picking one and hiding the other.
+        tags = [t for t in ("bundled" if info.bundled else None,
+                            "installed" if info.installed else None) if t]
+        console.print(
+            f"[cyan]{_esc(info.family)}[/cyan] [dim]{'+'.join(tags)}[/dim] "
+            f"[dim]({len(info.files)} file(s))[/dim]"
+        )
+        for file in info.files:
+            console.print(f"  [dim]{_esc(file.name)}[/dim]")
+    console.print(f"[dim]install fonts into:[/dim] {report.install_dir}")
+    console.print("[dim]add one with:[/dim] arcavex font add <path/to/font.ttf>")
+
+# --------------------------------------------------------------------------- skill install
+@skill_app.command("install")
+def skill_install(
+    target: list[str] = typer.Option(
+        [],
+        "--target",
+        "-t",
+        help="Harness to install into (claude-code, agents). Repeatable. "
+        "Default: every known harness.",
+    ),
+    path: Path | None = typer.Option(
+        None, "--path", help="Install into this directory instead of a known harness location."
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing installation."),
+    project: bool = typer.Option(
+        False,
+        "--project",
+        help="Install into the current directory instead of your home directory, so the "
+        "skill travels with the repository.",
+    ),
+    list_only: bool = typer.Option(
+        False, "--list", help="Show every destination without writing anything."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Install the bundled design skill so an AI assistant knows how to drive Arcavex."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    if list_only:
+        report = facade.list_skill_targets(path, project)
+    else:
+        report = facade.install_skill(list(target) or None, path, force, project)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_skill_report(console, report, list_only=list_only)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+def _print_skill_report(console: Console, report: object, *, list_only: bool) -> None:
+    """Print install destinations and what was written."""
+    targets = report.targets  # type: ignore[attr-defined]
+    if targets:
+        table = Table(box=None, pad_edge=False)
+        table.add_column("target", style="bold")
+        table.add_column("path")
+        table.add_column("state")
+        for entry in targets:
+            state = "installed" if entry.installed else "not installed"
+            if not entry.verified:
+                state += " (path unverified)"
+            table.add_row(entry.label, entry.path, state)
+        console.print(table)
+    installed = report.installed  # type: ignore[attr-defined]
+    if installed:
+        console.print(f"Installed {report.skill} to {len(installed)} location(s):")  # type: ignore[attr-defined]
+        for where in installed:
+            console.print(f"  {where}")
+        console.print("Restart the assistant to pick it up.")
+    elif not list_only and report.ok:  # type: ignore[attr-defined]
+        console.print("Nothing to do.")
 
 
 def main() -> None:

@@ -15,7 +15,6 @@ max-lines nor an ellipsis API.
 
 from __future__ import annotations
 
-import os
 import unicodedata
 from pathlib import Path
 
@@ -23,6 +22,7 @@ import skia  # type: ignore[import-untyped]
 
 from arcavex.kernel.contracts.types import MeasureRequest, MeasureResult
 from arcavex.kernel.ir.models import ResolvedRun
+from arcavex.services.fsutil import home_dir
 
 _LRI = "⁦"  # LEFT-TO-RIGHT ISOLATE
 _RLI = "⁧"  # RIGHT-TO-LEFT ISOLATE
@@ -33,18 +33,37 @@ _UNBOUNDED_WIDTH = 1.0e7
 # Fit tolerance in points: shaped extents within this of the box count as fitting, so
 # sub-pixel rounding never triggers a spurious overflow.
 _FIT_EPS = 0.25
+# Stop the shrink search once the bracket is narrower than this. A distinct quantity from
+# _FIT_EPS despite the equal value: this bounds how precisely the returned size is known, while
+# _FIT_EPS bounds how far a shaped extent may exceed the box. Sizes closer together than a
+# quarter point are indistinguishable once rasterized at any supported DPI.
+_SHRINK_SEARCH_EPS_PT = 0.25
+# Spec §4.3 caps measurement at 8 iterations per fit, which over the [min, base] range leaves a
+# bracket of (base - min) / 256 — finer than _SHRINK_SEARCH_EPS_PT for any realistic range, so
+# the tolerance above is what normally ends the loop and this is the hard ceiling.
 _MAX_FIT_ITERS = 8
+# Used only when the probe layout reports zero height, which SkParagraph does for a run with no
+# renderable glyphs. 1.2 is the CSS `normal` line-height default, i.e. a conventional stand-in
+# for an unmeasurable line, never a substitute for a metric the shaper did report.
+_FALLBACK_LINE_HEIGHT_RATIO = 1.2
+
+# The one file type the font database is built from. Every reader of the font store (the loader
+# below, ``arcavex font list/add/remove``) filters on this, so "what counts as a font file" has a
+# single definition and ``font add`` can never accept a file the loader would then ignore.
+FONT_SUFFIX = ".ttf"
+FONT_GLOB = f"*{FONT_SUFFIX}"
 
 
 def find_font_dirs() -> list[Path]:
-    """Return the ordered list of directories to load bundled fonts from.
+    """Return the ordered list of directories to load fonts from.
 
     Discovery covers both running from the repo and running from an installed wheel:
     the in-repo ``library-seed/fonts`` directory (located by walking up to the ``pyproject.toml``
     marker) is used in development; the packaged ``arcavex/_bundled/fonts`` directory (shipped in
-    the wheel via ``force-include``) is used when installed; and ``$ARCAVEX_HOME/fonts`` is always
-    appended when set. All discovered roots are returned so an installed engine and a dev checkout
-    render from the same bundled families. System font directories are never included.
+    the wheel via ``force-include``) is used when installed; and the Arcavex home's ``fonts``
+    directory — where ``arcavex font add`` installs — is always appended. All discovered roots are
+    returned so an installed engine and a dev checkout render from the same bundled families.
+    System font directories are never included.
     """
     dirs: list[Path] = []
     packaged = _packaged_fonts_dir()
@@ -55,12 +74,47 @@ def find_font_dirs() -> list[Path]:
         seed = marker / "library-seed" / "fonts"
         if seed.is_dir():
             dirs.append(seed)
-    home = os.environ.get("ARCAVEX_HOME")
-    if home:
-        home_fonts = Path(home) / "fonts"
-        if home_fonts.is_dir():
-            dirs.append(home_fonts)
+    installed = installed_fonts_dir()
+    if installed.is_dir():
+        dirs.append(installed)
     return dirs
+
+
+def installed_fonts_dir() -> Path:
+    """Return the Arcavex home's ``fonts`` directory — where installed families live.
+
+    Resolved through :func:`~arcavex.services.fsutil.home_dir`, the same single source of truth
+    ``doctor`` reports, so ``$ARCAVEX_HOME/fonts`` and the ``~/.arcavex/fonts`` default are BOTH
+    loaded. Reading only ``$ARCAVEX_HOME`` here meant a font dropped into the default home was
+    silently never registered, which is precisely the trap ``arcavex font add`` exists to close.
+    The directory need not exist; callers check.
+    """
+    return home_dir() / "fonts"
+
+
+def read_font(path: Path) -> tuple[object, str] | None:
+    """Return ``(typeface, family_name)`` for a font file, or ``None`` if Skia cannot read it.
+
+    The ONE place a family name is derived from a file. :class:`TextService` registers each file
+    under the name this returns, and ``arcavex font add`` reports the same value, so the family a
+    template must write can never drift from the family the engine resolves.
+    """
+    typeface = skia.Typeface.MakeFromFile(str(path))
+    if typeface is None:
+        return None
+    name: str = typeface.getFamilyName()
+    return typeface, name
+
+
+def family_name(path: Path) -> str | None:
+    """Return the family name the engine will resolve for a font file, or ``None`` if unreadable.
+
+    A file stem and its internal family name routinely differ (``Lateef-Regular.ttf`` provides
+    the family ``Lateef``), and a template must name the *family*, so the stem is never a
+    substitute for this.
+    """
+    read = read_font(path)
+    return None if read is None else read[1]
 
 
 def _packaged_fonts_dir() -> Path | None:
@@ -96,12 +150,12 @@ class TextService:
         self._all_typefaces: list[object] = []
         dirs = font_dirs if font_dirs is not None else find_font_dirs()
         for directory in dirs:
-            for path in sorted(directory.glob("*.ttf")):
-                typeface = skia.Typeface.MakeFromFile(str(path))
-                if typeface is None:
+            for path in sorted(directory.glob(FONT_GLOB)):
+                read = read_font(path)
+                if read is None:
                     continue
+                typeface, family = read
                 self._provider.registerTypeface(typeface)
-                family = typeface.getFamilyName()
                 self._families.add(family)
                 self._by_family.setdefault(family, []).append(typeface)
                 self._all_typefaces.append(typeface)
@@ -162,7 +216,7 @@ class TextService:
                 lo = mid
             else:
                 hi = mid
-            if hi - lo < 0.25:
+            if hi - lo < _SHRINK_SEARCH_EPS_PT:
                 break
         bw, bh, bl = best_metrics
         kind = "shrunk" if best < base_size - _FIT_EPS else "none"
@@ -291,7 +345,7 @@ class TextService:
         probe = self._build(runs, req, size)
         probe.layout(_UNBOUNDED_WIDTH)
         h = float(probe.Height)
-        return h if h > 0 else size * 1.2
+        return h if h > 0 else size * _FALLBACK_LINE_HEIGHT_RATIO
 
     def _runs_of(self, req: MeasureRequest) -> tuple[ResolvedRun, ...]:
         if req.runs:
