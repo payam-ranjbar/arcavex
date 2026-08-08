@@ -28,19 +28,26 @@ from typing import Any
 from arcavex.kernel.api import (
     AssetInfo,
     AssetReport,
+    AutomationMode,
     BatchEntry,
     BatchReport,
     CompileResult,
     DataReport,
     DetachReport,
     DiffReport,
+    ExtensionMode,
     LibraryTemplateInfo,
     ProjectInputs,
     ProjectListReport,
+    ProjectPolicyReport,
     ProjectResult,
     ProjectSnapshotReport,
     ProjectStatusReport,
     ProjectSummary,
+    ProjectUIMetadata,
+    ProjectUIMetadataReport,
+    ProposalActionReport,
+    ProposalListReport,
     PublishReport,
     RerunReport,
     RunInfo,
@@ -59,8 +66,10 @@ from arcavex.services.config import RuntimeConfig
 from arcavex.services.fsutil import atomic_write_text, home_dir
 from arcavex.services.imaging import dssim_files
 from arcavex.services.library import Library, is_library_ref
+from arcavex.services.project_policy import ProjectPolicyService
 from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import Project, ProjectService, template_stem
+from arcavex.services.proposals import ProposalService
 from arcavex.services.runs import (
     AssetProvenance,
     InputRef,
@@ -138,6 +147,10 @@ class Orchestrator:
         self._library = library or Library()
         self._projects = projects or ProjectService(self._library)
         self._project_snapshots = project_snapshots or ProjectSnapshotService(self._projects)
+        self._project_policies = ProjectPolicyService(
+            self._projects, self._project_snapshots
+        )
+        self._proposals = ProposalService(self._projects, self._project_snapshots)
         self._runs = run_store or RunStore()
         self._asset_root = asset_root if asset_root is not None else home_dir() / "assets"
         self._clock = clock
@@ -189,6 +202,73 @@ class Orchestrator:
         """Return the read-only project snapshot used by desktop and MCP clients."""
         return self._project_snapshots.snapshot(
             start=start, project=project, capabilities=capabilities
+        )
+
+    def project_ui_metadata(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectUIMetadataReport:
+        loaded = self._projects.resolve(start, project)
+        return self._ui_metadata_report(loaded)
+
+    def set_project_ui_metadata(
+        self,
+        start: Path | None,
+        project: Path | None,
+        metadata: ProjectUIMetadata,
+    ) -> ProjectUIMetadataReport:
+        loaded = self._projects.resolve(start, project)
+        self._projects.save_ui_metadata(loaded, metadata)
+        return self._ui_metadata_report(loaded)
+
+    def project_policy(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectPolicyReport:
+        return self._project_policies.get_policy(start=start, project=project)
+
+    def set_project_policy(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+    ) -> ProjectPolicyReport:
+        return self._project_policies.set_policy(
+            start=start, project=project, mode=mode, extensions=extensions
+        )
+
+    def list_project_proposals(
+        self, start: Path | None, project: Path | None
+    ) -> ProposalListReport:
+        return self._proposals.list_proposals(start=start, project=project)
+
+    def approve_project_proposal(
+        self, start: Path | None, project: Path | None, command_id: str
+    ) -> ProposalActionReport:
+        return self._proposals.approve(
+            start=start, project=project, command_id=command_id
+        )
+
+    def reject_project_proposal(
+        self,
+        start: Path | None,
+        project: Path | None,
+        command_id: str,
+        reason: str,
+    ) -> ProposalActionReport:
+        return self._proposals.reject(
+            start=start, project=project, command_id=command_id, reason=reason
+        )
+
+    def _ui_metadata_report(self, project: Project) -> ProjectUIMetadataReport:
+        metadata = self._projects.load_ui_metadata(project)
+        snapshot = self._project_snapshots.snapshot(project=project.root)
+        return ProjectUIMetadataReport(
+            ok=snapshot.ok,
+            canonical_path=snapshot.canonical_path,
+            metadata=metadata,
+            project_revision=snapshot.project_revision,
+            render_revision=snapshot.render_revision,
+            diagnostics=list(snapshot.diagnostics),
         )
 
     def clone_project(

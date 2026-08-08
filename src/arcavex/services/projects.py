@@ -19,12 +19,14 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from arcavex.kernel.api import AutomationPolicy, ProjectUIMetadata
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
 from arcavex.services.fsutil import atomic_write_text
 from arcavex.services.library import Library, ResolvedTemplate, is_library_ref
 from arcavex.services.template.loader import load_template, load_yaml
 
 PROJECT_FILE = "project.yaml"
+PROJECT_UI_FILE = "project.ui.yaml"
 
 ProjectStatus = Literal["draft", "review", "approved", "published"]
 _STATUSES: tuple[str, ...] = get_args(ProjectStatus)
@@ -47,6 +49,7 @@ class ProjectModel(BaseModel):
     dpi: int | None = None
     status: ProjectStatus = "draft"
     tags: list[str] = Field(default_factory=list)
+    automation: AutomationPolicy = Field(default_factory=AutomationPolicy)
 
 
 @dataclass(frozen=True)
@@ -209,6 +212,26 @@ class ProjectService:
         self._write_manifest(project.root, project.manifest)
         return project
 
+    def load_ui_metadata(self, project: Project) -> ProjectUIMetadata:
+        """Read optional project-owned editor metadata without creating the sidecar."""
+        path = project.root / PROJECT_UI_FILE
+        if not path.is_file():
+            return ProjectUIMetadata()
+        raw = load_yaml(path)
+        if not isinstance(raw, dict):
+            raise _invalid_ui_metadata(path, "project.ui.yaml is not a mapping")
+        try:
+            return ProjectUIMetadata.model_validate(_plain(raw))
+        except ValidationError as exc:
+            raise _invalid_ui_metadata(path, _first_error(exc)) from exc
+
+    def save_ui_metadata(
+        self, project: Project, metadata: ProjectUIMetadata
+    ) -> ProjectUIMetadata:
+        """Atomically persist canonical project-owned editor metadata."""
+        _dump_yaml_atomic(project.root / PROJECT_UI_FILE, _ui_metadata_dict(metadata))
+        return metadata
+
     def set_status(self, project: Project, status: str) -> Project:
         """Set the project's ``status`` (one of draft/review/approved/published) and persist it."""
         if status not in _STATUSES:
@@ -347,7 +370,46 @@ def _manifest_dict(manifest: ProjectModel) -> dict[str, Any]:
     # Only persist an explicit per-project DPI, so a scaffolded project.yaml stays clean.
     if manifest.dpi is not None:
         out["dpi"] = manifest.dpi
+    if manifest.automation != AutomationPolicy():
+        policy: dict[str, Any] = {"version": manifest.automation.version}
+        if manifest.automation.mode != "unrestricted":
+            policy["mode"] = manifest.automation.mode
+        if manifest.automation.extensions != "unrestricted":
+            policy["extensions"] = manifest.automation.extensions
+        out["automation"] = policy
     return out
+
+
+def _ui_metadata_dict(metadata: ProjectUIMetadata) -> dict[str, Any]:
+    """Render editor metadata without serializing optional/default noise."""
+    layers: dict[str, Any] = {}
+    for layer_id, layer in metadata.layers.items():
+        value: dict[str, Any] = {}
+        if layer.display_name is not None:
+            value["display_name"] = layer.display_name
+        if layer.locked:
+            value["locked"] = True
+        if layer.color is not None:
+            value["color"] = layer.color
+        layers[layer_id] = value
+    workspace = metadata.workspace.model_dump(
+        mode="python", exclude_defaults=True, exclude_none=True
+    )
+    return {"version": metadata.version, "layers": layers, "workspace": workspace}
+
+
+def _invalid_ui_metadata(path: Path, detail: str) -> DiagnosticError:
+    return DiagnosticError(
+        diagnostic(
+            "ARC-PRJ-008",
+            f"Invalid project UI metadata: {detail}",
+            file=str(path),
+            hint=(
+                "Use version 1 with layer display_name/locked/#RRGGBB color metadata and "
+                "supported project-local workspace fields."
+            ),
+        )
+    )
 
 
 def _template_style(raw: Any) -> str | None:

@@ -30,12 +30,14 @@ from mcp.types import TextContent
 from arcavex.bootstrap import build_facade
 from arcavex.kernel.api import (
     AssetReport,
+    AutomationMode,
     CheckResult,
     DataReport,
     DiagnosticHelp,
     DiffReport,
     EffectListReport,
     EngineHandshakeReport,
+    ExtensionMode,
     Facade,
     FontListReport,
     LayoutReport,
@@ -43,9 +45,14 @@ from arcavex.kernel.api import (
     PatchTemplateResult,
     PreviewResult,
     ProjectListReport,
+    ProjectPolicyReport,
     ProjectResult,
     ProjectSnapshotReport,
     ProjectStatusReport,
+    ProjectUIMetadata,
+    ProjectUIMetadataReport,
+    ProposalActionReport,
+    ProposalListReport,
     RenderResult,
     RerunReport,
     RunListReport,
@@ -160,6 +167,57 @@ class ArcavexTools:
     def project_snapshot(self, project: str | None = None) -> ProjectSnapshotReport:
         """Open a project read-only and report its source and render revision manifests."""
         return self._facade.project_snapshot(project=_opt_path(project))
+
+    def project_ui_metadata(
+        self, project: str | None = None
+    ) -> ProjectUIMetadataReport:
+        """Read project-owned non-rendering layer and workspace metadata."""
+        return self._facade.project_ui_metadata(project=_opt_path(project))
+
+    def project_ui_metadata_set(
+        self, metadata: ProjectUIMetadata, project: str | None = None
+    ) -> ProjectUIMetadataReport:
+        """Atomically replace validated project-owned editor metadata."""
+        return self._facade.set_project_ui_metadata(
+            metadata, project=_opt_path(project)
+        )
+
+    def project_policy(self, project: str | None = None) -> ProjectPolicyReport:
+        """Return effective project automation and extension policy."""
+        return self._facade.project_policy(project=_opt_path(project))
+
+    def project_policy_set(
+        self,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+        project: str | None = None,
+    ) -> ProjectPolicyReport:
+        """Atomically set project automation and extension policy."""
+        return self._facade.set_project_policy(
+            mode, extensions, project=_opt_path(project)
+        )
+
+    def project_proposal_list(
+        self, project: str | None = None
+    ) -> ProposalListReport:
+        """List deterministic proposal records and malformed-entry diagnostics."""
+        return self._facade.list_project_proposals(project=_opt_path(project))
+
+    def project_proposal_approve(
+        self, command_id: str, project: str | None = None
+    ) -> ProposalActionReport:
+        """Authorize a current proposal without claiming its command was applied."""
+        return self._facade.approve_project_proposal(
+            command_id, project=_opt_path(project)
+        )
+
+    def project_proposal_reject(
+        self, command_id: str, reason: str, project: str | None = None
+    ) -> ProposalActionReport:
+        """Persist an explicit proposal rejection without deleting its record."""
+        return self._facade.reject_project_proposal(
+            command_id, reason, project=_opt_path(project)
+        )
 
     def project_clone(
         self, target: str, name: str | None = None, project: str | None = None
@@ -364,6 +422,13 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_project_list", "project_list"),
     ("arcavex_project_status", "project_status"),
     ("project_snapshot", "project_snapshot"),
+    ("project_ui_metadata", "project_ui_metadata"),
+    ("project_ui_metadata_set", "project_ui_metadata_set"),
+    ("project_policy", "project_policy"),
+    ("project_policy_set", "project_policy_set"),
+    ("project_proposal_list", "project_proposal_list"),
+    ("project_proposal_approve", "project_proposal_approve"),
+    ("project_proposal_reject", "project_proposal_reject"),
     ("arcavex_project_clone", "project_clone"),
     ("arcavex_project_render", "project_render"),
     ("arcavex_render_record", "render_record"),

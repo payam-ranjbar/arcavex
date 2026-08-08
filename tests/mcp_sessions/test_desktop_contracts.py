@@ -3,10 +3,26 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 from arcavex.clients.mcp_server import ArcavexTools, build_mcp_server, tool_catalog
-from arcavex.kernel.api import EngineHandshakeReport, ProjectSnapshotReport
+from arcavex.kernel.api import (
+    EngineHandshakeReport,
+    LayerUIMetadata,
+    ProjectPolicyReport,
+    ProjectSnapshotReport,
+    ProjectUIMetadata,
+    ProjectUIMetadataReport,
+    ProposalActionReport,
+    ProposalActor,
+    ProposalListReport,
+)
+from arcavex.services.project_snapshot import ProjectSnapshotService
+from arcavex.services.projects import ProjectService
+from arcavex.services.proposals import ProposalService
+
+_COMMAND_ID = "00000000-0000-4000-8000-000000000001"
 
 
 def _project(root: Path) -> Path:
@@ -83,3 +99,109 @@ def test_project_snapshot_dispatches_through_the_live_mcp_server(
     assert structured["canonical_path"] == str(project.resolve())
     assert structured["project_revision"]
     assert structured["render_revision"]
+
+
+def test_metadata_policy_and_proposal_tools_return_shared_facade_models(
+    tools: ArcavexTools, tmp_path: Path
+) -> None:
+    """Desktop MCP wrappers must return kernel models, never transport-owned lookalikes."""
+    project = _project(tmp_path)
+    metadata = ProjectUIMetadata(
+        layers={"title": LayerUIMetadata(display_name="Hero", locked=True)}
+    )
+
+    metadata_report = tools.project_ui_metadata_set(metadata, str(project))
+    policy_report = tools.project_policy_set("review", "disabled", str(project))
+    proposal_report = tools.project_proposal_list(str(project))
+
+    assert isinstance(metadata_report, ProjectUIMetadataReport)
+    assert metadata_report.metadata == metadata
+    assert isinstance(tools.project_ui_metadata(str(project)), ProjectUIMetadataReport)
+    assert isinstance(policy_report, ProjectPolicyReport)
+    assert policy_report.policy.mode == "review"
+    assert policy_report.policy.extensions == "disabled"
+    assert isinstance(tools.project_policy(str(project)), ProjectPolicyReport)
+    assert isinstance(proposal_report, ProposalListReport)
+    assert proposal_report.proposals == []
+
+
+def test_proposal_approve_and_reject_tools_return_shared_action_report(
+    tools: ArcavexTools, tmp_path: Path
+) -> None:
+    """Approve/reject must preserve the authorization-state contract through MCP."""
+    project = _project(tmp_path)
+    projects = ProjectService()
+    snapshots = ProjectSnapshotService(projects)
+    proposals = ProposalService(projects, snapshots)
+    revision = snapshots.snapshot(project=project).project_revision
+    assert revision is not None
+    proposals.enqueue(
+        project=project,
+        command_id=_COMMAND_ID,
+        base_project_revision=revision,
+        actor=ProposalActor(id="agent-7"),
+        command_payload={"kind": "set_display_name"},
+        created_at=datetime(2026, 8, 8, 12, 30, tzinfo=UTC),
+    )
+
+    approved = tools.project_proposal_approve(_COMMAND_ID, str(project))
+    rejected = tools.project_proposal_reject(
+        "00000000-0000-4000-8000-000000000002", "duplicate", str(project)
+    )
+
+    assert isinstance(approved, ProposalActionReport)
+    assert approved.proposal is not None and approved.proposal.state == "authorized"
+    assert isinstance(rejected, ProposalActionReport)
+    assert not rejected.ok
+
+
+def test_new_desktop_tools_export_shared_output_schemas() -> None:
+    """MCP schema generation must stay pinned to the frozen kernel report models."""
+    catalog = {tool["name"]: tool for tool in tool_catalog(build_mcp_server())}
+    expected = {
+        "project_ui_metadata": ProjectUIMetadataReport,
+        "project_ui_metadata_set": ProjectUIMetadataReport,
+        "project_policy": ProjectPolicyReport,
+        "project_policy_set": ProjectPolicyReport,
+        "project_proposal_list": ProposalListReport,
+        "project_proposal_approve": ProposalActionReport,
+        "project_proposal_reject": ProposalActionReport,
+    }
+
+    assert {
+        name: catalog[name]["outputSchema"] for name in expected
+    } == {name: model.model_json_schema() for name, model in expected.items()}
+
+
+def test_new_desktop_contracts_dispatch_through_live_mcp_server(
+    server, tmp_path: Path
+) -> None:
+    """The public transport names must parse inputs and return structured reports."""
+    project = _project(tmp_path)
+
+    _content, metadata = asyncio.run(
+        server.call_tool("project_ui_metadata", {"project": str(project)})
+    )
+    _content, policy = asyncio.run(
+        server.call_tool(
+            "project_policy_set",
+            {"project": str(project), "mode": "review", "extensions": "disabled"},
+        )
+    )
+    _content, proposals = asyncio.run(
+        server.call_tool("project_proposal_list", {"project": str(project)})
+    )
+
+    assert metadata["metadata"] == {
+        "version": 1,
+        "layers": {},
+        "workspace": {
+            "active_format": None,
+            "active_locale": None,
+            "layer_tree_mode": "definition",
+            "selected_layer_ids": [],
+        },
+    }
+    assert policy["policy"]["mode"] == "review"
+    assert policy["policy"]["extensions"] == "disabled"
+    assert proposals["proposals"] == []

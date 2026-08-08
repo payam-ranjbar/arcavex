@@ -16,10 +16,11 @@ import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator
 
 from arcavex.kernel.contracts.types import (
     ExportOptions,
@@ -596,6 +597,156 @@ class ProjectSnapshotReport(BaseModel):
     render_manifest: list[RevisionManifestEntry] = Field(default_factory=list)
     source_files: list[ProjectSourceFile] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class LayerUIMetadata(BaseModel):
+    """Non-rendering editor metadata for one stable authored layer ID."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    display_name: str | None = None
+    locked: bool = False
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class ProjectWorkspaceState(BaseModel):
+    """Project-local workspace choices that may travel with the authored project."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    active_format: str | None = None
+    active_locale: str | None = None
+    layer_tree_mode: Literal["definition", "rendered"] = "definition"
+    selected_layer_ids: list[str] = Field(default_factory=list)
+
+
+class ProjectUIMetadata(BaseModel):
+    """Versioned contents of the optional non-rendering ``project.ui.yaml`` sidecar."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: Literal[1] = 1
+    layers: dict[str, LayerUIMetadata] = Field(default_factory=dict)
+    workspace: ProjectWorkspaceState = Field(default_factory=ProjectWorkspaceState)
+
+    @field_validator("layers")
+    @classmethod
+    def _stable_layer_ids(
+        cls, value: dict[str, LayerUIMetadata]
+    ) -> dict[str, LayerUIMetadata]:
+        if any(not layer_id.strip() for layer_id in value):
+            raise ValueError("layer metadata keys must be non-empty stable authored IDs")
+        return value
+
+
+class ProjectUIMetadataReport(BaseModel):
+    """Current editor metadata together with the revisions that govern it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    metadata: ProjectUIMetadata = Field(default_factory=ProjectUIMetadata)
+    project_revision: str | None = None
+    render_revision: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+AutomationMode = Literal["unrestricted", "review", "read_only"]
+ExtensionMode = Literal["unrestricted", "disabled"]
+
+
+class AutomationPolicy(BaseModel):
+    """Versioned project-local policy for semantic automation and extension execution."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: Literal[1] = 1
+    mode: AutomationMode = "unrestricted"
+    extensions: ExtensionMode = "unrestricted"
+
+
+class ProjectPolicyReport(BaseModel):
+    """Current project policy together with the revisions that govern it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    policy: AutomationPolicy = Field(default_factory=AutomationPolicy)
+    project_revision: str | None = None
+    render_revision: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ProposalActor(BaseModel):
+    """Identity attached to a queued semantic command proposal."""
+
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    id: str = Field(min_length=1)
+    display_name: str | None = None
+
+
+ProposalState = Literal["pending", "authorized", "rejected"]
+
+
+class ProjectProposal(BaseModel):
+    """Versioned queue record for a future semantic editor command."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: Literal[1] = 1
+    command_id: UUID4
+    project_path: str
+    base_project_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    actor: ProposalActor
+    command_payload: dict[str, Any]
+    created_at: datetime
+    state: ProposalState = "pending"
+    rejection_reason: str | None = None
+
+    @field_validator("project_path")
+    @classmethod
+    def _canonical_project_path(cls, value: str) -> str:
+        path = Path(value)
+        if not path.is_absolute() or str(path.resolve()) != value:
+            raise ValueError("project_path must be a canonical absolute path")
+        return value
+
+    @field_validator("created_at")
+    @classmethod
+    def _aware_created_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at must include a timezone")
+        return value
+
+
+class ProposalListReport(BaseModel):
+    """Deterministically ordered proposals plus diagnostics for unreadable entries."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    proposals: list[ProjectProposal] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ProposalActionReport(BaseModel):
+    """Result of authorizing or rejecting one proposal; no command execution is implied."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    project_revision: str | None = None
+    proposal: ProjectProposal | None = None
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -1463,6 +1614,45 @@ class OrchestratorProtocol(Protocol):
         project: Path | None,
         capabilities: list[str],
     ) -> ProjectSnapshotReport: ...
+
+    def project_ui_metadata(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectUIMetadataReport: ...
+
+    def set_project_ui_metadata(
+        self,
+        start: Path | None,
+        project: Path | None,
+        metadata: ProjectUIMetadata,
+    ) -> ProjectUIMetadataReport: ...
+
+    def project_policy(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectPolicyReport: ...
+
+    def set_project_policy(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+    ) -> ProjectPolicyReport: ...
+
+    def list_project_proposals(
+        self, start: Path | None, project: Path | None
+    ) -> ProposalListReport: ...
+
+    def approve_project_proposal(
+        self, start: Path | None, project: Path | None, command_id: str
+    ) -> ProposalActionReport: ...
+
+    def reject_project_proposal(
+        self,
+        start: Path | None,
+        project: Path | None,
+        command_id: str,
+        reason: str,
+    ) -> ProposalActionReport: ...
 
     def clone_project(
         self, start: Path | None, project: Path | None, target: Path, name: str
@@ -2549,6 +2739,80 @@ class Facade:
         return self._guard_project(
             lambda o: o.project_snapshot(start, project, capabilities),
             ProjectSnapshotReport,
+        )
+
+    def project_ui_metadata(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProjectUIMetadataReport:
+        """Read optional project editor metadata without creating its sidecar."""
+        return self._guard_project(
+            lambda o: o.project_ui_metadata(start, project), ProjectUIMetadataReport
+        )
+
+    def set_project_ui_metadata(
+        self,
+        metadata: ProjectUIMetadata,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProjectUIMetadataReport:
+        """Atomically replace validated project editor metadata."""
+        return self._guard_project(
+            lambda o: o.set_project_ui_metadata(start, project, metadata),
+            ProjectUIMetadataReport,
+        )
+
+    def project_policy(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProjectPolicyReport:
+        """Return effective automation and extension policy without writing defaults."""
+        return self._guard_project(
+            lambda o: o.project_policy(start, project), ProjectPolicyReport
+        )
+
+    def set_project_policy(
+        self,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProjectPolicyReport:
+        """Atomically update project automation and extension policy."""
+        return self._guard_project(
+            lambda o: o.set_project_policy(start, project, mode, extensions),
+            ProjectPolicyReport,
+        )
+
+    def list_project_proposals(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProposalListReport:
+        """List valid project queue records and diagnostics for malformed entries."""
+        return self._guard_project(
+            lambda o: o.list_project_proposals(start, project), ProposalListReport
+        )
+
+    def approve_project_proposal(
+        self,
+        command_id: str,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProposalActionReport:
+        """Revision-check and authorize a proposal without applying its command."""
+        return self._guard_project(
+            lambda o: o.approve_project_proposal(start, project, command_id),
+            ProposalActionReport,
+        )
+
+    def reject_project_proposal(
+        self,
+        command_id: str,
+        reason: str,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProposalActionReport:
+        """Persist an explicit rejection while retaining the proposal record."""
+        return self._guard_project(
+            lambda o: o.reject_project_proposal(start, project, command_id, reason),
+            ProposalActionReport,
         )
 
     def clone_project(

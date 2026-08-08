@@ -1047,6 +1047,52 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "if you want upgrades back.",
         ),
         _e(
+            "ARC-PRJ-008",
+            "Invalid project UI metadata",
+            "The optional project.ui.yaml sidecar is not a version 1 mapping or contains an "
+            "unsupported layer/workspace field, invalid lock value, or invalid #RRGGBB color.",
+            "Use version 1, key layer metadata by stable authored ID, and keep workspace state "
+            "to the documented project-local fields.",
+        ),
+        _e(
+            "ARC-PRJ-009",
+            "Invalid proposal command ID",
+            "A proposal command ID is not a canonical lowercase UUIDv4, so it cannot safely and "
+            "deterministically identify a queue filename.",
+            "Generate a new canonical UUIDv4 and submit the proposal using its lowercase string.",
+        ),
+        _e(
+            "ARC-PRJ-010",
+            "Malformed proposal queue entry",
+            "A JSON record under .arcavex/pending cannot be decoded or validated, does not match "
+            "its filename, or names a different canonical project. Other valid records are still "
+            "listed.",
+            "Repair or remove the named queue JSON record, then list proposals again.",
+        ),
+        _e(
+            "ARC-PRJ-011",
+            "Proposal base revision is stale",
+            "The project revision has changed since the proposal was created. Authorization is "
+            "refused and both project source and the pending record remain unchanged.",
+            "Reload the project, inspect the changed revision manifest, and submit a new proposal "
+            "against the current project revision.",
+        ),
+        _e(
+            "ARC-PRJ-012",
+            "Proposal unavailable for this action",
+            "The requested proposal does not exist or its current pending/authorized/rejected "
+            "state does not permit the requested transition.",
+            "List proposals and choose a pending command, or submit a new command with a new UUID.",
+        ),
+        _e(
+            "ARC-PRJ-013",
+            "Invalid proposal record",
+            "A proposal has an invalid canonical project path, base project revision, actor, "
+            "created timestamp, state, or command payload that cannot be represented as JSON.",
+            "Provide a canonical project path, SHA-256 base revision, actor identity, "
+            "timezone-aware timestamp, and JSON-serializable command payload.",
+        ),
+        _e(
             "ARC-LIB-001",
             "Unknown library template or version",
             "A template reference names a template that is not published, or a version that "
