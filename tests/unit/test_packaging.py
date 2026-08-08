@@ -7,9 +7,12 @@ versions. `mcp` did: an unbounded spec resolved to 2.0.0, which had removed the 
 
 from __future__ import annotations
 
+import importlib.util
 import re
+import sys
 import tomllib
 from pathlib import Path
+from types import ModuleType
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
@@ -68,3 +71,25 @@ def test_mcp_excludes_the_major_that_removed_fastmcp() -> None:
     dev = _declared_requirements()["optional-dependencies.dev"]
     spec = next(r for r in dev if r.startswith("mcp"))
     assert "<2" in spec.replace(" ", ""), f"mcp must be capped below 2.0: {spec!r}"
+
+
+def _load_frozen_verifier() -> ModuleType:
+    source = _REPO_ROOT / "packaging" / "verify_frozen.py"
+    spec = importlib.util.spec_from_file_location("arcavex_verify_frozen_test", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_frozen_verifier_renders_the_current_bilingual_fixture(tmp_path: Path) -> None:
+    """The frozen verifier must use a fixture retained by the current repository."""
+    verifier = _load_frozen_verifier()
+    output = tmp_path / "bilingual.a4.fa.png"
+
+    verifier._render(  # type: ignore[attr-defined]
+        [sys.executable, "-m", "arcavex.clients.cli"], "a4", "fa", output
+    )
+
+    assert output.is_file()
+    assert output.stat().st_size > 0

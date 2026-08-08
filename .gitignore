@@ -20,6 +20,11 @@ htmlcov/
 **/outputs/working/
 *.tmp
 
+# Desktop build outputs
+/apps/desktop/node_modules/
+/apps/desktop/dist/
+/apps/desktop/src-tauri/target/
+
 # OS / editor
 .DS_Store
 Thumbs.db

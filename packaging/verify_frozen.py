@@ -6,7 +6,7 @@ package metadata changes the PDF ``Producer`` string, a different ICU build resh
 text. None of those raise an error — they just change pixels. So the packaged binary is only
 trustworthy if its bytes are compared against the reference implementation, not merely run.
 
-This renders the full reference-poster matrix (5 formats x 2 locales, plus both A4 PDFs) with
+This renders the synthetic bilingual fixture matrix (3 formats x 2 locales, plus both A4 PDFs) with
 the dev install and with the frozen binary, and compares SHA-256 digests. It also checks that
 the MCP tool catalog is identical, since the binary's purpose is to serve that surface.
 
@@ -28,8 +28,9 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-POSTER = ROOT / "examples" / "reference-poster"
-FORMATS = ("portrait", "square", "story", "landscape", "a4")
+POSTER = ROOT / "tests" / "fixtures" / "bilingual-poster"
+DATA = POSTER / "data.yaml"
+FORMATS = ("square", "story", "a4")
 LOCALES = ("en", "fa")
 
 
@@ -65,7 +66,7 @@ def _render(engine: list[str], fmt: str, locale: str, out: Path) -> None:
         "render",
         str(POSTER),
         "--data",
-        str(POSTER / "data" / f"poster.{locale}.yaml"),
+        str(DATA),
         "--format",
         fmt,
         "--locale",

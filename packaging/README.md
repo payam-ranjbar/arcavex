@@ -40,8 +40,8 @@ renders subtly different pixels, and none of them raise an error:
 - **Missing style packs.** These resolve to *nothing* rather than to an error. See below.
 - **A different ICU.** Farsi shaping and digit handling change. See below.
 
-`verify_frozen.py` renders the full reference-poster matrix (5 formats × 2 locales, plus both A4
-PDFs) with the dev install and the binary and compares SHA-256 digests, then compares the MCP tool
+`verify_frozen.py` renders the synthetic bilingual-fixture matrix (3 formats × 2 locales, plus both
+A4 PDFs) with the dev install and the binary and compares SHA-256 digests, then compares the MCP tool
 catalog. Anything less than a digest comparison would not have caught the two bugs found while
 building this.
 
