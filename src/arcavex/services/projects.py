@@ -31,6 +31,7 @@ PROJECT_UI_FILE = "project.ui.yaml"
 
 ProjectStatus = Literal["draft", "review", "approved", "published"]
 _STATUSES: tuple[str, ...] = get_args(ProjectStatus)
+_AUTOMATION_POLICY_KEYS = frozenset({"version", "mode", "extensions"})
 
 
 class ProjectModel(BaseModel):
@@ -148,7 +149,7 @@ class ProjectService:
         if not isinstance(raw, dict):
             raise self._invalid(project_dir, "project.yaml is not a mapping")
         try:
-            manifest = ProjectModel.model_validate(_plain(raw))
+            manifest = ProjectModel.model_validate(_manifest_validation_data(raw))
         except ValidationError as exc:
             raise self._invalid(project_dir, _first_error(exc)) from exc
         return Project(root=project_dir, manifest=manifest)
@@ -244,25 +245,29 @@ class ProjectService:
             raw = load_yaml(path)
             if not isinstance(raw, dict):
                 raise self._invalid(project.root, "project.yaml is not a mapping")
-            if policy == AutomationPolicy():
+            existing = raw.get("automation")
+            if isinstance(existing, dict):
+                automation = existing
+            else:
+                automation: dict[str, Any] = {}
+                raw["automation"] = automation
+
+            if policy.mode == "unrestricted":
+                automation.pop("mode", None)
+            else:
+                automation["mode"] = policy.mode
+            if policy.extensions == "unrestricted":
+                automation.pop("extensions", None)
+            else:
+                automation["extensions"] = policy.extensions
+
+            has_unknown_fields = any(
+                key not in _AUTOMATION_POLICY_KEYS for key in automation
+            )
+            if policy == AutomationPolicy() and not has_unknown_fields:
                 raw.pop("automation", None)
             else:
-                existing = raw.get("automation")
-                automation: dict[str, Any]
-                if isinstance(existing, dict):
-                    automation = existing
-                else:
-                    automation = {}
-                    raw["automation"] = automation
                 automation["version"] = policy.version
-                if policy.mode == "unrestricted":
-                    automation.pop("mode", None)
-                else:
-                    automation["mode"] = policy.mode
-                if policy.extensions == "unrestricted":
-                    automation.pop("extensions", None)
-                else:
-                    automation["extensions"] = policy.extensions
             _dump_yaml_atomic(path, raw)
             return self.load(project.root)
 
@@ -469,6 +474,19 @@ def _plain(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_plain(v) for v in obj]
     return obj
+
+
+def _manifest_validation_data(raw: dict[Any, Any]) -> dict[str, Any]:
+    """Validate known persisted policy axes while tolerating forward metadata."""
+    data: dict[str, Any] = _plain(raw)
+    automation = data.get("automation")
+    if isinstance(automation, dict):
+        data["automation"] = {
+            key: value
+            for key, value in automation.items()
+            if key in _AUTOMATION_POLICY_KEYS
+        }
+    return data
 
 
 def _first_error(exc: ValidationError) -> str:

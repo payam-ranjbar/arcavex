@@ -197,6 +197,68 @@ automation:
     assert _comment_values(after) == before_comments
 
 
+def test_policy_updates_preserve_unknown_automation_metadata_and_comments(
+    tmp_path: Path,
+) -> None:
+    """Strict known policy axes must not erase forward-compatible manifest metadata."""
+    root = _project(tmp_path)
+    path = root / "project.yaml"
+    path.write_text(
+        """\
+name: launch
+template: ./template
+formats: [square]
+locales: []
+automation:
+  # retained automation metadata
+  version: 1
+  mode: review  # retained known-axis note
+  extensions: disabled
+  vendor:
+    # retained nested metadata
+    executor:
+      protocol: future  # retained inline metadata
+""",
+        encoding="utf-8",
+    )
+    before = load_yaml(path)
+    before_automation_comments = _comment_values(before["automation"])
+    before_vendor_comments = _comment_values(before["automation"]["vendor"])
+    projects = ProjectService()
+    policies = ProjectPolicyService(projects, ProjectSnapshotService(projects))
+
+    changed = policies.set_policy(
+        project=root, mode="read_only", extensions="disabled"
+    )
+    after_change = load_yaml(path)
+
+    assert changed.policy == AutomationPolicy(
+        mode="read_only", extensions="disabled"
+    )
+    assert after_change["automation"] == {
+        "version": 1,
+        "mode": "read_only",
+        "extensions": "disabled",
+        "vendor": {"executor": {"protocol": "future"}},
+    }
+    assert _comment_values(after_change["automation"]) == before_automation_comments
+
+    defaulted = policies.set_policy(
+        project=root, mode="unrestricted", extensions="unrestricted"
+    )
+    after_defaults = load_yaml(path)
+
+    assert defaulted.policy == AutomationPolicy()
+    assert after_defaults["automation"] == {
+        "version": 1,
+        "vendor": {"executor": {"protocol": "future"}},
+    }
+    assert (
+        _comment_values(after_defaults["automation"]["vendor"])
+        == before_vendor_comments
+    )
+
+
 def test_policy_service_reports_revisions_and_changes_only_project_revision(
     tmp_path: Path,
 ) -> None:
