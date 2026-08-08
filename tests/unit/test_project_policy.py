@@ -259,6 +259,62 @@ automation:
     )
 
 
+@pytest.mark.parametrize(
+    "known_fields",
+    [
+        pytest.param(
+            "  extensions: disabled\n  mode: review\n",
+            id="comment-associated-with-mode",
+        ),
+        pytest.param(
+            "  mode: review\n  extensions: disabled\n",
+            id="comment-associated-with-extensions",
+        ),
+    ],
+)
+def test_default_policy_rehomes_comment_from_removed_known_axis(
+    tmp_path: Path, known_fields: str
+) -> None:
+    """Removing a known axis must not take the following unknown field's comment with it."""
+    root = _project(tmp_path)
+    path = root / "project.yaml"
+    path.write_text(
+        """\
+name: launch
+template: ./template
+formats: [square]
+locales: []
+automation:
+  version: 1
+"""
+        + known_fields
+        + """\
+  # vendor metadata must stay
+  vendor:
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    before = load_yaml(path)
+    expected_comments = _comment_values(before["automation"])
+    projects = ProjectService()
+    policies = ProjectPolicyService(projects, ProjectSnapshotService(projects))
+
+    report = policies.set_policy(
+        project=root, mode="unrestricted", extensions="unrestricted"
+    )
+    after = load_yaml(path)
+
+    assert report.policy == AutomationPolicy()
+    assert after["automation"] == {
+        "version": 1,
+        "vendor": {"enabled": True},
+    }
+    assert expected_comments
+    assert _comment_values(after["automation"]) == expected_comments
+    assert _comment_values(after["automation"]["vendor"]) == []
+
+
 def test_policy_service_reports_revisions_and_changes_only_project_revision(
     tmp_path: Path,
 ) -> None:

@@ -32,6 +32,7 @@ PROJECT_UI_FILE = "project.ui.yaml"
 ProjectStatus = Literal["draft", "review", "approved", "published"]
 _STATUSES: tuple[str, ...] = get_args(ProjectStatus)
 _AUTOMATION_POLICY_KEYS = frozenset({"version", "mode", "extensions"})
+_AUTOMATION_POLICY_AXES = frozenset({"mode", "extensions"})
 
 
 class ProjectModel(BaseModel):
@@ -253,11 +254,11 @@ class ProjectService:
                 raw["automation"] = automation
 
             if policy.mode == "unrestricted":
-                automation.pop("mode", None)
+                _pop_default_automation_field(automation, "mode")
             else:
                 automation["mode"] = policy.mode
             if policy.extensions == "unrestricted":
-                automation.pop("extensions", None)
+                _pop_default_automation_field(automation, "extensions")
             else:
                 automation["extensions"] = policy.extensions
 
@@ -487,6 +488,43 @@ def _manifest_validation_data(raw: dict[Any, Any]) -> dict[str, Any]:
             if key in _AUTOMATION_POLICY_KEYS
         }
     return data
+
+
+def _pop_default_automation_field(
+    automation: dict[str, Any], field: str
+) -> None:
+    """Remove a default-valued axis without dropping a following unknown key's comment."""
+    comments = getattr(automation, "ca", None)
+    ordered_keys = list(automation)
+    if comments is not None and field in automation:
+        index = ordered_keys.index(field)
+        following = ordered_keys[index + 1] if index + 1 < len(ordered_keys) else None
+        attached = comments.items.get(field)
+        token = attached[2] if attached and len(attached) > 2 else None
+        if (
+            token is not None
+            and following is not None
+            and following not in _AUTOMATION_POLICY_KEYS
+        ):
+            for anchor in reversed(ordered_keys[:index]):
+                if anchor in _AUTOMATION_POLICY_AXES:
+                    continue
+                destination = comments.items.setdefault(
+                    anchor, [None, None, None, None]
+                )
+                if destination[2] is None:
+                    destination[2] = token
+                    attached[2] = None
+                    break
+            else:
+                destination = comments.items.setdefault(
+                    following, [None, None, None, None]
+                )
+                if destination[1] is None:
+                    destination[1] = []
+                destination[1].append(token)
+                attached[2] = None
+    automation.pop(field, None)
 
 
 def _first_error(exc: ValidationError) -> str:
