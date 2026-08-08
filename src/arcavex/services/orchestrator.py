@@ -106,6 +106,16 @@ def _output_name(stem: str, fmt: str, locale: str | None) -> str:
     return f"{stem}.{fmt}{locale_seg}.png"
 
 
+def _no_project_formats(project: Project) -> Diagnostic:
+    """Return the shared diagnosis for a project with no render target formats."""
+    return diagnostic(
+        "ARC-PRJ-002",
+        "Project declares no formats to render",
+        file=str(project.project_file),
+        hint="Add at least one format to 'formats:' in project.yaml.",
+    )
+
+
 @dataclass
 class _Rendered:
     """One rendered target staged for a run: its file, target, hashes, and provenance."""
@@ -229,7 +239,10 @@ class Orchestrator:
             None if format_name is None else [format_name],
             None if locale is None else [locale],
         )
+        if not targets:
+            raise DiagnosticError(_no_project_formats(loaded))
         target_format, target_locale = targets[0]
+        output_dpi = self._config.resolve_dpi(project=loaded.manifest.dpi).value
         return self._layers.layer_tree(
             template_dir,
             loaded.data_path,
@@ -238,6 +251,7 @@ class Orchestrator:
             loaded.manifest.style,
             mode,
             self._projects.load_ui_metadata(loaded),
+            output_dpi=output_dpi,
             project_patch=patch_ops,
             project_patch_file=patch_file,
         )
@@ -261,7 +275,10 @@ class Orchestrator:
             None if format_name is None else [format_name],
             None if locale is None else [locale],
         )
+        if not targets:
+            raise DiagnosticError(_no_project_formats(loaded))
         target_format, target_locale = targets[0]
+        output_dpi = self._config.resolve_dpi(project=loaded.manifest.dpi).value
         return self._layers.hit_test(
             template_dir,
             loaded.data_path,
@@ -270,6 +287,7 @@ class Orchestrator:
             loaded.manifest.style,
             self._projects.load_ui_metadata(loaded),
             point_pt,
+            output_dpi=output_dpi,
             project_patch=patch_ops,
             project_patch_file=patch_file,
         )
@@ -400,14 +418,7 @@ class Orchestrator:
         if not targets:
             return RunReport(
                 ok=False,
-                diagnostics=[
-                    diagnostic(
-                        "ARC-PRJ-002",
-                        "Project declares no formats to render",
-                        file=str(proj.project_file),
-                        hint="Add at least one format to 'formats:' in project.yaml.",
-                    )
-                ],
+                diagnostics=[_no_project_formats(proj)],
             )
         effective_dpi = self._config.resolve_dpi(cli=dpi, project=proj.manifest.dpi).value
         return self._execute_run(

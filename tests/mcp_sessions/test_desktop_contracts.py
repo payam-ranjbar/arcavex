@@ -167,6 +167,32 @@ def test_layer_tree_and_hit_test_dispatch_through_the_live_mcp_server(
     assert HitTestReport.model_validate(hits).model_dump(mode="json") == hits
 
 
+def test_live_mcp_hit_test_returns_stable_diagnostic_for_invalid_points(
+    server, tmp_path: Path
+) -> None:
+    """MCP parsing must route malformed and non-finite coordinates through the Facade guard."""
+    project = _project(tmp_path)
+
+    for invalid in ("not-a-number", float("nan"), float("inf"), float("-inf")):
+        _content, structured = asyncio.run(
+            server.call_tool(
+                "hit_test",
+                {
+                    "project": str(project),
+                    "x_pt": invalid,
+                    "y_pt": 0.0,
+                    "format": "square",
+                },
+            )
+        )
+
+        assert structured["ok"] is False
+        assert structured["point_pt"] == [0.0, 0.0]
+        assert structured["point_px"] is None
+        assert structured["candidates"] == []
+        assert [item["code"] for item in structured["diagnostics"]] == ["ARC-IR-015"]
+
+
 def test_metadata_policy_and_proposal_tools_return_shared_facade_models(
     tools: ArcavexTools, tmp_path: Path
 ) -> None:

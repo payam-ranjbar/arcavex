@@ -142,6 +142,20 @@ def test_hit_test_contract_uses_canvas_points_and_shared_candidates() -> None:
     }
     with pytest.raises(ValidationError):
         report.point_pt = (0.0, 0.0)
+    with pytest.raises(ValidationError):
+        report_type(ok=True, point_pt=(float("nan"), 0.0))
+    with pytest.raises(ValidationError):
+        candidate_type(
+            id="bad",
+            authored_id="bad",
+            instance_id="bad",
+            kind="shape",
+            display_name="Bad",
+            editable=True,
+            locked=False,
+            bounds_pt=(0.0, 0.0, float("inf"), 1.0),
+            paint_bounds_pt=(0.0, 0.0, 1.0, 1.0),
+        )
 
 
 def test_hit_test_returns_reverse_paint_containment_and_keeps_locked_candidates(
@@ -204,3 +218,75 @@ def test_hit_test_outside_canvas_returns_no_candidates(tmp_path: Path) -> None:
 
     assert report.ok
     assert report.candidates == []
+
+
+def test_facade_invalid_hit_points_return_one_stable_input_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """Conversion errors and non-finite floats must never escape the Facade boundary."""
+    facade = build_facade()
+    project = _project(tmp_path)
+
+    for invalid in ("not-a-number", float("nan"), float("inf"), float("-inf")):
+        report = facade.hit_test(  # type: ignore[arg-type]
+            project=project,
+            x_pt=invalid,
+            y_pt=0.0,
+            format_name="square",
+            locale="en",
+        )
+
+        assert not report.ok
+        assert report.point_pt == (0.0, 0.0)
+        assert report.point_px is None
+        assert report.candidates == []
+        assert [diagnostic.code for diagnostic in report.diagnostics] == ["ARC-IR-015"]
+
+
+def test_zero_effective_opacity_suppresses_hits_without_changing_visibility(
+    tmp_path: Path,
+) -> None:
+    """A transparent group must suppress its branch while positive opacity still paints."""
+    project = _project(tmp_path)
+    template = project / "template" / "template.yaml"
+    template.write_text(
+        template.read_text(encoding="utf-8")
+        .replace(
+            "id: background\n      type: shape",
+            "id: background\n      type: shape\n      style: {opacity: 0.25}",
+        )
+        .replace(
+            "id: panel\n      type: group",
+            "id: panel\n      type: group\n      style: {opacity: 0}",
+        )
+        .replace(
+            "id: foreground\n      type: shape",
+            "id: foreground\n      type: shape\n      style: {opacity: 0}",
+        ),
+        encoding="utf-8",
+    )
+    facade = build_facade()
+
+    tree = facade.layer_tree(
+        project=project,
+        mode="rendered",
+        format_name="square",
+        locale="en",
+    )
+    hit = facade.hit_test(
+        project=project,
+        x_pt=10.0,
+        y_pt=10.0,
+        format_name="square",
+        locale="en",
+    )
+
+    assert tree.root is not None
+    by_id = {row.id: row for row in tree.root.children}
+    nested = by_id["panel"].children[0]
+    assert (by_id["foreground"].visible, by_id["foreground"].hit_testable) == (True, False)
+    assert (by_id["panel"].visible, by_id["panel"].hit_testable) == (True, False)
+    assert (nested.visible, nested.hit_testable) == (True, False)
+    candidate_ids = {candidate.id for candidate in hit.candidates}
+    assert {"foreground", "panel", "nested"}.isdisjoint(candidate_ids)
+    assert "background" in candidate_ids

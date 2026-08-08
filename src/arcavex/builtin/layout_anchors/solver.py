@@ -85,7 +85,14 @@ class AnchorLayoutSolver(LayoutSolver):
         """Resolve geometry for every node into a new layout document."""
         warnings: list[Diagnostic] = []
         canvas = Rect(0.0, 0.0, doc.canvas.width_pt, doc.canvas.height_pt)
-        root = self._solve_node(doc.root, canvas, doc.root.direction, measure, warnings)
+        root = self._solve_node(
+            doc.root,
+            canvas,
+            doc.root.direction,
+            measure,
+            warnings,
+            Matrix3.identity(),
+        )
         return LayoutDocument(
             canvas=_resolved_canvas(doc),
             seed=doc.seed,
@@ -101,9 +108,12 @@ class AnchorLayoutSolver(LayoutSolver):
         inherited_dir: str,
         measure: MeasureFn,
         warnings: list[Diagnostic],
+        parent_transform: Matrix3,
     ) -> LayoutNode:
         rotate_deg = node.transform.rotate_deg
         origin = self._origin_abs(node, bounds) if rotate_deg else None
+        local_transform = self._transform(rotate_deg, origin)
+        absolute_transform = local_transform.then(parent_transform)
 
         content, overflow = self._resolve_content(node, bounds, inherited_dir, measure, warnings)
 
@@ -114,7 +124,14 @@ class AnchorLayoutSolver(LayoutSolver):
             child_dir = node.direction
             child_rects = self._layout_children(node, bounds, measure, warnings)
             children = tuple(
-                self._solve_node(child, rect, child_dir, measure, warnings)
+                self._solve_node(
+                    child,
+                    rect,
+                    child_dir,
+                    measure,
+                    warnings,
+                    absolute_transform,
+                )
                 for child, rect in child_rects
             )
 
@@ -122,13 +139,15 @@ class AnchorLayoutSolver(LayoutSolver):
         # that expanded rectangle's post-rotation AABB. Layout/anchoring still use `bounds`.
         expansion = self._effect_expansion(node.effects)
         render_bounds = bounds.expanded(expansion)
-        paint_bounds = self._paint_bounds(render_bounds, rotate_deg, origin)
+        paint_bounds = self._transform_bounds(render_bounds, local_transform)
         return LayoutNode(
             source_node_id=node.id,
             authored_node_id=node.authored_node_id or node.id,
             kind=node.type,
             bounds=bounds,
-            absolute_transform=self._transform(rotate_deg, origin),
+            absolute_transform=absolute_transform,
+            canvas_bounds=self._transform_bounds(bounds, absolute_transform),
+            canvas_paint_bounds=self._transform_bounds(render_bounds, absolute_transform),
             paint_bounds=paint_bounds,
             render_bounds=render_bounds,
             effects=node.effects,
@@ -829,7 +848,9 @@ class AnchorLayoutSolver(LayoutSolver):
     ) -> Rect:
         if not deg or origin is None:
             return bounds
-        matrix = self._transform(deg, origin)
+        return self._transform_bounds(bounds, self._transform(deg, origin))
+
+    def _transform_bounds(self, bounds: Rect, matrix: Matrix3) -> Rect:
         corners = [
             matrix.apply(bounds.x, bounds.y),
             matrix.apply(bounds.right, bounds.y),

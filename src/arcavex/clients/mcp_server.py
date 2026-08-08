@@ -184,8 +184,8 @@ class ArcavexTools:
 
     def hit_test(
         self,
-        x_pt: float,
-        y_pt: float,
+        x_pt: float | str,
+        y_pt: float | str,
         project: str | None = None,
         format: str | None = None,
         locale: str | None = None,

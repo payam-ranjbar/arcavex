@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from arcavex.bootstrap import build_facade
 from arcavex.kernel import api
+from arcavex.services.layers import _virtual_rows
 
 
 def _project(tmp_path: Path, *, cards: str = "[]", show_badge: bool = False) -> Path:
@@ -105,6 +106,128 @@ def _project_state(project: Path) -> tuple[tuple[str, bytes, int], ...]:
         )
         for path in sorted(item for item in project.rglob("*") if item.is_file())
     )
+
+
+def _nested_rotation_project(tmp_path: Path) -> Path:
+    project = tmp_path / "nested-rotation"
+    template = project / "template"
+    template.mkdir(parents=True)
+    (project / "project.yaml").write_text(
+        "name: nested-rotation\ntemplate: ./template\nformats: [square]\nlocales: [en]\n",
+        encoding="utf-8",
+    )
+    (template / "template.yaml").write_text(
+        """version: 0.1.0
+formats:
+  square: {canvas: {width: 200pt, height: 200pt, dpi: 72}}
+locales:
+  en: {direction: ltr, digits: en}
+root:
+  id: root
+  type: group
+  children:
+    - id: outer
+      type: group
+      transform: {rotate: 90, origin: center}
+      constraints:
+        anchor: {top: parent.top+40pt, left: parent.left+40pt}
+        size: {w: 80pt, h: 80pt}
+      children:
+        - id: inner
+          type: group
+          transform: {rotate: 90, origin: center}
+          constraints:
+            anchor: {top: parent.top+10pt, left: parent.left+10pt}
+            size: {w: 40pt, h: 40pt}
+          children:
+            - id: child
+              type: shape
+              shape: rect
+              constraints:
+                anchor: {top: parent.top+5pt, left: parent.left+5pt}
+                size: {w: 10pt, h: 20pt}
+""",
+        encoding="utf-8",
+    )
+    return project
+
+
+def _target_patch_project(tmp_path: Path) -> Path:
+    project = tmp_path / "target-patches"
+    template = project / "template"
+    template.mkdir(parents=True)
+    (project / "project.yaml").write_text(
+        "name: target-patches\ntemplate: ./template\n"
+        "formats: [square, story]\nlocales: [en, fa]\n",
+        encoding="utf-8",
+    )
+    (template / "template.yaml").write_text(
+        """version: 0.1.0
+root:
+  id: root
+  type: group
+  children:
+    - id: base
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+    - id: move
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+    - id: anchor
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+    - id: format-remove
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+    - id: project-remove
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+""",
+        encoding="utf-8",
+    )
+    (template / "formats.yaml").write_text(
+        """square:
+  canvas: {width: 200pt, height: 200pt, dpi: 72}
+  patch:
+    - set: nodes.base.z
+      value: 7
+    - remove: nodes.format-remove
+    - insert_after: nodes.base
+      node:
+        id: format-only
+        type: shape
+        shape: rect
+        z: 3
+        constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+story:
+  canvas: {width: 100pt, height: 200pt, dpi: 72}
+""",
+        encoding="utf-8",
+    )
+    (template / "locales.yaml").write_text(
+        """en: {direction: ltr, digits: en}
+fa:
+  direction: rtl
+  digits: fa
+  patch:
+    - set: nodes.base.visible
+      value: false
+    - insert_after: nodes.format-only
+      node:
+        id: locale-only
+        type: shape
+        shape: rect
+        z: 2
+        constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+""",
+        encoding="utf-8",
+    )
+    return project
 
 
 def test_layer_tree_report_is_a_public_versioned_kernel_contract() -> None:
@@ -275,6 +398,83 @@ def test_authored_tree_keeps_uninstantiated_constructs_metadata_and_virtual_rows
     assert foreground.source.line is not None
 
 
+def test_virtual_rows_use_reserved_namespace_with_injective_owner_encoding(
+    tmp_path: Path,
+) -> None:
+    """Virtual IDs must be unreachable by real nodes and unambiguous for slash-bearing owners."""
+    project = _project(tmp_path)
+    template = project / "template" / "template.yaml"
+    template.write_text(
+        template.read_text(encoding="utf-8").replace(
+            "id: foreground",
+            "id: owner/with/slash",
+        ),
+        encoding="utf-8",
+    )
+
+    report = build_facade().layer_tree(
+        project=project,
+        mode="authored",
+        format_name="square",
+        locale="en",
+    )
+
+    assert report.root is not None
+    owner = next(row for row in report.root.children if row.id == "owner/with/slash")
+    assert [row.id for row in owner.children] == [
+        "@arcavex/virtual/owner%2Fwith%2Fslash/mask",
+        "@arcavex/virtual/owner%2Fwith%2Fslash/effect/0",
+    ]
+    assert all(row.id.startswith("@arcavex/virtual/") for row in owner.children)
+
+
+def test_virtual_rows_inherit_owner_state_and_deep_copy_nested_payloads() -> None:
+    """Virtual presentation rows must not expose mutable aliases back into their owner."""
+    owner = api.LayerNodeReport(
+        id="owner",
+        authored_id="owner",
+        instance_id="owner",
+        parent_id="root",
+        authored_index=0,
+        kind="shape",
+        display_name="Owner",
+        visible=False,
+        locked=True,
+        editable=False,
+        hit_testable=False,
+        effects=[
+            api.LayerEffect(
+                index=0,
+                name="custom",
+                category="raster",
+                params={"nested": {"levels": [1]}},
+            )
+        ],
+        mask=api.LayerMask(
+            component="custom-mask",
+            params={"nested": {"levels": [1]}},
+        ),
+    )
+
+    mask_row, effect_row = _virtual_rows(owner, 0)
+
+    states = [
+        (row.visible, row.locked, row.editable, row.hit_testable)
+        for row in (mask_row, effect_row)
+    ]
+    assert states == [
+        (False, True, False, False),
+        (False, True, False, False),
+    ]
+    assert mask_row.mask is not None and owner.mask is not None
+    assert mask_row.mask is not owner.mask
+    assert mask_row.mask.params is not owner.mask.params
+    assert mask_row.mask.params["nested"] is not owner.mask.params["nested"]
+    assert effect_row.effects[0] is not owner.effects[0]
+    assert effect_row.effects[0].params is not owner.effects[0].params
+    assert effect_row.effects[0].params["nested"] is not owner.effects[0].params["nested"]
+
+
 def test_compiler_and_layout_carry_authored_identity_as_noncanonical_provenance(
     tmp_path: Path,
 ) -> None:
@@ -355,6 +555,234 @@ def test_rendered_tree_uses_instances_solver_paint_order_and_authored_provenance
     assert all(child.id not in {"card", "missing"} for child in report.root.children)
 
 
+def test_nested_rotations_report_cumulative_canvas_geometry_and_hit_bounds(
+    tmp_path: Path,
+) -> None:
+    """Ignoring either rotated ancestor must move selection away from rendered pixels."""
+    facade = build_facade()
+    project = _nested_rotation_project(tmp_path)
+
+    tree = facade.layer_tree(
+        project=project, mode="rendered", format_name="square", locale="en"
+    )
+
+    assert tree.ok, [diagnostic.model_dump() for diagnostic in tree.diagnostics]
+    assert tree.root is not None
+    outer = next(child for child in tree.root.children if child.id == "outer")
+    inner = next(child for child in outer.children if child.id == "inner")
+    child = next(row for row in inner.children if row.id == "child")
+    assert child.absolute_transform == pytest.approx((-1.0, 0.0, 0.0, -1.0, 160.0, 140.0))
+    assert child.bounds_pt == pytest.approx((95.0, 65.0, 10.0, 20.0))
+    assert child.paint_bounds_pt == pytest.approx((95.0, 65.0, 10.0, 20.0))
+
+    layout = facade.inspect_layout(project / "template", None, "square", "en")
+    assert layout.root is not None
+    layout_outer = next(row for row in layout.root.children if row.id == "outer")
+    layout_inner = next(row for row in layout_outer.children if row.id == "inner")
+    layout_child = next(row for row in layout_inner.children if row.id == "child")
+    assert layout_child.absolute_transform == pytest.approx(child.absolute_transform)
+    assert layout_child.bounds_pt == pytest.approx(child.bounds_pt)
+    assert layout_child.paint_bounds_pt == pytest.approx(child.paint_bounds_pt)
+
+    hit = facade.hit_test(
+        project=project,
+        x_pt=100.0,
+        y_pt=70.0,
+        format_name="square",
+        locale="en",
+    )
+
+    selected = next(candidate for candidate in hit.candidates if candidate.id == "child")
+    assert selected.bounds_pt == pytest.approx((95.0, 65.0, 10.0, 20.0))
+    assert selected.paint_bounds_pt == pytest.approx((95.0, 65.0, 10.0, 20.0))
+
+
+def test_layer_trees_use_effective_format_locale_ast_and_shared_patch_sources(
+    tmp_path: Path,
+) -> None:
+    """Re-reading the unpatched root must disagree with the requested compiler target."""
+    facade = build_facade()
+    project = _target_patch_project(tmp_path)
+
+    authored = facade.layer_tree(
+        project=project, mode="authored", format_name="square", locale="fa"
+    )
+    rendered = facade.layer_tree(
+        project=project, mode="rendered", format_name="square", locale="fa"
+    )
+    baseline = facade.layer_tree(
+        project=project, mode="authored", format_name="story", locale="en"
+    )
+
+    assert authored.ok and rendered.ok and baseline.ok
+    assert authored.root is not None and rendered.root is not None and baseline.root is not None
+    authored_by_id = {row.id: row for row in authored.root.children}
+    rendered_by_id = {row.id: row for row in rendered.root.children}
+    assert set(authored_by_id) == {
+        "base",
+        "move",
+        "anchor",
+        "project-remove",
+        "format-only",
+        "locale-only",
+    }
+    assert (authored_by_id["base"].z, authored_by_id["base"].visible) == (7, False)
+    assert set(row.id for row in baseline.root.children) == {
+        "base",
+        "move",
+        "anchor",
+        "format-remove",
+        "project-remove",
+    }
+
+    template_file = project / "template" / "template.yaml"
+    formats_file = project / "template" / "formats.yaml"
+    locales_file = project / "template" / "locales.yaml"
+    base_source = authored_by_id["base"].source
+    format_source = authored_by_id["format-only"].source
+    locale_source = authored_by_id["locale-only"].source
+    assert base_source is not None and Path(base_source.file) == template_file
+    assert base_source.keypath == "root.children[0]" and base_source.line is not None
+    assert format_source is not None and Path(format_source.file) == formats_file
+    assert format_source.keypath == "formats.square.patch[2].node"
+    assert format_source.line is not None
+    assert locale_source is not None and Path(locale_source.file) == locales_file
+    assert locale_source.keypath == "locales.fa.patch[1].node" and locale_source.line is not None
+    for node_id in ("base", "format-only", "locale-only"):
+        assert rendered_by_id[node_id].source == authored_by_id[node_id].source
+
+
+def test_layer_trees_apply_project_patch_set_remove_and_reorder_with_provenance(
+    tmp_path: Path,
+) -> None:
+    """Project overrides must define the hierarchy consumed by both desktop modes."""
+    facade = build_facade()
+    project = _target_patch_project(tmp_path)
+    overrides = project / "overrides"
+    overrides.mkdir()
+    patch_file = overrides / "template.patch.yaml"
+    patch_file.write_text(
+        """- set: nodes.base.z
+  value: 9
+- remove: nodes.project-remove
+- remove: nodes.move
+- insert_after: nodes.anchor
+  node:
+    id: move
+    type: shape
+    shape: rect
+    constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+- insert_before: nodes.anchor
+  node:
+    id: inserted
+    type: shape
+    shape: rect
+    constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+""",
+        encoding="utf-8",
+    )
+
+    authored = facade.layer_tree(
+        project=project, mode="authored", format_name="story", locale="en"
+    )
+    rendered = facade.layer_tree(
+        project=project, mode="rendered", format_name="story", locale="en"
+    )
+
+    assert authored.ok and rendered.ok
+    assert authored.root is not None and rendered.root is not None
+    assert [(row.id, row.authored_index) for row in authored.root.children] == [
+        ("base", 0),
+        ("format-remove", 4),
+        ("move", 3),
+        ("anchor", 2),
+        ("inserted", 1),
+    ]
+    assert [(row.id, row.authored_index) for row in rendered.root.children] == [
+        ("base", 0),
+        ("format-remove", 4),
+        ("move", 3),
+        ("anchor", 2),
+        ("inserted", 1),
+    ]
+    assert all(row.id != "project-remove" for row in authored.root.children)
+    authored_by_id = {row.id: row for row in authored.root.children}
+    rendered_by_id = {row.id: row for row in rendered.root.children}
+    assert authored_by_id["base"].z == rendered_by_id["base"].z == 9
+    unchanged_source = authored_by_id["format-remove"].source
+    assert unchanged_source is not None
+    assert Path(unchanged_source.file) == project / "template" / "template.yaml"
+    assert unchanged_source.keypath == "root.children[3]"
+    for node_id, patch_index in (("move", 3), ("inserted", 4)):
+        source = authored_by_id[node_id].source
+        assert source is not None and Path(source.file) == patch_file
+        assert source.keypath == f"project.patch[{patch_index}].node"
+        assert source.line is not None
+        assert rendered_by_id[node_id].source == source
+
+
+def test_project_dpi_drives_layer_and_hit_pixel_projections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Using the template canvas DPI must disagree with render_project's effective output."""
+    monkeypatch.delenv("ARCAVEX_DPI", raising=False)
+    project = _project(tmp_path)
+    manifest = project / "project.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8") + "dpi: 144\n",
+        encoding="utf-8",
+    )
+    facade = build_facade()
+
+    tree = facade.layer_tree(
+        project=project,
+        mode="rendered",
+        format_name="square",
+        locale="en",
+    )
+    hit = facade.hit_test(
+        project=project,
+        x_pt=10.0,
+        y_pt=10.0,
+        format_name="square",
+        locale="en",
+    )
+
+    assert tree.root is not None
+    background = next(row for row in tree.root.children if row.id == "background")
+    assert (tree.dpi, tree.canvas_pt, tree.canvas_px) == (144, (200.0, 200.0), (400, 400))
+    assert background.bounds_pt == pytest.approx((0.0, 0.0, 200.0, 200.0))
+    assert background.bounds_px == pytest.approx((0.0, 0.0, 400.0, 400.0))
+    assert background.paint_bounds_px == pytest.approx((0.0, 0.0, 400.0, 400.0))
+    assert hit.point_pt == (10.0, 10.0)
+    assert hit.point_px == (20.0, 20.0)
+
+
+def test_project_without_formats_matches_render_project_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """Desktop target selection must not turn an empty format list into an IndexError."""
+    project = _project(tmp_path)
+    manifest = project / "project.yaml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace("formats: [square]", "formats: []"),
+        encoding="utf-8",
+    )
+    facade = build_facade()
+
+    run = facade.render_project(project=project)
+    tree = facade.layer_tree(project=project, mode="authored")
+    hit = facade.hit_test(project=project, x_pt=0.0, y_pt=0.0)
+
+    assert not run.ok and len(run.diagnostics) == 1
+    expected = run.diagnostics[0]
+    assert expected.code == "ARC-PRJ-002"
+    for report in (tree, hit):
+        assert not report.ok
+        assert report.diagnostics == [expected]
+
+
 def test_authored_repeat_definition_is_invariant_for_zero_or_one_instance(
     tmp_path: Path,
 ) -> None:
@@ -406,6 +834,65 @@ def test_authored_tree_survives_compile_diagnostics(tmp_path: Path) -> None:
     assert report.diagnostics
     assert report.root is not None
     assert {child.id for child in report.root.children} >= {"card", "foreground", "badge"}
+
+
+def test_authored_tree_survives_layout_diagnostics_with_typed_render_failures(
+    tmp_path: Path,
+) -> None:
+    """A layout failure must not discard the compiler's effective source hierarchy."""
+    project = _project(tmp_path)
+    template = project / "template" / "template.yaml"
+    source = template.read_text(encoding="utf-8")
+    source = source.replace(
+        "constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: fill, h: fill}}",
+        "constraints: {anchor: {top: panel.bottom, left: parent.left}, "
+        "size: {w: 10pt, h: 10pt}}",
+        1,
+    )
+    source = source.replace(
+        "constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100pt, h: 100pt}}",
+        "constraints: {anchor: {top: background.bottom, left: parent.left}, "
+        "size: {w: 100pt, h: 100pt}}",
+        1,
+    )
+    template.write_text(source, encoding="utf-8")
+    facade = build_facade()
+
+    authored = facade.layer_tree(
+        project=project, mode="authored", format_name="square", locale="en"
+    )
+    rendered = facade.layer_tree(
+        project=project, mode="rendered", format_name="square", locale="en"
+    )
+    hit = facade.hit_test(
+        project=project,
+        x_pt=12.0,
+        y_pt=34.0,
+        format_name="square",
+        locale="en",
+    )
+
+    assert isinstance(authored, api.LayerTreeReport)
+    assert not authored.ok
+    assert authored.mode == "authored"
+    assert authored.root is not None
+    assert {child.id for child in authored.root.children} >= {"background", "panel"}
+    assert [diagnostic.code for diagnostic in authored.diagnostics] == ["ARC-LAY-052"]
+    assert authored.diagnostics[0].source is not None
+
+    assert isinstance(rendered, api.LayerTreeReport)
+    assert not rendered.ok
+    assert rendered.mode == "rendered"
+    assert rendered.root is None
+    assert [diagnostic.code for diagnostic in rendered.diagnostics] == ["ARC-LAY-052"]
+
+    assert isinstance(hit, api.HitTestReport)
+    assert not hit.ok
+    assert hit.point_pt == (12.0, 34.0)
+    assert hit.candidates == []
+    assert [diagnostic.code for diagnostic in hit.diagnostics] == ["ARC-LAY-052"]
 
 
 def test_authored_tree_preserves_unknown_node_kind_with_compile_diagnostics(

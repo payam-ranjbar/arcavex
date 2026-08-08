@@ -10,6 +10,7 @@ wrapped as ``ARC-INT-999`` diagnostics.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import tempfile
 import time
@@ -20,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar
 
-from pydantic import UUID4, BaseModel, ConfigDict, Field, field_validator
+from pydantic import UUID4, BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 from arcavex.kernel.contracts.types import (
     ExportOptions,
@@ -40,6 +41,7 @@ from arcavex.kernel.ir.models import (
     CompiledNode,
     LayoutDocument,
     LayoutNode,
+    SourceRef,
 )
 from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Rect
 from arcavex.kernel.pipeline import layout_and_render
@@ -94,12 +96,53 @@ _MIN_FREE_BAND_ROWS = 2
 # A project/provenance result model — every one carries ``ok`` and ``diagnostics``, so the
 # facade's never-raises boundary helper is generic over the concrete report it returns.
 _ResultT = TypeVar("_ResultT", bound="BaseModel")
+_FinitePoint = tuple[FiniteFloat, FiniteFloat]
+_FiniteRect = tuple[FiniteFloat, FiniteFloat, FiniteFloat, FiniteFloat]
+_FiniteMatrix = tuple[
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+]
 
 
 def _output_name(stem: str, fmt: str, locale: str | None) -> str:
     """Build the default output filename ``<stem>.<format>[.<locale>].png`` (§6.3 / DX-3)."""
     locale_seg = f".{locale}" if locale else ""
     return f"{stem}.{fmt}{locale_seg}.png"
+
+
+def _hit_point(x_pt: float | str, y_pt: float | str) -> tuple[float, float]:
+    """Coerce one finite point or raise the stable public input diagnostic."""
+    try:
+        point = (float(x_pt), float(y_pt))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-015",
+                "Hit-test coordinates must be finite numbers",
+                keypath="point_pt",
+                hint=(
+                    "Pass numeric canvas-point x_pt and y_pt values; "
+                    "NaN and infinity are invalid."
+                ),
+            )
+        ) from exc
+    if not all(math.isfinite(value) for value in point):
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-015",
+                "Hit-test coordinates must be finite numbers",
+                keypath="point_pt",
+                hint=(
+                    "Pass numeric canvas-point x_pt and y_pt values; "
+                    "NaN and infinity are invalid."
+                ),
+            )
+        )
+    return point
 
 
 def _dedupe(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
@@ -142,6 +185,12 @@ class CompileResult:
     template_hash: str | None = None
     style_hash: str | None = None
     data_hash: str | None = None
+    # Effective authored AST after target/project structural patches but before if/repeat
+    # expansion. The source map is keyed by ``id(node_mapping)`` so duplicate authored IDs do
+    # not erase provenance before validation. Both are process-local compiler/service contracts,
+    # never serialized or included in canonical hashes.
+    effective_root: Any | None = None
+    effective_source_map: dict[int, SourceRef] = field(default_factory=dict)
 
 
 @dataclass
@@ -1339,12 +1388,12 @@ class LayerNodeReport(BaseModel):
     editable: bool = True
     hit_testable: bool = True
     virtual: bool = False
-    bounds_pt: tuple[float, float, float, float] | None = None
-    bounds_px: tuple[float, float, float, float] | None = None
-    paint_bounds_pt: tuple[float, float, float, float] | None = None
-    paint_bounds_px: tuple[float, float, float, float] | None = None
-    absolute_transform: tuple[float, float, float, float, float, float] | None = None
-    rotate_deg: float = 0.0
+    bounds_pt: _FiniteRect | None = None
+    bounds_px: _FiniteRect | None = None
+    paint_bounds_pt: _FiniteRect | None = None
+    paint_bounds_px: _FiniteRect | None = None
+    absolute_transform: _FiniteMatrix | None = None
+    rotate_deg: FiniteFloat = 0.0
     overflow: OverflowReport | None = None
     source: LayerSource | None = None
     effects: list[LayerEffect] = Field(default_factory=list)
@@ -1362,7 +1411,7 @@ class LayerTreeReport(BaseModel):
     mode: Literal["authored", "rendered"] = "authored"
     format: str | None = None
     locale: str | None = None
-    canvas_pt: tuple[float, float] = (0.0, 0.0)
+    canvas_pt: _FinitePoint = (0.0, 0.0)
     canvas_px: tuple[int, int] = (0, 0)
     dpi: int = 0
     root: LayerNodeReport | None = None
@@ -1382,8 +1431,8 @@ class HitCandidate(BaseModel):
     display_name: str
     editable: bool
     locked: bool
-    bounds_pt: tuple[float, float, float, float]
-    paint_bounds_pt: tuple[float, float, float, float]
+    bounds_pt: _FiniteRect
+    paint_bounds_pt: _FiniteRect
 
 
 class HitTestReport(BaseModel):
@@ -1395,8 +1444,8 @@ class HitTestReport(BaseModel):
     ok: bool
     format: str | None = None
     locale: str | None = None
-    point_pt: tuple[float, float] = (0.0, 0.0)
-    point_px: tuple[float, float] | None = None
+    point_pt: _FinitePoint = (0.0, 0.0)
+    point_px: _FinitePoint | None = None
     candidates: list[HitCandidate] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -2898,18 +2947,21 @@ class Facade:
         self,
         project: Path | None = None,
         *,
-        x_pt: float,
-        y_pt: float,
+        x_pt: float | str,
+        y_pt: float | str,
         format_name: str | None = None,
         locale: str | None = None,
         start: Path | None = None,
     ) -> HitTestReport:
         """Hit-test one canonical canvas-point coordinate against rendered paint bounds."""
         resolved_project = None if project is None else Path(project)
-        point_pt = (float(x_pt), float(y_pt))
         return self._guard_project(
             lambda orchestrator: orchestrator.hit_test(
-                start, resolved_project, point_pt, format_name, locale
+                start,
+                resolved_project,
+                _hit_point(x_pt, y_pt),
+                format_name,
+                locale,
             ),
             HitTestReport,
         )
@@ -3406,8 +3458,11 @@ def _build_node_report(
     overlaps: list[SiblingOverlap],
     parent_stack: str | None = None,
 ) -> LayoutNodeReport:
-    b = layout.bounds
-    pb = layout.paint_bounds
+    # Desktop layout inspection and layer selection share cumulative canvas-space geometry.
+    # Third-party/legacy solvers may omit the excluded provenance fields, so retain the
+    # pre-ancestor values only as a compatibility fallback.
+    b = layout.canvas_bounds or layout.bounds
+    pb = layout.canvas_paint_bounds or layout.paint_bounds
     scale = dpi / 72.0
     overflow = None
     if layout.overflow.kind != "none" or layout.overflow.measured_h_pt > 0.0:

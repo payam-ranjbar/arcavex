@@ -519,6 +519,13 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Provide a numeric value.",
         ),
         _e(
+            "ARC-IR-015",
+            "Invalid hit-test coordinate",
+            "A hit-test coordinate could not be converted to a number, or was NaN or infinity. "
+            "Selection geometry accepts only finite canvas-point coordinates.",
+            "Pass finite numeric x_pt and y_pt values in canvas points.",
+        ),
+        _e(
             "ARC-IR-020",
             "Duplicate node id",
             "Two nodes share the same id, which must be unique across the template.",

@@ -472,10 +472,16 @@ class LayoutNode(BaseModel):
     kind: Literal["group", "text", "image", "shape", "path"]
     bounds: Rect
     absolute_transform: Matrix3
-    # ``paint_bounds`` is the canvas-space AABB of the node after rotation *and* effect growth
-    # (used for inspection/debug/clipping). ``render_bounds`` is the node-local (pre-rotation)
-    # rectangle the renderer allocates the element surface for — bounds grown by the effects'
-    # declared expansion, so a drop-shadow or blur is not clipped (spec §4.2/§4.4).
+    # Canvas-space selection provenance. ``bounds`` and ``paint_bounds`` retain the solver's
+    # pre-ancestor geometry because the renderer applies group rotations recursively; desktop
+    # inspection consumes these cumulative AABBs without changing backend transform behavior.
+    canvas_bounds: Rect | None = Field(default=None, exclude=True)
+    canvas_paint_bounds: Rect | None = Field(default=None, exclude=True)
+    # ``paint_bounds`` is the pre-ancestor AABB after this node's local rotation and effect
+    # growth; sibling layout and the recursive renderer retain that local semantic.
+    # ``canvas_paint_bounds`` is the cumulative AABB exposed by public inspection. Meanwhile,
+    # ``render_bounds`` is the pre-rotation rectangle allocated for the element surface, so a
+    # drop-shadow or blur is not clipped (spec §4.2/§4.4).
     paint_bounds: Rect
     render_bounds: Rect
     effects: tuple[EffectSpec, ...] = ()

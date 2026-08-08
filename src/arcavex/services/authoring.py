@@ -25,6 +25,7 @@ from arcavex.kernel.api import (
     VariableInfo,
 )
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
+from arcavex.kernel.ir.models import SourceRef
 from arcavex.kernel.ir.units import Dim
 from arcavex.services.fsutil import sha256_bytes
 from arcavex.services.template.compiler import (
@@ -309,17 +310,34 @@ class AuthoringService:
             diagnostics=diagnostics,
         )
 
-    def authored_layer_tree(self, template: Path) -> AuthoredLayer | None:
-        """Return the reusable source hierarchy without evaluating structural constructs."""
-        source = load_template(template)
+    def authored_layer_tree(
+        self,
+        template: Path,
+        *,
+        effective_root: Any | None = None,
+        source_map: dict[int, SourceRef] | None = None,
+    ) -> AuthoredLayer | None:
+        """Project a compiler-effective hierarchy without evaluating structural constructs."""
+        if effective_root is None:
+            source = load_template(template)
+            effective_root = source.raw.get("root")
+            fallback_file = str(source.file_for("root"))
+        else:
+            root_source = (source_map or {}).get(id(effective_root))
+            fallback_file = (
+                str(template / "template.yaml") if Path(template).is_dir() else str(template)
+            )
+            if root_source is not None and root_source.file is not None:
+                fallback_file = root_source.file
         return _authored_layer(
-            source.raw.get("root"),
+            effective_root,
             parent_id=None,
             authored_index=0,
             origin="static",
             construct={},
-            file=str(source.file_for("root")),
+            file=fallback_file,
             keypath="root",
+            source_map=source_map or {},
         )
 
     # -------------------------------------------------------------------- split
@@ -633,10 +651,19 @@ def _authored_layer(
     construct: dict[str, str | None],
     file: str,
     keypath: str,
+    source_map: dict[int, SourceRef],
 ) -> AuthoredLayer | None:
     """Project one authored node while preserving wrappers instead of evaluating them."""
     if not isinstance(node_raw, dict):
         return None
+    mapped_source = source_map.get(id(node_raw))
+    node_file = file
+    node_keypath = keypath
+    node_source_line: int | None = None
+    if mapped_source is not None:
+        node_file = mapped_source.file or node_file
+        node_keypath = mapped_source.keypath or node_keypath
+        node_source_line = mapped_source.line
     node_id = _str_or_none(node_raw.get("id")) or "?"
     effects: list[AuthoredEffect] = []
     raw_effects = node_raw.get("effects")
@@ -663,7 +690,7 @@ def _authored_layer(
     raw_children = node_raw.get("children")
     if isinstance(raw_children, list):
         for index, child in enumerate(raw_children):
-            child_keypath = f"{keypath}.children[{index}]"
+            child_keypath = f"{node_keypath}.children[{index}]"
             child_node = child
             child_origin = "static"
             child_construct: dict[str, str | None] = {}
@@ -689,6 +716,7 @@ def _authored_layer(
                 construct=child_construct,
                 file=file,
                 keypath=child_keypath,
+                source_map=source_map,
             )
             if projected is not None:
                 children.append(projected)
@@ -707,9 +735,9 @@ def _authored_layer(
         collection=construct.get("collection"),
         loop_var=construct.get("loop_var"),
         key=construct.get("key"),
-        file=file,
-        keypath=keypath,
-        line=line_of(node_raw, "id") or node_line(node_raw),
+        file=node_file,
+        keypath=node_keypath,
+        line=node_source_line or line_of(node_raw, "id") or node_line(node_raw),
         effects=tuple(effects),
         mask=mask,
         children=tuple(children),

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
+from arcavex.kernel.ir.models import SourceRef
 from arcavex.services.template.loader import line_of, node_line
 
 _DELETE = "!delete"
@@ -47,6 +48,38 @@ class PatchLog:
     def add(self, layer: str, op: str, path: str, value: Any = None) -> None:
         """Append one applied-patch record (``value`` is the value a ``set`` assigned)."""
         self.records.append(PatchRecord(layer=layer, op=op, path=path, value=value))
+
+
+NodeSourceMap = dict[int, SourceRef]
+
+
+def index_node_sources(
+    entry: Any,
+    source_file: Path,
+    keypath: str,
+    source_map: NodeSourceMap,
+) -> None:
+    """Record source provenance for every authored node mapping in ``entry``."""
+    node = _node_of(entry)
+    node_keypath = (
+        f"{keypath}.node" if node is not entry else keypath
+    )
+    if not isinstance(node, dict):
+        return
+    source_map[id(node)] = SourceRef(
+        file=str(source_file),
+        keypath=node_keypath,
+        line=line_of(node, "id") or node_line(node),
+    )
+    children = node.get("children")
+    if isinstance(children, list):
+        for index, child in enumerate(children):
+            index_node_sources(
+                child,
+                source_file,
+                f"{node_keypath}.children[{index}]",
+                source_map,
+            )
 
 
 # --------------------------------------------------------------------------- data overlay
@@ -90,6 +123,7 @@ def apply_patches(
     template_file: Path,
     keypath_base: str,
     log: PatchLog,
+    source_map: NodeSourceMap | None = None,
 ) -> None:
     """Apply an ordered patch list to the authored node AST in place.
 
@@ -128,6 +162,8 @@ def apply_patches(
             _do_remove(root_map, node_id, segments, template_file, kp, line)
         else:
             _do_insert(root_map, node_id, op.get("node"), verb, template_file, kp, line)
+            if source_map is not None:
+                index_node_sources(op.get("node"), template_file, f"{kp}.node", source_map)
         log.add(layer, verb, path, op.get("value") if verb == "set" else None)
 
 

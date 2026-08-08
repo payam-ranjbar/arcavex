@@ -19,11 +19,12 @@ from arcavex.kernel.api import (
     ProjectUIMetadata,
 )
 from arcavex.kernel.contracts.spi import LayoutSolver, MeasureFn
-from arcavex.kernel.diagnostics import has_errors
+from arcavex.kernel.diagnostics import DiagnosticError, has_errors
 from arcavex.kernel.ir.models import CompiledGroup, CompiledNode, LayoutNode
 from arcavex.services.authoring import AuthoredLayer, AuthoringService
 
 LayerTreeMode = Literal["authored", "rendered"]
+_VIRTUAL_PREFIX = "@arcavex/virtual/"
 
 
 @dataclass(frozen=True)
@@ -59,11 +60,11 @@ class LayerService:
         mode: LayerTreeMode,
         metadata: ProjectUIMetadata,
         *,
+        output_dpi: int | None = None,
         project_patch: list[Any] | None = None,
         project_patch_file: Path | None = None,
     ) -> LayerTreeReport:
         """Compile/layout once, then correlate that result with source definitions."""
-        authored_root = self._authoring.authored_layer_tree(template)
         compiled_result = self._compiler.compile(
             template,
             data,
@@ -72,6 +73,15 @@ class LayerService:
             style,
             project_patch=project_patch,
             project_patch_file=project_patch_file,
+        )
+        authored_root = (
+            None
+            if compiled_result.effective_root is None
+            else self._authoring.authored_layer_tree(
+                template,
+                effective_root=compiled_result.effective_root,
+                source_map=compiled_result.effective_source_map,
+            )
         )
         diagnostics = list(compiled_result.diagnostics)
         if compiled_result.document is None or has_errors(diagnostics):
@@ -85,18 +95,50 @@ class LayerService:
                     structural_ancestor=False,
                     ancestor_visible=True,
                     ancestor_locked=False,
+                    ancestor_painted=True,
                 )
             return LayerTreeReport(
                 ok=False,
                 mode=mode,
                 format=compiled_result.format_name or format_name,
                 locale=locale,
+                dpi=output_dpi or 0,
                 root=root,
                 diagnostics=diagnostics,
             )
-        layout = self._solver.solve(compiled_result.document, self._measure)
+        dpi = compiled_result.document.canvas.dpi if output_dpi is None else output_dpi
+        canvas = compiled_result.document.canvas
+        try:
+            layout = self._solver.solve(compiled_result.document, self._measure)
+        except DiagnosticError as exc:
+            diagnostics.extend(exc.diagnostics)
+            root = None
+            if mode == "authored" and authored_root is not None:
+                root = _build_authored_node(
+                    authored_root,
+                    {},
+                    metadata,
+                    dpi,
+                    structural_ancestor=False,
+                    ancestor_visible=True,
+                    ancestor_locked=False,
+                    ancestor_painted=True,
+                )
+            return LayerTreeReport(
+                ok=False,
+                mode=mode,
+                format=compiled_result.format_name or format_name,
+                locale=locale,
+                canvas_pt=(canvas.width_pt, canvas.height_pt),
+                canvas_px=(
+                    max(1, round(canvas.width_pt * dpi / 72.0)),
+                    max(1, round(canvas.height_pt * dpi / 72.0)),
+                ),
+                dpi=dpi,
+                root=root,
+                diagnostics=diagnostics,
+            )
         diagnostics.extend(layout.warnings)
-        dpi = compiled_result.document.canvas.dpi
         authored_by_id = _index_authored(authored_root)
         resolved_by_authored: dict[str, list[_ResolvedLayer]] = {}
         _index_resolved(
@@ -118,6 +160,7 @@ class LayerService:
                     structural_ancestor=False,
                     ancestor_visible=True,
                     ancestor_locked=False,
+                    ancestor_painted=True,
                 )
             )
         else:
@@ -131,15 +174,18 @@ class LayerService:
                 paint_index=0,
                 ancestor_visible=True,
                 ancestor_locked=False,
+                ancestor_painted=True,
             )
-        canvas = compiled_result.document.canvas
         return LayerTreeReport(
             ok=not has_errors(diagnostics),
             mode=mode,
             format=compiled_result.format_name or format_name,
             locale=locale,
             canvas_pt=(canvas.width_pt, canvas.height_pt),
-            canvas_px=(canvas.width_px, canvas.height_px),
+            canvas_px=(
+                max(1, round(canvas.width_pt * dpi / 72.0)),
+                max(1, round(canvas.height_pt * dpi / 72.0)),
+            ),
             dpi=dpi,
             root=root,
             diagnostics=diagnostics,
@@ -155,6 +201,7 @@ class LayerService:
         metadata: ProjectUIMetadata,
         point_pt: tuple[float, float],
         *,
+        output_dpi: int | None = None,
         project_patch: list[Any] | None = None,
         project_patch_file: Path | None = None,
     ) -> HitTestReport:
@@ -167,6 +214,7 @@ class LayerService:
             style,
             "rendered",
             metadata,
+            output_dpi=output_dpi,
             project_patch=project_patch,
             project_patch_file=project_patch_file,
         )
@@ -237,6 +285,7 @@ def _build_authored_node(
     structural_ancestor: bool,
     ancestor_visible: bool,
     ancestor_locked: bool,
+    ancestor_painted: bool,
 ) -> LayerNodeReport:
     matches = resolved_by_authored.get(authored.id, [])
     structural = structural_ancestor or authored.origin != "static"
@@ -247,6 +296,7 @@ def _build_authored_node(
     locked = ancestor_locked or (False if ui is None else ui.locked)
     local_visible = authored.visible if layout is None else layout.visible
     visible = ancestor_visible and local_visible
+    painted = ancestor_painted and (layout is None or layout.opacity > 0.0)
     effects = _effects(compiled, authored)
     mask = _mask(compiled, authored)
     real_children = [
@@ -258,6 +308,7 @@ def _build_authored_node(
             structural_ancestor=structural,
             ancestor_visible=visible,
             ancestor_locked=locked,
+            ancestor_painted=painted,
         )
         for child in sorted(
             authored.children,
@@ -285,11 +336,11 @@ def _build_authored_node(
         locked=locked,
         color=None if ui is None else ui.color,
         editable=not locked,
-        hit_testable=layout is not None and visible,
-        bounds_pt=None if layout is None else _rect(layout.bounds),
-        bounds_px=None if layout is None else _rect_px(layout.bounds, dpi),
-        paint_bounds_pt=None if layout is None else _rect(layout.paint_bounds),
-        paint_bounds_px=None if layout is None else _rect_px(layout.paint_bounds, dpi),
+        hit_testable=layout is not None and visible and painted,
+        bounds_pt=None if layout is None else _rect(_canvas_bounds(layout)),
+        bounds_px=None if layout is None else _rect_px(_canvas_bounds(layout), dpi),
+        paint_bounds_pt=None if layout is None else _rect(_canvas_paint_bounds(layout)),
+        paint_bounds_px=None if layout is None else _rect_px(_canvas_paint_bounds(layout), dpi),
         absolute_transform=None if layout is None else _matrix(layout),
         rotate_deg=0.0 if layout is None else layout.rotate_deg,
         overflow=None if layout is None else _overflow(layout),
@@ -314,12 +365,14 @@ def _build_rendered_node(
     paint_index: int,
     ancestor_visible: bool,
     ancestor_locked: bool,
+    ancestor_painted: bool,
 ) -> LayerNodeReport:
     authored_id = _authored_id(compiled)
     authored = authored_by_id.get(authored_id)
     ui = metadata.layers.get(authored_id)
     locked = ancestor_locked or (False if ui is None else ui.locked)
     visible = ancestor_visible and layout.visible
+    painted = ancestor_painted and layout.opacity > 0.0
     source = (
         _source_from_layout(layout)
         if authored is None
@@ -342,6 +395,7 @@ def _build_rendered_node(
                     paint_index=index,
                     ancestor_visible=visible,
                     ancestor_locked=locked,
+                    ancestor_painted=painted,
                 )
             )
     node = LayerNodeReport(
@@ -363,11 +417,11 @@ def _build_rendered_node(
         locked=locked,
         color=None if ui is None else ui.color,
         editable=not locked,
-        hit_testable=visible,
-        bounds_pt=_rect(layout.bounds),
-        bounds_px=_rect_px(layout.bounds, dpi),
-        paint_bounds_pt=_rect(layout.paint_bounds),
-        paint_bounds_px=_rect_px(layout.paint_bounds, dpi),
+        hit_testable=visible and painted,
+        bounds_pt=_rect(_canvas_bounds(layout)),
+        bounds_px=_rect_px(_canvas_bounds(layout), dpi),
+        paint_bounds_pt=_rect(_canvas_paint_bounds(layout)),
+        paint_bounds_px=_rect_px(_canvas_paint_bounds(layout), dpi),
         absolute_transform=_matrix(layout),
         rotate_deg=layout.rotate_deg,
         overflow=_overflow(layout),
@@ -413,10 +467,11 @@ def _mask(compiled: CompiledNode | None, authored: AuthoredLayer) -> LayerMask |
 
 def _virtual_rows(owner: LayerNodeReport, authored_index: int) -> list[LayerNodeReport]:
     rows: list[LayerNodeReport] = []
+    owner_segment = owner.id.replace("%", "%25").replace("/", "%2F")
     if owner.mask is not None:
         rows.append(
             LayerNodeReport(
-                id=f"{owner.id}::mask",
+                id=f"{_VIRTUAL_PREFIX}{owner_segment}/mask",
                 authored_id=owner.authored_id,
                 instance_id=owner.instance_id,
                 parent_id=owner.id,
@@ -425,21 +480,21 @@ def _virtual_rows(owner: LayerNodeReport, authored_index: int) -> list[LayerNode
                 kind="mask",
                 origin=owner.origin,
                 display_name=f"Mask: {owner.mask.component}",
-                visible=True,
+                visible=owner.visible,
                 locked=owner.locked,
                 color=owner.color,
                 editable=False,
                 hit_testable=False,
                 virtual=True,
                 source=owner.source,
-                mask=owner.mask,
+                mask=owner.mask.model_copy(deep=True),
             )
         )
         authored_index += 1
     for effect in owner.effects:
         rows.append(
             LayerNodeReport(
-                id=f"{owner.id}::effect:{effect.index}",
+                id=f"{_VIRTUAL_PREFIX}{owner_segment}/effect/{effect.index}",
                 authored_id=owner.authored_id,
                 instance_id=owner.instance_id,
                 parent_id=owner.id,
@@ -448,14 +503,14 @@ def _virtual_rows(owner: LayerNodeReport, authored_index: int) -> list[LayerNode
                 kind="effect",
                 origin=owner.origin,
                 display_name=f"Effect: {effect.name}",
-                visible=True,
+                visible=owner.visible,
                 locked=owner.locked,
                 color=owner.color,
                 editable=False,
                 hit_testable=False,
                 virtual=True,
                 source=owner.source,
-                effects=[effect],
+                effects=[effect.model_copy(deep=True)],
             )
         )
         authored_index += 1
@@ -506,6 +561,14 @@ def _contains(
 
 def _rect(rect: Any) -> tuple[float, float, float, float]:
     return (rect.x, rect.y, rect.w, rect.h)
+
+
+def _canvas_bounds(layout: LayoutNode) -> Any:
+    return layout.canvas_bounds or layout.bounds
+
+
+def _canvas_paint_bounds(layout: LayoutNode) -> Any:
+    return layout.canvas_paint_bounds or layout.paint_bounds
 
 
 def _rect_px(rect: Any, dpi: int) -> tuple[float, float, float, float]:

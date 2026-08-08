@@ -70,8 +70,10 @@ from arcavex.services.template.loader import (
     node_line,
 )
 from arcavex.services.template.overlays import (
+    NodeSourceMap,
     PatchLog,
     apply_patches,
+    index_node_sources,
     merge_overlay,
 )
 
@@ -339,6 +341,7 @@ class Compiler:
         self._default_direction: str = "ltr"
         self._font_overrides: dict[str, tuple[str, ...]] = {}
         self._style_pack: StylePack | None = None
+        self._effective_source_map: NodeSourceMap = {}
         # The authoritative variable snapshot on the rerun path, else ``None`` (§5.3).
         self._resolved_data: dict[str, Any] | None = None
 
@@ -372,11 +375,23 @@ class Compiler:
         self._default_direction = "ltr"
         self._font_overrides = {}
         self._style_pack = None
+        self._effective_source_map = {}
         self._resolved_data = resolved_data
+        effective_root: dict[str, Any] | None = None
+        resolved_format: str | None = None
         try:
             source = load_template(template)
             template_path = source.template_path
             raw = source.raw
+            root_candidate = raw.get("root")
+            if isinstance(root_candidate, dict):
+                effective_root = root_candidate
+                index_node_sources(
+                    effective_root,
+                    source.file_for("root"),
+                    "root",
+                    self._effective_source_map,
+                )
             # Canonical template hash captured before any patch mutates the node AST (§3.1.4).
             template_hash = canonical_hash(_to_plain(raw))
 
@@ -385,7 +400,13 @@ class Compiler:
             diags.extend(_collect_unsupported_sections(source))
             diags.extend(self._validate_locales_shape(source))
             if has_errors(diags):
-                return CompileResult(None, diags, inferred)
+                return CompileResult(
+                    None,
+                    diags,
+                    inferred,
+                    effective_root=effective_root,
+                    effective_source_map=dict(self._effective_source_map),
+                )
             # Runs after the unsupported-section sweep so a deferred section keeps its own
             # specific diagnostic (e.g. 'styles' -> ARC-TPL-093) instead of being reported as a
             # merely-unknown root key.
@@ -429,6 +450,22 @@ class Compiler:
                     root_raw, project_patch, "project",
                     project_patch_file or source.template_path, "project.patch",
                     self._patch_log,
+                    self._effective_source_map,
+                )
+
+            authored_id_diags = _validate_authored_id_uniqueness(
+                root_raw,
+                template_path,
+                self._effective_source_map,
+            )
+            if authored_id_diags:
+                return CompileResult(
+                    None,
+                    [*diags, *authored_id_diags],
+                    inferred,
+                    format_name=resolved_format,
+                    effective_root=effective_root,
+                    effective_source_map=dict(self._effective_source_map),
                 )
 
             # On the rerun path the snapshot is authoritative, so file/preview/locale data
@@ -443,7 +480,14 @@ class Compiler:
                 source, data, diags, inferred, pre_overlays, post_overlays
             )
             if has_errors(diags):
-                return CompileResult(None, diags, inferred)
+                return CompileResult(
+                    None,
+                    diags,
+                    inferred,
+                    format_name=resolved_format,
+                    effective_root=effective_root,
+                    effective_source_map=dict(self._effective_source_map),
+                )
 
             seen_ids: set[str] = set()
             root = self._build_node(
@@ -475,9 +519,18 @@ class Compiler:
                 template_hash=template_hash,
                 style_hash=style_hash,
                 data_hash=canonical_hash(snapshot),
+                effective_root=effective_root,
+                effective_source_map=dict(self._effective_source_map),
             )
         except DiagnosticError as exc:
-            return CompileResult(None, diags + list(exc.diagnostics), inferred)
+            return CompileResult(
+                None,
+                diags + list(exc.diagnostics),
+                inferred,
+                format_name=resolved_format,
+                effective_root=effective_root,
+                effective_source_map=dict(self._effective_source_map),
+            )
 
     def inspect_resolved(
         self,
@@ -1055,6 +1108,7 @@ class Compiler:
             apply_patches(
                 root_raw, patch, f"format:{format_name}", source.file_for("formats"),
                 f"formats.{format_name}.patch", self._patch_log,
+                self._effective_source_map,
             )
 
     def _apply_locale_patch(
@@ -1064,11 +1118,21 @@ class Compiler:
         loc_settings: dict[str, Any],
         root_raw: dict[str, Any],
     ) -> None:
-        patch = loc_settings.get("patch")
+        # Structural patch nodes must retain ruamel line metadata. ``loc_settings`` is the
+        # normalized plain mapping used by locale resolution, so read only the patch list from
+        # the original source mapping while preserving the normalized fallback for compatibility.
+        locales = source.raw.get("locales")
+        source_settings = locales.get(locale) if isinstance(locales, dict) else None
+        patch = (
+            source_settings.get("patch")
+            if isinstance(source_settings, dict)
+            else loc_settings.get("patch")
+        )
         if locale is not None and isinstance(patch, list) and patch:
             apply_patches(
                 root_raw, patch, f"locale:{locale}", source.file_for("locales"),
                 f"locales.{locale}.patch", self._patch_log,
+                self._effective_source_map,
             )
 
     def _locale_data_overlays(
@@ -1277,8 +1341,9 @@ class Compiler:
             "z": z,
             # Carry the authoring location so layout/render-time diagnostics can locate the
             # node in the source (RR-3). Kept out of the canonical hash (SourceRef.exclude).
-            "source": SourceRef(
-                file=str(template), keypath=keypath, line=node_line(raw)
+            "source": self._effective_source_map.get(
+                id(raw),
+                SourceRef(file=str(template), keypath=keypath, line=node_line(raw)),
             ),
         }
 
@@ -3089,6 +3154,77 @@ _REPEAT_CAP = 1000
 # a legitimate coerced value the caller may want to keep).
 _UNCHANGED = object()
 
+
+def _validate_authored_id_uniqueness(
+    root: Any,
+    template: Path,
+    source_map: NodeSourceMap,
+) -> list[Diagnostic]:
+    """Validate each effective authored definition once, before if/repeat expansion."""
+    seen: set[str] = set()
+    out: list[Diagnostic] = []
+
+    def visit(entry: Any, keypath: str) -> None:
+        node = entry
+        node_keypath = keypath
+        if isinstance(entry, dict) and isinstance(entry.get("node"), dict) and (
+            "repeat" in entry or "if" in entry
+        ):
+            node = entry["node"]
+            node_keypath = f"{keypath}.node"
+        if not isinstance(node, dict):
+            return
+        authored_id = node.get("id")
+        if isinstance(authored_id, str) and authored_id:
+            source = source_map.get(id(node))
+            source_keypath = (
+                source.keypath if source is not None and source.keypath else node_keypath
+            )
+            source_file = (
+                source.file
+                if source is not None and source.file is not None
+                else str(template)
+            )
+            source_line = (
+                source.line
+                if source is not None and source.line is not None
+                else line_of(node, "id")
+            )
+            if "[" in authored_id or "]" in authored_id or authored_id.startswith("@arcavex/"):
+                out.append(
+                    diagnostic(
+                        "ARC-TPL-030",
+                        f"Invalid authored node id {authored_id!r}",
+                        file=source_file,
+                        keypath=f"{source_keypath}.id",
+                        line=source_line,
+                        hint=(
+                            "Authored IDs cannot contain '[' or ']' or start with the reserved "
+                            "'@arcavex/' prefix."
+                        ),
+                    )
+                )
+            elif authored_id in seen:
+                out.append(
+                    diagnostic(
+                        "ARC-IR-020",
+                        f"Duplicate node id {authored_id!r}",
+                        file=source_file,
+                        keypath=f"{source_keypath}.id",
+                        line=source_line,
+                        hint="Node IDs must be unique across the template.",
+                    )
+                )
+            else:
+                seen.add(authored_id)
+        children = node.get("children")
+        if isinstance(children, list):
+            for index, child in enumerate(children):
+                visit(child, f"{node_keypath}.children[{index}]")
+
+    visit(root, "root")
+    return out
+
 # Template-level sections still deferred to later phases. Authoring one is a located error,
 # not a silent no-op. Per RR-4 these are collected together rather than raised on the first.
 # Defining style packs *inline* in a template is still unsupported — packs are external files a
@@ -3235,10 +3371,14 @@ def _truthy_value(value: Any) -> bool:
 def _stringify_key(value: Any) -> str:
     """Render a repeat key value to the string used inside expanded node IDs."""
     if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, float):
-        return _num_to_str(value)
-    return str(value)
+        text = "true" if value else "false"
+    elif isinstance(value, float):
+        text = _num_to_str(value)
+    else:
+        text = str(value)
+    # Percent-encode the repeat tuple delimiters and the escape marker itself. Replacing percent
+    # first makes the mapping injective while preserving familiar IDs for ordinary keys.
+    return text.replace("%", "%25").replace("[", "%5B").replace("]", "%5D")
 
 
 def _int_field(value: Any, template: Path, keypath: str, line: int | None) -> int:
