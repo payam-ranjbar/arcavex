@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,9 @@ from arcavex.kernel.api import (
 from arcavex.kernel.registry import Registries
 from arcavex.services.library import Library
 from arcavex.services.projects import ProjectService
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_BASIC_TEMPLATE = _REPO_ROOT / "tests/fixtures/basic-poster"
 
 
 @pytest.fixture
@@ -316,6 +320,176 @@ def test_library_template_is_reported_as_external_source_not_project_owned(tmp_p
     assert [entry.path for entry in report.render_manifest] == [
         "@project/render-inputs.json"
     ]
+
+
+def test_external_local_template_content_is_render_hashed_but_not_project_owned(
+    tmp_path: Path,
+) -> None:
+    """Changing an external local template must invalidate render without faking ownership."""
+    authored = tmp_path / "shared/template"
+    shutil.copytree(_BASIC_TEMPLATE, authored)
+    project = ProjectService().create(
+        tmp_path / "campaign", "launch", str(authored)
+    )
+
+    before = _service().snapshot(project=project.root)
+    (authored / "template.yaml").write_bytes(
+        (authored / "template.yaml").read_bytes() + b"\n# revised\n"
+    )
+    after = _service().snapshot(project=project.root)
+
+    external = [source for source in before.source_files if not source.project_owned]
+    assert before.ok and after.ok
+    assert [source.path for source in external] == [
+        "@external/template/data.yaml",
+        "@external/template/logo.png",
+        "@external/template/template.yaml",
+    ]
+    assert all(source.role == "template" and source.sha256 for source in external)
+    assert "@external/template/template.yaml" in {
+        entry.path for entry in before.render_manifest
+    }
+    assert before.project_revision == after.project_revision
+    assert before.render_revision != after.render_revision
+
+
+def test_missing_external_local_template_is_a_non_owned_source_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """A missing external template root file must fail instead of producing a usable snapshot."""
+    authored = tmp_path / "shared/template"
+    shutil.copytree(_BASIC_TEMPLATE, authored)
+    project = ProjectService().create(
+        tmp_path / "campaign", "launch", str(authored)
+    )
+    (authored / "template.yaml").unlink()
+
+    report = _service().snapshot(project=project.root)
+
+    missing = [
+        source
+        for source in report.source_files
+        if source.path == "@external/template/template.yaml"
+    ]
+    assert not report.ok
+    assert [(diag.code, diag.source.file) for diag in report.diagnostics if diag.source] == [
+        ("ARC-PRJ-005", str((authored / "template.yaml").resolve()))
+    ]
+    assert len(missing) == 1
+    assert not missing[0].project_owned
+    assert missing[0].sha256 is None
+
+
+def test_external_data_content_is_render_hashed_and_reports_actual_ownership(
+    tmp_path: Path,
+) -> None:
+    """An existing external data file must not crash or enter the owned project manifest."""
+    project = tmp_path / "campaign"
+    (project / "template").mkdir(parents=True)
+    (project / "template/template.yaml").write_text("version: 0.1.0\n", encoding="utf-8")
+    shared_data = tmp_path / "shared/content.yaml"
+    shared_data.parent.mkdir()
+    shared_data.write_text("title: Launch\n", encoding="utf-8")
+    (project / "project.yaml").write_text(
+        "name: launch\ntemplate: ./template\ndata: ../shared/content.yaml\n"
+        "formats: [square]\nlocales: []\n",
+        encoding="utf-8",
+    )
+
+    try:
+        before = _service().snapshot(project=project)
+    except ValueError as exc:
+        pytest.fail(f"external data escaped snapshot path handling: {exc}")
+    shared_data.write_text("title: Revised\n", encoding="utf-8")
+    after = _service().snapshot(project=project)
+
+    source = next(item for item in before.source_files if item.path == "@external/data")
+    assert before.ok and after.ok
+    assert not source.project_owned
+    assert source.resolved_path == str(shared_data.resolve())
+    assert source.sha256
+    assert "@external/data" in {entry.path for entry in before.render_manifest}
+    assert "@external/data" not in {entry.path for entry in before.project_manifest}
+    assert before.project_revision == after.project_revision
+    assert before.render_revision != after.render_revision
+
+
+def test_missing_external_data_is_a_non_owned_source_diagnostic(tmp_path: Path) -> None:
+    """A missing external data path must retain its role label and actual ownership."""
+    project = tmp_path / "campaign"
+    (project / "template").mkdir(parents=True)
+    (project / "template/template.yaml").write_text("version: 0.1.0\n", encoding="utf-8")
+    missing_data = tmp_path / "shared/missing.yaml"
+    (project / "project.yaml").write_text(
+        "name: launch\ntemplate: ./template\ndata: ../shared/missing.yaml\n"
+        "formats: [square]\nlocales: []\n",
+        encoding="utf-8",
+    )
+
+    report = _service().snapshot(project=project)
+
+    source = next(item for item in report.source_files if item.path == "@external/data")
+    assert not report.ok
+    assert not source.project_owned
+    assert source.resolved_path == str(missing_data.resolve())
+    assert source.sha256 is None
+    assert [(diag.code, diag.source.file) for diag in report.diagnostics if diag.source] == [
+        ("ARC-PRJ-005", str(missing_data.resolve()))
+    ]
+
+
+def test_inactive_override_changes_project_revision_only(project_dir: Path) -> None:
+    """Only the patch selected by Project.patch_path may invalidate the render revision."""
+    inactive = project_dir / "overrides/unused.patch.yaml"
+    inactive.write_text("- remove: nodes.footer\n", encoding="utf-8")
+    before = _service().snapshot(project=project_dir)
+
+    inactive.write_text("- remove: nodes.title\n", encoding="utf-8")
+    after = _service().snapshot(project=project_dir)
+
+    assert "overrides/unused.patch.yaml" in {
+        entry.path for entry in before.project_manifest
+    }
+    assert "overrides/unused.patch.yaml" not in {
+        entry.path for entry in before.render_manifest
+    }
+    assert before.project_revision != after.project_revision
+    assert before.render_revision == after.render_revision
+
+
+def test_utf8_text_asset_line_endings_normalize_without_revision_churn(
+    project_dir: Path,
+) -> None:
+    """Equivalent UTF-8 text asset checkouts must share project and render revisions."""
+    asset = project_dir / "assets/overlay.svg"
+    asset.write_bytes(b"<svg>\r\n<path/>\r\n</svg>\r\n")
+    crlf = _service().snapshot(project=project_dir)
+
+    asset.write_bytes(b"<svg>\n<path/>\n</svg>\n")
+    lf = _service().snapshot(project=project_dir)
+
+    assert crlf.project_manifest == lf.project_manifest
+    assert crlf.render_manifest == lf.render_manifest
+    assert crlf.project_revision == lf.project_revision
+    assert crlf.render_revision == lf.render_revision
+
+
+def test_equivalent_local_path_spellings_share_render_projection(project_dir: Path) -> None:
+    """Lexically different references to the same local inputs must share a render key."""
+    canonical = _service().snapshot(project=project_dir)
+    manifest = (project_dir / "project.yaml").read_text(encoding="utf-8")
+    (project_dir / "project.yaml").write_text(
+        manifest.replace("template: ./template", "template: template/../template").replace(
+            "data: data/content.yaml", "data: ./data/../data/content.yaml"
+        ),
+        encoding="utf-8",
+    )
+
+    equivalent = _service().snapshot(project=project_dir)
+
+    assert canonical.project_revision != equivalent.project_revision
+    assert canonical.render_manifest == equivalent.render_manifest
+    assert canonical.render_revision == equivalent.render_revision
 
 
 def test_facade_snapshot_uses_capabilities_from_the_handshake_service() -> None:
