@@ -55,6 +55,7 @@ def main() -> int:
     args = parser.parse_args()
 
     env = dict(os.environ)
+    env.pop("ARCAVEX_PYI_ONEFILE", None)
     if args.onefile:
         env["ARCAVEX_PYI_ONEFILE"] = "1"
 

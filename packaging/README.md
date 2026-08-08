@@ -12,6 +12,14 @@ by double-click.
 | [`build.py`](build.py) | Runs PyInstaller and applies the one post-build step the spec cannot. |
 | [`verify_frozen.py`](verify_frozen.py) | Proves the binary is byte-identical to the installed engine. |
 
+## Pinned desktop toolchains
+
+The repository pins the locally verified desktop toolchains: Node `22.21.0` in `.nvmrc` and Rust
+`1.97.1` in `rust-toolchain.toml`. Update a pin deliberately: install the candidate release, update
+the corresponding pin, rebuild the sidecar, run `packaging/verify_frozen.py`, and commit the pin
+only with passing verification evidence. Do not use moving aliases such as `stable` or a Node major
+alone for release builds.
+
 ## Build and verify
 
 ```bash

@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
 from types import ModuleType
+
+import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
@@ -82,6 +85,15 @@ def _load_frozen_verifier() -> ModuleType:
     return module
 
 
+def _load_packaging_build() -> ModuleType:
+    source = _REPO_ROOT / "packaging" / "build.py"
+    spec = importlib.util.spec_from_file_location("arcavex_packaging_build_test", source)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_frozen_verifier_renders_the_current_bilingual_fixture(tmp_path: Path) -> None:
     """The frozen verifier must use a fixture retained by the current repository."""
     verifier = _load_frozen_verifier()
@@ -93,3 +105,31 @@ def test_frozen_verifier_renders_the_current_bilingual_fixture(tmp_path: Path) -
 
     assert output.is_file()
     assert output.stat().st_size > 0
+
+
+def test_default_frozen_build_ignores_ambient_onefile_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A default build must create an onedir payload despite a parent-shell onefile flag."""
+    build = _load_packaging_build()
+    monkeypatch.setattr(build, "DIST", tmp_path / "dist")
+    monkeypatch.setattr(build, "WORK", tmp_path / "work")
+    monkeypatch.setenv("ARCAVEX_PYI_ONEFILE", "1")
+    monkeypatch.setattr(sys, "argv", ["build.py"])
+
+    def fake_pyinstaller(
+        args: list[str], *, cwd: Path, env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
+        if env.get("ARCAVEX_PYI_ONEFILE") == "1":
+            (build.DIST / "arcavex.exe").parent.mkdir(parents=True, exist_ok=True)
+            (build.DIST / "arcavex.exe").write_bytes(b"onefile")
+        else:
+            internal = build.DIST / "arcavex" / "_internal"
+            internal.mkdir(parents=True)
+            (internal / "icudtl.dat").write_bytes(b"icu")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(build.subprocess, "run", fake_pyinstaller)
+
+    assert build.main() == 0
+    assert (build.DIST / "arcavex" / "icudtl.dat").read_bytes() == b"icu"
