@@ -25,7 +25,7 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**162** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**163** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
 
 ## Unknown fields are always rejected
@@ -86,7 +86,7 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 | `ARC-RND` | 13 | Fonts/glyphs, font installation, resource budgets, deferred render features | `ARC-RND-010` family not found, `ARC-RND-011` missing glyph, `ARC-RND-020..023` budget (exit 4), `ARC-RND-031` unsupported font file |
 | `ARC-FX` | 8 | Effects, masks, shape generators | `ARC-FX-902` invalid params, `ARC-FX-910` unknown effect, `ARC-FX-913` unknown generator |
 | `ARC-EXT` | 20 | Extension manifest, compat, imports, determinism, golden test | `ARC-EXT-001` duplicate component, `ARC-EXT-030` import surface, `ARC-EXT-050` dishonest bounds, `ARC-EXT-053` test harness I/O |
-| `ARC-PRJ` | 6 | Project manifest, discovery, status, detach | `ARC-PRJ-001` no project, `ARC-PRJ-002` invalid manifest |
+| `ARC-PRJ` | 7 | Project manifest, discovery, status, snapshots, detach | `ARC-PRJ-001` no project, `ARC-PRJ-002` invalid manifest, `ARC-PRJ-005` missing snapshot source |
 | `ARC-STY` | 4 | Style packs, presets, roles | `ARC-STY-001` unknown pack, `ARC-STY-010` unknown preset |
 | `ARC-AST` | 5 | Asset resolution, decode, guards, traversal, shape advice | `ARC-AST-003` decode guard, `ARC-AST-004` path escape, `ARC-AST-020` mostly-transparent asset under contain/cover |
 | `ARC-EXP` | 4 | Exporters (write, encode, PDF, extension) | `ARC-EXP-001` export write failed, `ARC-EXP-011` unsupported extension |

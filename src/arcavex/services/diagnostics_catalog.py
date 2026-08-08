@@ -1021,6 +1021,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Use one of: draft, review, approved, published.",
         ),
         _e(
+            "ARC-PRJ-005",
+            "Declared project source is missing",
+            "A project snapshot could not find an active data file declared by project.yaml or "
+            "the required template.yaml in a project-owned template directory, so its revision "
+            "manifest is incomplete.",
+            "Restore the declared file or update project.yaml to reference an existing source.",
+        ),
+        _e(
             "ARC-PRJ-006",
             "Template upgrade or detach unavailable",
             "The operation needs a library-pinned template. The project's template is a local "
