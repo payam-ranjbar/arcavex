@@ -25,23 +25,6 @@ _EXCLUDED_DIRECTORIES = frozenset(
     {".arcavex", ".cache", "__pycache__", "cache", "caches", "outputs"}
 )
 _TEMPORARY_SUFFIXES = (".swp", ".tmp", "~")
-_TEXT_ASSET_SUFFIXES = frozenset(
-    {
-        ".css",
-        ".csv",
-        ".html",
-        ".htm",
-        ".json",
-        ".md",
-        ".svg",
-        ".toml",
-        ".tsv",
-        ".txt",
-        ".xml",
-        ".yaml",
-        ".yml",
-    }
-)
 
 
 @dataclass(frozen=True)
@@ -272,7 +255,7 @@ class ProjectSnapshotService:
             if path.is_file() and not _is_excluded(path, directory):
                 resolved = path.resolve()
                 logical = (
-                    _template_logical_path(resolved, logical_root, root)
+                    _template_logical_path(path, logical_root, root)
                     if logical_root is not None
                     else resolved.relative_to(root).as_posix()
                 )
@@ -327,13 +310,22 @@ def _entry_from_bytes(path: str, content: bytes) -> RevisionManifestEntry:
 
 def _normalized_bytes(path: Path, role: SourceRole) -> bytes:
     raw = path.read_bytes()
-    if role == "asset" and path.suffix.casefold() not in _TEXT_ASSET_SUFFIXES:
-        return raw
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         return raw
+    if role == "asset" and _has_binary_controls(text):
+        return raw
     return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
+def _has_binary_controls(text: str) -> bool:
+    allowed = {"\t", "\n", "\r"}
+    return any(
+        (ord(character) < 32 and character not in allowed)
+        or 127 <= ord(character) <= 159
+        for character in text
+    )
 
 
 def _render_projection(
@@ -392,9 +384,10 @@ def _logical_path(path: Path, root: Path, external: str) -> str:
 
 
 def _template_logical_path(path: Path, template_root: Path, project_root: Path) -> str:
-    if _is_within(path, project_root):
-        return path.resolve().relative_to(project_root).as_posix()
-    return f"@external/template/{path.resolve().relative_to(template_root).as_posix()}"
+    try:
+        return path.relative_to(project_root).as_posix()
+    except ValueError:
+        return f"@external/template/{path.relative_to(template_root).as_posix()}"
 
 
 def _canonical_template_ref(

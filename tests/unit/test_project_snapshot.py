@@ -474,6 +474,87 @@ def test_utf8_text_asset_line_endings_normalize_without_revision_churn(
     assert crlf.render_revision == lf.render_revision
 
 
+@pytest.mark.parametrize("asset_name", ["behavior.js", "settings.ini", "README"])
+def test_utf8_text_asset_detection_is_independent_of_filename(
+    project_dir: Path, asset_name: str
+) -> None:
+    """Unknown-extension and extensionless UTF-8 assets must normalize checkout endings."""
+    asset = project_dir / "assets" / asset_name
+    asset.write_bytes(b"first line\r\nsecond line\r\n")
+    crlf = _service().snapshot(project=project_dir)
+
+    asset.write_bytes(b"first line\nsecond line\n")
+    lf = _service().snapshot(project=project_dir)
+
+    assert crlf.project_manifest == lf.project_manifest
+    assert crlf.render_manifest == lf.render_manifest
+    assert crlf.project_revision == lf.project_revision
+    assert crlf.render_revision == lf.render_revision
+
+
+def test_utf8_decodable_control_bearing_asset_remains_byte_exact(
+    project_dir: Path,
+) -> None:
+    """Strictly decodable binary controls must prevent text line-ending normalization."""
+    asset = project_dir / "assets/control-payload.dat"
+    asset.write_bytes(b"\x00META\r\n\x01")
+    crlf = _service().snapshot(project=project_dir)
+
+    asset.write_bytes(b"\x00META\n\x01")
+    lf = _service().snapshot(project=project_dir)
+
+    crlf_entry = next(
+        entry for entry in crlf.project_manifest if entry.path == "assets/control-payload.dat"
+    )
+    lf_entry = next(
+        entry for entry in lf.project_manifest if entry.path == "assets/control-payload.dat"
+    )
+    assert (crlf_entry.sha256, crlf_entry.bytes) == (
+        "a459df774b1d251928987b9ed7ae758b8904324cba64ee28a63a4f01f8613435",
+        8,
+    )
+    assert (lf_entry.sha256, lf_entry.bytes) == (
+        "1fe864883e0bab9b0c05158fbbc3598a5526d9b0fb01687f6f37230dbbd99e39",
+        7,
+    )
+    assert crlf.project_revision != lf.project_revision
+    assert crlf.render_revision != lf.render_revision
+
+
+def test_template_file_symlink_outside_root_uses_link_location_without_crashing(
+    project_dir: Path,
+) -> None:
+    """An escaping template symlink must hash its target under the stable authored link path."""
+    external = project_dir.parent / "shared/behavior.js"
+    external.parent.mkdir()
+    external.write_text("const value = 1;\n", encoding="utf-8")
+    link = project_dir / "template/shared-behavior.js"
+    try:
+        link.symlink_to(external)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"platform cannot create file symlinks: {exc}")
+
+    before = _service().snapshot(project=project_dir)
+    external.write_text("const value = 2;\n", encoding="utf-8")
+    after = _service().snapshot(project=project_dir)
+
+    source = next(
+        item for item in before.source_files if item.path == "template/shared-behavior.js"
+    )
+    assert before.ok and after.ok
+    assert source.resolved_path == str(external.resolve())
+    assert not source.project_owned
+    assert source.sha256
+    assert "template/shared-behavior.js" in {
+        entry.path for entry in before.render_manifest
+    }
+    assert "template/shared-behavior.js" not in {
+        entry.path for entry in before.project_manifest
+    }
+    assert before.project_revision == after.project_revision
+    assert before.render_revision != after.render_revision
+
+
 def test_equivalent_local_path_spellings_share_render_projection(project_dir: Path) -> None:
     """Lexically different references to the same local inputs must share a render key."""
     canonical = _service().snapshot(project=project_dir)
