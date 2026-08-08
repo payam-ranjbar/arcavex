@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from ruamel.yaml.error import CommentMark
+from ruamel.yaml.tokens import CommentToken
 
 from arcavex.kernel.api import AutomationPolicy, ProjectUIMetadata
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
@@ -32,7 +34,6 @@ PROJECT_UI_FILE = "project.ui.yaml"
 ProjectStatus = Literal["draft", "review", "approved", "published"]
 _STATUSES: tuple[str, ...] = get_args(ProjectStatus)
 _AUTOMATION_POLICY_KEYS = frozenset({"version", "mode", "extensions"})
-_AUTOMATION_POLICY_AXES = frozenset({"mode", "extensions"})
 
 
 class ProjectModel(BaseModel):
@@ -506,25 +507,45 @@ def _pop_default_automation_field(
             and following is not None
             and following not in _AUTOMATION_POLICY_KEYS
         ):
-            for anchor in reversed(ordered_keys[:index]):
-                if anchor in _AUTOMATION_POLICY_AXES:
-                    continue
-                destination = comments.items.setdefault(
-                    anchor, [None, None, None, None]
-                )
-                if destination[2] is None:
-                    destination[2] = token
-                    attached[2] = None
-                    break
-            else:
+            preserved = _standalone_comment_tokens(
+                token, indent=automation.lc.key(following)[1]
+            )
+            if preserved:
                 destination = comments.items.setdefault(
                     following, [None, None, None, None]
                 )
                 if destination[1] is None:
                     destination[1] = []
-                destination[1].append(token)
-                attached[2] = None
+                destination[1].extend(preserved)
+            attached[2] = None
     automation.pop(field, None)
+
+
+def _standalone_comment_tokens(
+    token: CommentToken, *, indent: int
+) -> list[CommentToken]:
+    """Split an axis EOL token into marked pre-key comments owned by the next field."""
+    value = token.value
+    if value.startswith("#"):
+        _, newline, value = value.partition("\n")
+        if not newline:
+            return []
+    elif value.startswith("\r\n"):
+        value = value[2:]
+    elif value.startswith("\n"):
+        value = value[1:]
+    else:
+        return []
+
+    lines = value.splitlines(keepends=True)
+    mark = CommentMark(indent)
+    preserved: list[CommentToken] = []
+    while lines and not lines[0].strip(" \t\r\n"):
+        preserved.append(CommentToken(lines.pop(0), mark))
+    if lines:
+        lines[0] = lines[0].lstrip(" ")
+        preserved.append(CommentToken("".join(lines), mark))
+    return preserved
 
 
 def _first_error(exc: ValidationError) -> str:

@@ -315,6 +315,96 @@ automation:
     assert _comment_values(after["automation"]["vendor"]) == []
 
 
+@pytest.mark.parametrize(
+    ("known_fields", "vendor_comments", "expected_comment_lines", "blank_lines"),
+    [
+        pytest.param(
+            "  extensions: disabled  # extensions axis comment\n"
+            "  mode: review  # mode axis comment\n",
+            "  # vendor metadata must stay\n",
+            ["  # vendor metadata must stay"],
+            0,
+            id="mixed-token-associated-with-mode",
+        ),
+        pytest.param(
+            "  mode: review  # mode axis comment\n"
+            "  extensions: disabled  # extensions axis comment\n",
+            "\n"
+            "  # vendor metadata line one\n"
+            "  # vendor metadata line two\n",
+            [
+                "  # vendor metadata line one",
+                "  # vendor metadata line two",
+            ],
+            1,
+            id="mixed-token-associated-with-extensions",
+        ),
+    ],
+)
+def test_default_policy_splits_mixed_axis_and_vendor_comments(
+    tmp_path: Path,
+    known_fields: str,
+    vendor_comments: str,
+    expected_comment_lines: list[str],
+    blank_lines: int,
+) -> None:
+    """Axis inline text must not corrupt neighboring forward-compatible collections."""
+    root = _project(tmp_path)
+    path = root / "project.yaml"
+    path.write_text(
+        """\
+name: launch
+template: ./template
+formats: [square]
+locales: []
+automation:
+  version: 1
+  alpha:
+    enabled: true
+    items: [one, two]
+"""
+        + known_fields
+        + vendor_comments
+        + """\
+  vendor:
+    enabled: true
+    rules: [safe, future]
+""",
+        encoding="utf-8",
+    )
+    projects = ProjectService()
+    policies = ProjectPolicyService(projects, ProjectSnapshotService(projects))
+
+    report = policies.set_policy(
+        project=root, mode="unrestricted", extensions="unrestricted"
+    )
+    after = load_yaml(path)
+    output_lines = path.read_text(encoding="utf-8").splitlines()
+    vendor_line = output_lines.index("  vendor:")
+    comments_start = vendor_line - len(expected_comment_lines)
+
+    assert report.policy == AutomationPolicy()
+    assert list(after["automation"]) == ["version", "alpha", "vendor"]
+    assert after["automation"]["alpha"] == {
+        "enabled": True,
+        "items": ["one", "two"],
+    }
+    assert after["automation"]["vendor"] == {
+        "enabled": True,
+        "rules": ["safe", "future"],
+    }
+    assert output_lines[comments_start:vendor_line] == expected_comment_lines
+    assert output_lines[comments_start - blank_lines : comments_start] == [
+        ""
+    ] * blank_lines
+    assert output_lines[comments_start - blank_lines - 1] == "    items: [one, two]"
+    output = "\n".join(output_lines)
+    assert "mode axis comment" not in output
+    assert "extensions axis comment" not in output
+    for comment_line in expected_comment_lines:
+        assert output_lines.count(comment_line) == 1
+
+
 def test_policy_service_reports_revisions_and_changes_only_project_revision(
     tmp_path: Path,
 ) -> None:
