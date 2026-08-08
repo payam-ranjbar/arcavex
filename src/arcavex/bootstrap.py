@@ -36,6 +36,7 @@ from arcavex.services.fonts import FontService
 from arcavex.services.library import Library
 from arcavex.services.orchestrator import IR_VERSION, Orchestrator
 from arcavex.services.pipeline import render_to_file
+from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import ProjectService
 from arcavex.services.runs import RunStore
 from arcavex.services.skills import SkillService
@@ -239,12 +240,14 @@ def _build_orchestrator(
         )
 
     library = Library()
+    projects = ProjectService(library)
     return Orchestrator(
         compiler,
         render_fn,  # type: ignore[arg-type]
         engine_version(),
         library=library,
-        projects=ProjectService(library),
+        projects=projects,
+        project_snapshots=ProjectSnapshotService(projects),
         run_store=RunStore(),
         batch_worker=_batch_render_one,
     )

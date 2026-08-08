@@ -26,6 +26,7 @@ MCP_CONTRACT_VERSION = "2025-06-18"
 
 DESKTOP_CAPABILITIES: tuple[str, ...] = (
     "desktop.engine-handshake",
+    "project.snapshot",
     "render.preview",
 )
 

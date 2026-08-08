@@ -44,6 +44,7 @@ from arcavex.kernel.api import (
     PreviewResult,
     ProjectListReport,
     ProjectResult,
+    ProjectSnapshotReport,
     ProjectStatusReport,
     RenderResult,
     RerunReport,
@@ -155,6 +156,10 @@ class ArcavexTools:
     def project_status(self, project: str | None = None) -> ProjectStatusReport:
         """Report the active (or --project) project's manifest and recorded-run count."""
         return self._facade.project_status(project=_opt_path(project))
+
+    def project_snapshot(self, project: str | None = None) -> ProjectSnapshotReport:
+        """Open a project read-only and report its source and render revision manifests."""
+        return self._facade.project_snapshot(project=_opt_path(project))
 
     def project_clone(
         self, target: str, name: str | None = None, project: str | None = None
@@ -358,6 +363,7 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_project_create", "project_create"),
     ("arcavex_project_list", "project_list"),
     ("arcavex_project_status", "project_status"),
+    ("project_snapshot", "project_snapshot"),
     ("arcavex_project_clone", "project_clone"),
     ("arcavex_project_render", "project_render"),
     ("arcavex_render_record", "render_record"),

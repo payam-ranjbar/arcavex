@@ -139,7 +139,7 @@ class ProjectService:
 
     def load(self, project_dir: Path) -> Project:
         """Load and validate the ``project.yaml`` in ``project_dir`` (``ARC-PRJ-002`` on error)."""
-        project_dir = Path(project_dir)
+        project_dir = Path(project_dir).resolve()
         raw = load_yaml(project_dir / PROJECT_FILE)
         if not isinstance(raw, dict):
             raise self._invalid(project_dir, "project.yaml is not a mapping")

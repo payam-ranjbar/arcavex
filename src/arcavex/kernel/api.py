@@ -540,6 +540,65 @@ class DesktopServiceProtocol(Protocol):
     def handshake(self) -> EngineHandshakeReport: ...
 
 
+class RevisionManifestEntry(BaseModel):
+    """One normalized file or synthetic projection participating in a revision."""
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    sha256: str
+    bytes: int
+
+
+class ProjectTarget(BaseModel):
+    """One deterministic format and locale combination declared by a project."""
+
+    model_config = ConfigDict(frozen=True)
+
+    format: str
+    locale: str | None = None
+
+
+class ProjectSourceFile(BaseModel):
+    """A project input and its resolved source location for conflict diagnostics."""
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    resolved_path: str
+    role: Literal["project", "ui", "template", "data", "override", "asset"]
+    project_owned: bool
+    sha256: str | None = None
+
+
+class ProjectSnapshotReport(BaseModel):
+    """Read-only desktop snapshot with independent project and render revisions."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    name: str | None = None
+    template: str | None = None
+    style: str | None = None
+    data: str | None = None
+    dpi: int | None = None
+    formats: list[str] = Field(default_factory=list)
+    locales: list[str] = Field(default_factory=list)
+    targets: list[ProjectTarget] = Field(default_factory=list)
+    default_target: ProjectTarget | None = None
+    status: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    project_revision: str | None = None
+    render_revision: str | None = None
+    project_manifest: list[RevisionManifestEntry] = Field(default_factory=list)
+    render_manifest: list[RevisionManifestEntry] = Field(default_factory=list)
+    source_files: list[ProjectSourceFile] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 # --------------------------------------------------------------------------- explain
 class DiagnosticHelp(BaseModel):
     """The result of ``arcavex explain``: a documentation entry for a diagnostic code."""
@@ -1397,6 +1456,13 @@ class OrchestratorProtocol(Protocol):
     ) -> ProjectResult: ...
 
     def project_status(self, start: Path | None, project: Path | None) -> ProjectStatusReport: ...
+
+    def project_snapshot(
+        self,
+        start: Path | None,
+        project: Path | None,
+        capabilities: list[str],
+    ) -> ProjectSnapshotReport: ...
 
     def clone_project(
         self, start: Path | None, project: Path | None, target: Path, name: str
@@ -2473,6 +2539,16 @@ class Facade:
         """Resolve and report the active project (cwd walk or ``--project``). Never raises."""
         return self._guard_project(
             lambda o: o.project_status(start, project), ProjectStatusReport
+        )
+
+    def project_snapshot(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProjectSnapshotReport:
+        """Return a read-only project snapshot and independent revision manifests."""
+        capabilities = list(self.engine_handshake().capabilities)
+        return self._guard_project(
+            lambda o: o.project_snapshot(start, project, capabilities),
+            ProjectSnapshotReport,
         )
 
     def clone_project(

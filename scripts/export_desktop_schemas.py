@@ -17,9 +17,12 @@ def _schema_models() -> dict[str, type[BaseModel]]:
     source = str(ROOT / "src")
     if source not in sys.path:
         sys.path.insert(0, source)
-    from arcavex.kernel.api import EngineHandshakeReport
+    from arcavex.kernel.api import EngineHandshakeReport, ProjectSnapshotReport
 
-    return {"engine-handshake.schema.json": EngineHandshakeReport}
+    return {
+        "engine-handshake.schema.json": EngineHandshakeReport,
+        "project-snapshot.schema.json": ProjectSnapshotReport,
+    }
 
 
 def main() -> int:

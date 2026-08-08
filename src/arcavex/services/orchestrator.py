@@ -38,6 +38,7 @@ from arcavex.kernel.api import (
     ProjectInputs,
     ProjectListReport,
     ProjectResult,
+    ProjectSnapshotReport,
     ProjectStatusReport,
     ProjectSummary,
     PublishReport,
@@ -58,6 +59,7 @@ from arcavex.services.config import RuntimeConfig
 from arcavex.services.fsutil import atomic_write_text, home_dir
 from arcavex.services.imaging import dssim_files
 from arcavex.services.library import Library, is_library_ref
+from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import Project, ProjectService, template_stem
 from arcavex.services.runs import (
     AssetProvenance,
@@ -127,6 +129,7 @@ class Orchestrator:
         dssim_fn: Callable[[Path, Path], float | None] = dssim_files,
         batch_worker: BatchWorker | None = None,
         config: RuntimeConfig | None = None,
+        project_snapshots: ProjectSnapshotService | None = None,
     ) -> None:
         """Wire the orchestrator with its compiler, renderer, services, clock, and batch worker."""
         self._compiler = compiler
@@ -134,6 +137,7 @@ class Orchestrator:
         self._engine_version = engine_version
         self._library = library or Library()
         self._projects = projects or ProjectService(self._library)
+        self._project_snapshots = project_snapshots or ProjectSnapshotService(self._projects)
         self._runs = run_store or RunStore()
         self._asset_root = asset_root if asset_root is not None else home_dir() / "assets"
         self._clock = clock
@@ -175,6 +179,17 @@ class Orchestrator:
     ) -> ProjectStatusReport:
         proj = self._projects.resolve(start, project)
         return self._status_report(proj)
+
+    def project_snapshot(
+        self,
+        start: Path | None,
+        project: Path | None,
+        capabilities: list[str],
+    ) -> ProjectSnapshotReport:
+        """Return the read-only project snapshot used by desktop and MCP clients."""
+        return self._project_snapshots.snapshot(
+            start=start, project=project, capabilities=capabilities
+        )
 
     def clone_project(
         self, start: Path | None, project: Path | None, target: Path, name: str
