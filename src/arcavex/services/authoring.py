@@ -7,6 +7,7 @@ service returns versioned kernel response models and never raises across the fac
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,7 @@ from arcavex.services.template.loader import (
     line_of,
     load_template,
     load_yaml,
+    node_line,
     resolve_template_path,
 )
 from arcavex.services.template.overlays import PatchLog, apply_patches
@@ -66,6 +68,45 @@ _SPLIT_MAP: tuple[tuple[str, str], ...] = (
     ("locales", "locales.yaml"),
     ("preview_data", "preview-data.yaml"),
 )
+
+
+@dataclass(frozen=True)
+class AuthoredEffect:
+    """One source effect declaration before compiler parameter normalization."""
+
+    name: str
+    params: dict[str, object]
+
+
+@dataclass(frozen=True)
+class AuthoredMask:
+    """One source mask declaration before compiler parameter normalization."""
+
+    component: str
+    params: dict[str, object]
+
+
+@dataclass(frozen=True)
+class AuthoredLayer:
+    """Source-only layer definition; structural constructs remain unexpanded."""
+
+    id: str
+    kind: str
+    parent_id: str | None
+    authored_index: int
+    z: int
+    visible: bool
+    origin: str
+    condition: str | None
+    collection: str | None
+    loop_var: str | None
+    key: str | None
+    file: str
+    keypath: str
+    line: int | None
+    effects: tuple[AuthoredEffect, ...]
+    mask: AuthoredMask | None
+    children: tuple[AuthoredLayer, ...]
 
 _SCAFFOLD_TEMPLATE = """\
 version: 0.1.0
@@ -266,6 +307,19 @@ class AuthoringService:
             functions=_function_infos(self._functions),
             preview_data=preview_data if isinstance(preview_data, dict) else {},
             diagnostics=diagnostics,
+        )
+
+    def authored_layer_tree(self, template: Path) -> AuthoredLayer | None:
+        """Return the reusable source hierarchy without evaluating structural constructs."""
+        source = load_template(template)
+        return _authored_layer(
+            source.raw.get("root"),
+            parent_id=None,
+            authored_index=0,
+            origin="static",
+            construct={},
+            file=str(source.file_for("root")),
+            keypath="root",
         )
 
     # -------------------------------------------------------------------- split
@@ -568,6 +622,98 @@ def _function_infos(names: list[str]) -> list[FunctionInfo]:
 
 def _str_or_none(value: Any) -> str | None:
     return str(value) if value is not None else None
+
+
+def _authored_layer(
+    node_raw: Any,
+    *,
+    parent_id: str | None,
+    authored_index: int,
+    origin: str,
+    construct: dict[str, str | None],
+    file: str,
+    keypath: str,
+) -> AuthoredLayer | None:
+    """Project one authored node while preserving wrappers instead of evaluating them."""
+    if not isinstance(node_raw, dict):
+        return None
+    node_id = _str_or_none(node_raw.get("id")) or "?"
+    effects: list[AuthoredEffect] = []
+    raw_effects = node_raw.get("effects")
+    if isinstance(raw_effects, list):
+        for raw_effect in raw_effects:
+            if not isinstance(raw_effect, dict):
+                continue
+            params = _to_plain(raw_effect.get("params") or {})
+            effects.append(
+                AuthoredEffect(
+                    name=_str_or_none(raw_effect.get("name")) or "?",
+                    params=params if isinstance(params, dict) else {},
+                )
+            )
+    mask: AuthoredMask | None = None
+    raw_mask = node_raw.get("mask")
+    if isinstance(raw_mask, dict):
+        params = _to_plain(raw_mask.get("params") or {})
+        mask = AuthoredMask(
+            component=_str_or_none(raw_mask.get("component")) or "?",
+            params=params if isinstance(params, dict) else {},
+        )
+    children: list[AuthoredLayer] = []
+    raw_children = node_raw.get("children")
+    if isinstance(raw_children, list):
+        for index, child in enumerate(raw_children):
+            child_keypath = f"{keypath}.children[{index}]"
+            child_node = child
+            child_origin = "static"
+            child_construct: dict[str, str | None] = {}
+            if isinstance(child, dict) and "repeat" in child and "node" in child:
+                child_node = child["node"]
+                child_origin = "repeat"
+                child_construct = {
+                    "collection": _str_or_none(child.get("repeat")),
+                    "loop_var": _str_or_none(child.get("as")),
+                    "key": _str_or_none(child.get("key")),
+                }
+                child_keypath = f"{child_keypath}.node"
+            elif isinstance(child, dict) and "if" in child and "node" in child:
+                child_node = child["node"]
+                child_origin = "if"
+                child_construct = {"condition": _str_or_none(child.get("if"))}
+                child_keypath = f"{child_keypath}.node"
+            projected = _authored_layer(
+                child_node,
+                parent_id=node_id,
+                authored_index=index,
+                origin=child_origin,
+                construct=child_construct,
+                file=file,
+                keypath=child_keypath,
+            )
+            if projected is not None:
+                children.append(projected)
+    raw_z = node_raw.get("z", 0)
+    z = raw_z if isinstance(raw_z, int) and not isinstance(raw_z, bool) else 0
+    raw_visible = node_raw.get("visible", True)
+    return AuthoredLayer(
+        id=node_id,
+        kind=_str_or_none(node_raw.get("type")) or "?",
+        parent_id=parent_id,
+        authored_index=authored_index,
+        z=z,
+        visible=raw_visible if isinstance(raw_visible, bool) else True,
+        origin=origin,
+        condition=construct.get("condition"),
+        collection=construct.get("collection"),
+        loop_var=construct.get("loop_var"),
+        key=construct.get("key"),
+        file=file,
+        keypath=keypath,
+        line=line_of(node_raw, "id") or node_line(node_raw),
+        effects=tuple(effects),
+        mask=mask,
+        children=tuple(children),
+    )
 
 
 def _walk_authored_nodes(root_raw: Any) -> list[NodeInfo]:

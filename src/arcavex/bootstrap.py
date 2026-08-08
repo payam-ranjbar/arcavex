@@ -33,6 +33,7 @@ from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
 from arcavex.services.extensions import ExtensionService, load_enabled_extensions
 from arcavex.services.fonts import FontService
+from arcavex.services.layers import LayerService
 from arcavex.services.library import Library
 from arcavex.services.orchestrator import IR_VERSION, Orchestrator
 from arcavex.services.pipeline import render_to_file
@@ -162,7 +163,13 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
     )
     authoring = AuthoringService(compiler, registries.template_fns.names())
     budget = RenderBudget.from_config(RuntimeConfig.load().raw)
-    orchestrator = _build_orchestrator(registries, compiler, text_service, budget)
+    layers = LayerService(
+        compiler,
+        registries.layouts.get("anchors"),
+        text_service.measure,
+        authoring,
+    )
+    orchestrator = _build_orchestrator(registries, compiler, text_service, budget, layers)
     version = engine_version()
 
     def doctor_probe():
@@ -218,6 +225,7 @@ def _build_orchestrator(
     compiler: Compiler,
     text_service: TextService,
     budget: RenderBudget,
+    layers: LayerService,
 ) -> Orchestrator:
     """Wire the project/provenance orchestrator over the shared render pipeline.
 
@@ -248,6 +256,7 @@ def _build_orchestrator(
         library=library,
         projects=projects,
         project_snapshots=ProjectSnapshotService(projects),
+        layers=layers,
         run_store=RunStore(),
         batch_worker=_batch_render_one,
     )

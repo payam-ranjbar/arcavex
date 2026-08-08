@@ -1284,6 +1284,123 @@ class LayoutReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class LayerSource(BaseModel):
+    """Stable authoring location for a layer definition."""
+
+    model_config = ConfigDict(frozen=True)
+
+    file: str | None = None
+    keypath: str | None = None
+    line: int | None = None
+
+
+class LayerEffect(BaseModel):
+    """One resolved effect declaration attached to a layer."""
+
+    model_config = ConfigDict(frozen=True)
+
+    index: int
+    name: str
+    category: Literal["geometry", "color", "raster", "composite"] | None = None
+    params: dict[str, object] = Field(default_factory=dict)
+
+
+class LayerMask(BaseModel):
+    """One resolved mask declaration attached to a layer."""
+
+    model_config = ConfigDict(frozen=True)
+
+    component: str
+    params: dict[str, object] = Field(default_factory=dict)
+
+
+class LayerNodeReport(BaseModel):
+    """One definition, rendered instance, or virtual effect/mask row in a layer tree."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    authored_id: str
+    instance_id: str | None = None
+    parent_id: str | None = None
+    authored_index: int
+    paint_index: int | None = None
+    z: int = 0
+    kind: str
+    origin: Literal["static", "repeat", "if"] = "static"
+    condition: str | None = None
+    collection: str | None = None
+    loop_var: str | None = None
+    key: str | None = None
+    display_name: str
+    visible: bool = True
+    locked: bool = False
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    editable: bool = True
+    hit_testable: bool = True
+    virtual: bool = False
+    bounds_pt: tuple[float, float, float, float] | None = None
+    bounds_px: tuple[float, float, float, float] | None = None
+    paint_bounds_pt: tuple[float, float, float, float] | None = None
+    paint_bounds_px: tuple[float, float, float, float] | None = None
+    absolute_transform: tuple[float, float, float, float, float, float] | None = None
+    rotate_deg: float = 0.0
+    overflow: OverflowReport | None = None
+    source: LayerSource | None = None
+    effects: list[LayerEffect] = Field(default_factory=list)
+    mask: LayerMask | None = None
+    children: list[LayerNodeReport] = Field(default_factory=list)
+
+
+class LayerTreeReport(BaseModel):
+    """Authoritative desktop layer hierarchy in authored or rendered mode."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    mode: Literal["authored", "rendered"] = "authored"
+    format: str | None = None
+    locale: str | None = None
+    canvas_pt: tuple[float, float] = (0.0, 0.0)
+    canvas_px: tuple[int, int] = (0, 0)
+    dpi: int = 0
+    root: LayerNodeReport | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class HitCandidate(BaseModel):
+    """One rendered layer whose paint bounds contain the queried canvas point."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    authored_id: str
+    instance_id: str
+    parent_id: str | None = None
+    kind: Literal["group", "text", "image", "shape", "path"]
+    display_name: str
+    editable: bool
+    locked: bool
+    bounds_pt: tuple[float, float, float, float]
+    paint_bounds_pt: tuple[float, float, float, float]
+
+
+class HitTestReport(BaseModel):
+    """Topmost-first geometry hit-test result in canonical canvas point space."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    format: str | None = None
+    locale: str | None = None
+    point_pt: tuple[float, float] = (0.0, 0.0)
+    point_px: tuple[float, float] | None = None
+    candidates: list[HitCandidate] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 class AuthoringProtocol(Protocol):
     """Template authoring operations injected by bootstrap (scaffold/inspect/split)."""
 
@@ -1614,6 +1731,24 @@ class OrchestratorProtocol(Protocol):
         project: Path | None,
         capabilities: list[str],
     ) -> ProjectSnapshotReport: ...
+
+    def layer_tree(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: Literal["authored", "rendered"],
+        format_name: str | None,
+        locale: str | None,
+    ) -> LayerTreeReport: ...
+
+    def hit_test(
+        self,
+        start: Path | None,
+        project: Path | None,
+        point_pt: tuple[float, float],
+        format_name: str | None,
+        locale: str | None,
+    ) -> HitTestReport: ...
 
     def project_ui_metadata(
         self, start: Path | None, project: Path | None
@@ -2739,6 +2874,44 @@ class Facade:
         return self._guard_project(
             lambda o: o.project_snapshot(start, project, capabilities),
             ProjectSnapshotReport,
+        )
+
+    def layer_tree(
+        self,
+        project: Path | None = None,
+        *,
+        mode: Literal["authored", "rendered"] = "authored",
+        format_name: str | None = None,
+        locale: str | None = None,
+        start: Path | None = None,
+    ) -> LayerTreeReport:
+        """Return the engine-owned definition or rendered layer hierarchy."""
+        resolved_project = None if project is None else Path(project)
+        return self._guard_project(
+            lambda orchestrator: orchestrator.layer_tree(
+                start, resolved_project, mode, format_name, locale
+            ),
+            LayerTreeReport,
+        )
+
+    def hit_test(
+        self,
+        project: Path | None = None,
+        *,
+        x_pt: float,
+        y_pt: float,
+        format_name: str | None = None,
+        locale: str | None = None,
+        start: Path | None = None,
+    ) -> HitTestReport:
+        """Hit-test one canonical canvas-point coordinate against rendered paint bounds."""
+        resolved_project = None if project is None else Path(project)
+        point_pt = (float(x_pt), float(y_pt))
+        return self._guard_project(
+            lambda orchestrator: orchestrator.hit_test(
+                start, resolved_project, point_pt, format_name, locale
+            ),
+            HitTestReport,
         )
 
     def project_ui_metadata(

@@ -9,6 +9,8 @@ from pathlib import Path
 from arcavex.clients.mcp_server import ArcavexTools, build_mcp_server, tool_catalog
 from arcavex.kernel.api import (
     EngineHandshakeReport,
+    HitTestReport,
+    LayerTreeReport,
     LayerUIMetadata,
     ProjectPolicyReport,
     ProjectSnapshotReport,
@@ -28,7 +30,21 @@ _COMMAND_ID = "00000000-0000-4000-8000-000000000001"
 def _project(root: Path) -> Path:
     project = root / "campaign"
     (project / "template").mkdir(parents=True)
-    (project / "template/template.yaml").write_text("version: 0.1.0\n", encoding="utf-8")
+    (project / "template/template.yaml").write_text(
+        """version: 0.1.0
+formats:
+  square: {canvas: {width: 100px, height: 100px, dpi: 72}}
+root:
+  id: root
+  type: group
+  children:
+    - id: box
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 25pt, h: 25pt}}
+""",
+        encoding="utf-8",
+    )
     (project / "project.yaml").write_text(
         "name: launch\ntemplate: ./template\nformats: [square]\nlocales: []\n",
         encoding="utf-8",
@@ -99,6 +115,56 @@ def test_project_snapshot_dispatches_through_the_live_mcp_server(
     assert structured["canonical_path"] == str(project.resolve())
     assert structured["project_revision"]
     assert structured["render_revision"]
+
+
+def test_layer_tree_and_hit_test_tools_return_shared_facade_models(
+    tools: ArcavexTools, tmp_path: Path
+) -> None:
+    """MCP wrappers must not translate layer/hit reports into transport-owned payloads."""
+    project = _project(tmp_path)
+
+    tree = tools.layer_tree(str(project), mode="rendered", format="square")
+    hits = tools.hit_test(10.0, 10.0, str(project), format="square")
+
+    assert isinstance(tree, LayerTreeReport)
+    assert tree.root is not None and tree.root.children[0].id == "box"
+    assert isinstance(hits, HitTestReport)
+    assert [candidate.id for candidate in hits.candidates] == ["box", "root"]
+
+
+def test_layer_tree_and_hit_test_export_the_shared_output_schemas() -> None:
+    """Catalog schema generation must stay pinned to the frozen kernel models."""
+    catalog = {tool["name"]: tool for tool in tool_catalog(build_mcp_server())}
+
+    assert catalog["layer_tree"]["outputSchema"] == LayerTreeReport.model_json_schema()
+    assert catalog["hit_test"]["outputSchema"] == HitTestReport.model_json_schema()
+
+
+def test_layer_tree_and_hit_test_dispatch_through_the_live_mcp_server(
+    server, tmp_path: Path
+) -> None:
+    """The public names must parse point inputs and return structured shared reports."""
+    project = _project(tmp_path)
+
+    _content, tree = asyncio.run(
+        server.call_tool(
+            "layer_tree",
+            {"project": str(project), "mode": "rendered", "format": "square"},
+        )
+    )
+    _content, hits = asyncio.run(
+        server.call_tool(
+            "hit_test",
+            {"project": str(project), "x_pt": 10.0, "y_pt": 10.0, "format": "square"},
+        )
+    )
+
+    assert tree["response_version"] == 1
+    assert tree["root"]["children"][0]["id"] == "box"
+    assert hits["point_pt"] == [10.0, 10.0]
+    assert [candidate["id"] for candidate in hits["candidates"]] == ["box", "root"]
+    assert LayerTreeReport.model_validate(tree).model_dump(mode="json") == tree
+    assert HitTestReport.model_validate(hits).model_dump(mode="json") == hits
 
 
 def test_metadata_policy_and_proposal_tools_return_shared_facade_models(

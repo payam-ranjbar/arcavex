@@ -1,0 +1,727 @@
+{
+  "$defs": {
+    "Diagnostic": {
+      "description": "A single structured diagnostic.",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "default": "error",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Diagnostic",
+      "type": "object"
+    },
+    "LayerEffect": {
+      "description": "One resolved effect declaration attached to a layer.",
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "enum": [
+                "geometry",
+                "color",
+                "raster",
+                "composite"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "index",
+        "name"
+      ],
+      "title": "LayerEffect",
+      "type": "object"
+    },
+    "LayerMask": {
+      "description": "One resolved mask declaration attached to a layer.",
+      "properties": {
+        "component": {
+          "title": "Component",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "component"
+      ],
+      "title": "LayerMask",
+      "type": "object"
+    },
+    "LayerNodeReport": {
+      "description": "One definition, rendered instance, or virtual effect/mask row in a layer tree.",
+      "properties": {
+        "absolute_transform": {
+          "anyOf": [
+            {
+              "maxItems": 6,
+              "minItems": 6,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Absolute Transform"
+        },
+        "authored_id": {
+          "title": "Authored Id",
+          "type": "string"
+        },
+        "authored_index": {
+          "title": "Authored Index",
+          "type": "integer"
+        },
+        "bounds_pt": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bounds Pt"
+        },
+        "bounds_px": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bounds Px"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/LayerNodeReport"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "collection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Collection"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Condition"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "editable": {
+          "default": true,
+          "title": "Editable",
+          "type": "boolean"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/$defs/LayerEffect"
+          },
+          "title": "Effects",
+          "type": "array"
+        },
+        "hit_testable": {
+          "default": true,
+          "title": "Hit Testable",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "instance_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instance Id"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "locked": {
+          "default": false,
+          "title": "Locked",
+          "type": "boolean"
+        },
+        "loop_var": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Loop Var"
+        },
+        "mask": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayerMask"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "origin": {
+          "default": "static",
+          "enum": [
+            "static",
+            "repeat",
+            "if"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "overflow": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OverflowReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "paint_bounds_pt": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paint Bounds Pt"
+        },
+        "paint_bounds_px": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paint Bounds Px"
+        },
+        "paint_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paint Index"
+        },
+        "parent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Id"
+        },
+        "rotate_deg": {
+          "default": 0.0,
+          "title": "Rotate Deg",
+          "type": "number"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayerSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "virtual": {
+          "default": false,
+          "title": "Virtual",
+          "type": "boolean"
+        },
+        "visible": {
+          "default": true,
+          "title": "Visible",
+          "type": "boolean"
+        },
+        "z": {
+          "default": 0,
+          "title": "Z",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "authored_id",
+        "authored_index",
+        "kind",
+        "display_name"
+      ],
+      "title": "LayerNodeReport",
+      "type": "object"
+    },
+    "LayerSource": {
+      "description": "Stable authoring location for a layer definition.",
+      "properties": {
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "keypath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keypath"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        }
+      },
+      "title": "LayerSource",
+      "type": "object"
+    },
+    "OverflowReport": {
+      "description": "A node's text-overflow outcome, echoed for inspection.",
+      "properties": {
+        "box_h_pt": {
+          "title": "Box H Pt",
+          "type": "number"
+        },
+        "box_w_pt": {
+          "title": "Box W Pt",
+          "type": "number"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "measured_h_pt": {
+          "title": "Measured H Pt",
+          "type": "number"
+        },
+        "measured_w_pt": {
+          "title": "Measured W Pt",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "measured_w_pt",
+        "measured_h_pt",
+        "box_w_pt",
+        "box_h_pt"
+      ],
+      "title": "OverflowReport",
+      "type": "object"
+    },
+    "SourceLocation": {
+      "description": "A location in an authored source file.",
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "keypath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keypath"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        }
+      },
+      "title": "SourceLocation",
+      "type": "object"
+    }
+  },
+  "description": "Authoritative desktop layer hierarchy in authored or rendered mode.",
+  "properties": {
+    "canvas_pt": {
+      "default": [
+        0.0,
+        0.0
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Canvas Pt",
+      "type": "array"
+    },
+    "canvas_px": {
+      "default": [
+        0,
+        0
+      ],
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "integer"
+        }
+      ],
+      "title": "Canvas Px",
+      "type": "array"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/Diagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "dpi": {
+      "default": 0,
+      "title": "Dpi",
+      "type": "integer"
+    },
+    "format": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Format"
+    },
+    "locale": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Locale"
+    },
+    "mode": {
+      "default": "authored",
+      "enum": [
+        "authored",
+        "rendered"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "response_version": {
+      "default": 1,
+      "title": "Response Version",
+      "type": "integer"
+    },
+    "root": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LayerNodeReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "title": "LayerTreeReport",
+  "type": "object"
+}

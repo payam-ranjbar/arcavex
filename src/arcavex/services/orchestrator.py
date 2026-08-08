@@ -23,7 +23,7 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from arcavex.kernel.api import (
     AssetInfo,
@@ -36,6 +36,8 @@ from arcavex.kernel.api import (
     DetachReport,
     DiffReport,
     ExtensionMode,
+    HitTestReport,
+    LayerTreeReport,
     LibraryTemplateInfo,
     ProjectInputs,
     ProjectListReport,
@@ -65,6 +67,7 @@ from arcavex.services.assets import AssetRef, AssetStore
 from arcavex.services.config import RuntimeConfig
 from arcavex.services.fsutil import atomic_write_text, home_dir
 from arcavex.services.imaging import dssim_files
+from arcavex.services.layers import LayerService
 from arcavex.services.library import Library, is_library_ref
 from arcavex.services.project_locking import project_mutation_lock
 from arcavex.services.project_policy import ProjectPolicyService
@@ -140,6 +143,7 @@ class Orchestrator:
         batch_worker: BatchWorker | None = None,
         config: RuntimeConfig | None = None,
         project_snapshots: ProjectSnapshotService | None = None,
+        layers: LayerService | None = None,
     ) -> None:
         """Wire the orchestrator with its compiler, renderer, services, clock, and batch worker."""
         self._compiler = compiler
@@ -148,6 +152,7 @@ class Orchestrator:
         self._library = library or Library()
         self._projects = projects or ProjectService(self._library)
         self._project_snapshots = project_snapshots or ProjectSnapshotService(self._projects)
+        self._layers = layers
         self._project_policies = ProjectPolicyService(
             self._projects, self._project_snapshots
         )
@@ -203,6 +208,70 @@ class Orchestrator:
         """Return the read-only project snapshot used by desktop and MCP clients."""
         return self._project_snapshots.snapshot(
             start=start, project=project, capabilities=capabilities
+        )
+
+    def layer_tree(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: Literal["authored", "rendered"],
+        format_name: str | None,
+        locale: str | None,
+    ) -> LayerTreeReport:
+        """Resolve one project target and compose its authoritative layer hierarchy."""
+        if self._layers is None:
+            raise RuntimeError("layer service is not wired")
+        loaded = self._projects.resolve(start, project)
+        template_dir, _ref, _is_library = self._projects.resolve_template(loaded)
+        patch_ops, patch_file = self._projects.load_project_patch(loaded)
+        targets = self._projects.render_targets(
+            loaded,
+            None if format_name is None else [format_name],
+            None if locale is None else [locale],
+        )
+        target_format, target_locale = targets[0]
+        return self._layers.layer_tree(
+            template_dir,
+            loaded.data_path,
+            target_format,
+            target_locale,
+            loaded.manifest.style,
+            mode,
+            self._projects.load_ui_metadata(loaded),
+            project_patch=patch_ops,
+            project_patch_file=patch_file,
+        )
+
+    def hit_test(
+        self,
+        start: Path | None,
+        project: Path | None,
+        point_pt: tuple[float, float],
+        format_name: str | None,
+        locale: str | None,
+    ) -> HitTestReport:
+        """Resolve one project target and hit-test its rendered paint geometry."""
+        if self._layers is None:
+            raise RuntimeError("layer service is not wired")
+        loaded = self._projects.resolve(start, project)
+        template_dir, _ref, _is_library = self._projects.resolve_template(loaded)
+        patch_ops, patch_file = self._projects.load_project_patch(loaded)
+        targets = self._projects.render_targets(
+            loaded,
+            None if format_name is None else [format_name],
+            None if locale is None else [locale],
+        )
+        target_format, target_locale = targets[0]
+        return self._layers.hit_test(
+            template_dir,
+            loaded.data_path,
+            target_format,
+            target_locale,
+            loaded.manifest.style,
+            self._projects.load_ui_metadata(loaded),
+            point_pt,
+            project_patch=patch_ops,
+            project_patch_file=patch_file,
         )
 
     def project_ui_metadata(

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import TextContent
@@ -40,6 +40,8 @@ from arcavex.kernel.api import (
     ExtensionMode,
     Facade,
     FontListReport,
+    HitTestReport,
+    LayerTreeReport,
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
@@ -167,6 +169,35 @@ class ArcavexTools:
     def project_snapshot(self, project: str | None = None) -> ProjectSnapshotReport:
         """Open a project read-only and report its source and render revision manifests."""
         return self._facade.project_snapshot(project=_opt_path(project))
+
+    def layer_tree(
+        self,
+        project: str | None = None,
+        mode: Literal["authored", "rendered"] = "authored",
+        format: str | None = None,
+        locale: str | None = None,
+    ) -> LayerTreeReport:
+        """Return the engine-owned definition or rendered hierarchy for one project target."""
+        return self._facade.layer_tree(
+            project=_opt_path(project), mode=mode, format_name=format, locale=locale
+        )
+
+    def hit_test(
+        self,
+        x_pt: float,
+        y_pt: float,
+        project: str | None = None,
+        format: str | None = None,
+        locale: str | None = None,
+    ) -> HitTestReport:
+        """Return topmost-first rendered candidates containing one canvas point coordinate."""
+        return self._facade.hit_test(
+            project=_opt_path(project),
+            x_pt=x_pt,
+            y_pt=y_pt,
+            format_name=format,
+            locale=locale,
+        )
 
     def project_ui_metadata(
         self, project: str | None = None
@@ -422,6 +453,8 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_project_list", "project_list"),
     ("arcavex_project_status", "project_status"),
     ("project_snapshot", "project_snapshot"),
+    ("layer_tree", "layer_tree"),
+    ("hit_test", "hit_test"),
     ("project_ui_metadata", "project_ui_metadata"),
     ("project_ui_metadata_set", "project_ui_metadata_set"),
     ("project_policy", "project_policy"),

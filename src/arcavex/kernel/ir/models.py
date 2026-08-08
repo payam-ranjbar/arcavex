@@ -265,6 +265,9 @@ class _CompiledNodeBase(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str
+    # Stable authored identity is provenance, not canonical render input. Repeated instances
+    # keep deterministic IDs such as ``card[alpha]`` while pointing back to ``card``.
+    authored_node_id: str | None = Field(default=None, exclude=True)
     transform: Transform = Transform()
     constraints: Constraints
     style: Style = Style()
@@ -465,6 +468,7 @@ class LayoutNode(BaseModel):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     source_node_id: str
+    authored_node_id: str | None = Field(default=None, exclude=True)
     kind: Literal["group", "text", "image", "shape", "path"]
     bounds: Rect
     absolute_transform: Matrix3

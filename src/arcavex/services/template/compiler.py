@@ -1265,6 +1265,7 @@ class Compiler:
 
         common: dict[str, Any] = {
             "id": node_id,
+            "authored_node_id": authored_id,
             "transform": transform,
             "constraints": constraints,
             "style": style,

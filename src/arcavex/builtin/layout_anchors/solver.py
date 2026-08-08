@@ -125,6 +125,7 @@ class AnchorLayoutSolver(LayoutSolver):
         paint_bounds = self._paint_bounds(render_bounds, rotate_deg, origin)
         return LayoutNode(
             source_node_id=node.id,
+            authored_node_id=node.authored_node_id or node.id,
             kind=node.type,
             bounds=bounds,
             absolute_transform=self._transform(rotate_deg, origin),
