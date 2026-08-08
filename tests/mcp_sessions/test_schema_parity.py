@@ -20,6 +20,7 @@ from arcavex.kernel.api import (
     DiagnosticHelp,
     DiffReport,
     EffectListReport,
+    EngineHandshakeReport,
     FontListReport,
     LayoutReport,
     PatchOp,
@@ -41,6 +42,7 @@ from arcavex.kernel.api import (
 # returns mixed image + text content (its structured payload is a PreviewResult inside a text
 # block), so it has no single output schema.
 _TOOL_OUTPUT_MODELS = {
+    "engine_handshake": EngineHandshakeReport,
     "arcavex_template_list": TemplateListReport,
     "arcavex_template_inspect": TemplateInspectReport,
     "arcavex_template_validate": CheckResult,
@@ -76,7 +78,7 @@ def test_catalog_lists_every_declared_tool() -> None:
     """The built server exposes exactly the declared tool catalog (names)."""
     catalog = _catalog()
     assert set(catalog) == {name for name, _ in _TOOL_METHODS}
-    assert len(catalog) == 25
+    assert len(catalog) == 26
 
 
 def test_output_schemas_match_facade_models() -> None:
@@ -108,6 +110,7 @@ def test_every_tool_delegates_to_a_facade_method() -> None:
     from arcavex.kernel.api import Facade
 
     for facade_method in (
+        "engine_handshake",
         "list_templates", "inspect_template", "validate_template", "patch_template",
         "create_project", "list_projects", "project_status", "clone_project",
         "render_project", "record_render",

@@ -1248,6 +1248,33 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Choose a new or empty scaffold directory, and ensure the Arcavex home is writable.",
         ),
         _e(
+            "ARC-INT-010",
+            "Build commit unavailable",
+            "The runtime has no explicit source-commit metadata, so the engine cannot prove "
+            "which commit produced it. The handshake leaves build_commit null instead of "
+            "guessing from a development checkout or inventing an identifier.",
+            "For a release, provide ARCAVEX_BUILD_COMMIT from the trusted build pipeline. In an "
+            "interpreted development run, no action is required.",
+        ),
+        _e(
+            "ARC-INT-011",
+            "Executable artifact identity unavailable",
+            "Arcavex is running through an interpreter rather than a frozen executable, so there "
+            "is no Arcavex executable artifact whose path and SHA-256 can be reported honestly. "
+            "The Python interpreter is deliberately not presented as the engine artifact.",
+            "Use the frozen Arcavex executable when a release artifact identity is required. In "
+            "an interpreted development run, no action is required.",
+        ),
+        _e(
+            "ARC-INT-012",
+            "Executable artifact could not be hashed",
+            "The running frozen executable was identified, but its bytes could not be read to "
+            "compute the artifact SHA-256. The handshake retains the path and leaves the hash "
+            "null rather than reporting unverified identity.",
+            "Ensure the executable still exists and is readable, then retry. Reinstall the "
+            "Arcavex sidecar if the artifact was moved, replaced, or damaged.",
+        ),
+        _e(
             "ARC-INT-999",
             "Internal engine error",
             "An unexpected internal error occurred and was wrapped rather than crashing.",
@@ -1273,4 +1300,3 @@ def render_markdown(doc: DiagnosticDoc) -> str:
         f"{doc.summary}\n\n"
         f"**Typical fix:** {doc.fix}\n"
     )
-

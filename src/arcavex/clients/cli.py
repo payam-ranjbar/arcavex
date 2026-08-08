@@ -75,6 +75,8 @@ skill_app = typer.Typer(
     add_completion=False, help="Install the bundled design skill into an AI assistant."
 )
 app.add_typer(skill_app, name="skill")
+desktop_app = typer.Typer(add_completion=False, help="Desktop engine compatibility commands.")
+app.add_typer(desktop_app, name="desktop")
 
 
 def _engine_version() -> str:
@@ -424,6 +426,30 @@ def _print_doctor_table(console: Console, report: DoctorReport) -> None:
     for check in report.checks:
         if check.status != "ok" and check.hint:
             console.print(f"  [dim]hint ({check.name}):[/dim] {check.hint}")
+
+
+@desktop_app.command("handshake")
+def desktop_handshake(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+) -> None:
+    """Report engine identity, compatibility versions, paths, capabilities, and health."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet=False)
+    report = facade.engine_handshake()
+    if json_out:
+        _emit_json(report)
+    else:
+        identity = report.identity
+        console.print(f"[bold]Arcavex[/bold] engine {identity.engine_version}")
+        console.print(f"MCP contract: {report.mcp_contract_version}")
+        console.print(f"IR accepted: {', '.join(report.accepted_ir_versions)}")
+        console.print(f"IR produced: {report.produced_ir_version}")
+        console.print(f"Extension SDK: {report.extension_sdk_version}")
+        console.print(f"Arcavex home: {report.paths.home}")
+    raise typer.Exit(EXIT_OK if report.ok else EXIT_MISSING)
 
 
 @app.command()

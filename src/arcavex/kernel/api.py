@@ -490,6 +490,56 @@ class DoctorReport(BaseModel):
     checks: list[DoctorCheck]
 
 
+# --------------------------------------------------------------------------- desktop
+class EngineIdentity(BaseModel):
+    """Release identity for the executable serving a desktop client."""
+
+    model_config = ConfigDict(frozen=True)
+
+    engine_version: str
+    build_commit: str | None = None
+    artifact_path: str | None = None
+    artifact_sha256: str | None = None
+
+
+class EnginePaths(BaseModel):
+    """Arcavex home and the persistent stores rooted beneath it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    home: str
+    assets: str
+    cache: str
+    extensions: str
+    fonts: str
+    styles: str
+    templates: str
+
+
+class EngineHandshakeReport(BaseModel):
+    """Versioned startup contract shared by desktop CLI and MCP clients."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    identity: EngineIdentity
+    mcp_contract_version: str
+    accepted_ir_versions: list[str]
+    produced_ir_version: str
+    extension_sdk_version: str
+    capabilities: list[str]
+    paths: EnginePaths
+    doctor: DoctorReport
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class DesktopServiceProtocol(Protocol):
+    """Desktop identity service injected by bootstrap to keep the kernel pure."""
+
+    def handshake(self) -> EngineHandshakeReport: ...
+
+
 # --------------------------------------------------------------------------- explain
 class DiagnosticHelp(BaseModel):
     """The result of ``arcavex explain``: a documentation entry for a diagnostic code."""
@@ -1462,6 +1512,7 @@ class Facade:
         skills: SkillServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
+        desktop: DesktopServiceProtocol | None = None,
     ) -> None:
         """Wire the facade.
 
@@ -1493,6 +1544,7 @@ class Facade:
         self._skills = skills
         self._budget = budget
         self._engine_version = engine_version
+        self._desktop = desktop
 
     def validate_template(
         self,
@@ -1861,6 +1913,45 @@ class Facade:
         )
 
     # ------------------------------------------------------------------ authoring
+    def engine_handshake(self) -> EngineHandshakeReport:
+        """Return the desktop startup contract from the injected identity service."""
+        if self._desktop is None:
+            return self._desktop_failure_report(
+                "Desktop service is not wired",
+                "Build the facade through arcavex.bootstrap.build_facade().",
+            )
+        try:
+            return self._desktop.handshake()
+        except Exception as exc:  # noqa: BLE001 - facade boundary must never leak exceptions
+            return self._desktop_failure_report(
+                "Desktop handshake failed unexpectedly",
+                f"Please report this with your environment details. Detail: {exc!r}",
+            )
+
+    def _desktop_failure_report(self, message: str, hint: str) -> EngineHandshakeReport:
+        """Build the stable fallback shape for missing or failed desktop service wiring."""
+        doctor = self.doctor()
+        return EngineHandshakeReport(
+            ok=False,
+            identity=EngineIdentity(engine_version=doctor.engine_version),
+            mcp_contract_version="",
+            accepted_ir_versions=[],
+            produced_ir_version="",
+            extension_sdk_version="",
+            capabilities=[],
+            paths=EnginePaths(
+                home="",
+                assets="",
+                cache="",
+                extensions="",
+                fonts="",
+                styles="",
+                templates="",
+            ),
+            doctor=doctor,
+            diagnostics=[diagnostic("ARC-INT-999", message, hint=hint)],
+        )
+
     def doctor(self) -> DoctorReport:
         """Run environment probes and return a report. Never raises."""
         if self._doctor_probe is None:  # pragma: no cover - always wired in production

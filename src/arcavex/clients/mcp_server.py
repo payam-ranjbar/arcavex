@@ -35,6 +35,7 @@ from arcavex.kernel.api import (
     DiagnosticHelp,
     DiffReport,
     EffectListReport,
+    EngineHandshakeReport,
     Facade,
     FontListReport,
     LayoutReport,
@@ -86,6 +87,11 @@ class ArcavexTools:
     def __init__(self, facade: Facade) -> None:
         """Bind the tools to a wired facade."""
         self._facade = facade
+
+    # ---------------------------------------------------------------- desktop
+    def engine_handshake(self) -> EngineHandshakeReport:
+        """Report engine identity, compatibility versions, capabilities, paths, and health."""
+        return self._facade.engine_handshake()
 
     # ---------------------------------------------------------------- templates
     def template_list(self) -> TemplateListReport:
@@ -344,6 +350,7 @@ class ArcavexTools:
 # The tool catalog: MCP tool name -> the ArcavexTools method it wraps. One registration site so
 # the catalog, the server, and the tests all read from a single source of truth.
 _TOOL_METHODS: tuple[tuple[str, str], ...] = (
+    ("engine_handshake", "engine_handshake"),
     ("arcavex_template_list", "template_list"),
     ("arcavex_template_inspect", "template_inspect"),
     ("arcavex_template_validate", "template_validate"),

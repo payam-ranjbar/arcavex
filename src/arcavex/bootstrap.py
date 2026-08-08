@@ -23,16 +23,18 @@ from arcavex.kernel.api import Facade
 from arcavex.kernel.contracts.spi import Effect, MaskGenerator, ShapeGenerator
 from arcavex.kernel.diagnostics import Diagnostic
 from arcavex.kernel.registry import Registries
+from arcavex.sdk import SDK_VERSION
 from arcavex.services.authoring import AuthoringService
 from arcavex.services.budgets import RenderBudget
 from arcavex.services.cache import DerivedImageCache
 from arcavex.services.config import RuntimeConfig
+from arcavex.services.desktop import DesktopService
 from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
 from arcavex.services.extensions import ExtensionService, load_enabled_extensions
 from arcavex.services.fonts import FontService
 from arcavex.services.library import Library
-from arcavex.services.orchestrator import Orchestrator
+from arcavex.services.orchestrator import IR_VERSION, Orchestrator
 from arcavex.services.pipeline import render_to_file
 from arcavex.services.projects import ProjectService
 from arcavex.services.runs import RunStore
@@ -160,11 +162,16 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
     authoring = AuthoringService(compiler, registries.template_fns.names())
     budget = RenderBudget.from_config(RuntimeConfig.load().raw)
     orchestrator = _build_orchestrator(registries, compiler, text_service, budget)
+    version = engine_version()
+
+    def doctor_probe():
+        return run_doctor(text_service)
+
     return Facade(
         registries,
         compiler,
         text_service.measure,
-        doctor_probe=lambda: run_doctor(text_service),
+        doctor_probe=doctor_probe,
         explain_lookup=explain_code,
         authoring=authoring,
         style_provider=style_resolver,
@@ -176,7 +183,13 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         fonts=FontService(),
         skills=SkillService(),
         budget=budget,
-        engine_version=engine_version(),
+        engine_version=version,
+        desktop=DesktopService(
+            engine_version=version,
+            ir_version=IR_VERSION,
+            extension_sdk_version=SDK_VERSION,
+            doctor_probe=doctor_probe,
+        ),
     )
 
 
