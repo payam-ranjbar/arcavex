@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPOSITORY_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const SCHEMA_DIRECTORY = join(REPOSITORY_ROOT, "schemas", "desktop");
+const DEFAULT_SCHEMA_DIRECTORY = join(REPOSITORY_ROOT, "schemas", "desktop");
 const DEFAULT_OUTPUT_DIRECTORY = join(
   REPOSITORY_ROOT,
   "apps",
@@ -16,17 +16,20 @@ const DEFAULT_OUTPUT_DIRECTORY = join(
 );
 const FIXTURE_FILENAME = "desktop-contract-fixtures.json";
 const GENERATED_FILENAMES = ["generated.ts", "index.ts", "generated.test.ts"];
+const UNEXPECTED_KEY = "__arcavex_unexpected__";
 
 function readArguments(argumentsList) {
   const argumentsSet = new Set(argumentsList);
-  const outputIndex = argumentsList.indexOf("--output");
-  if (outputIndex !== -1 && !argumentsList[outputIndex + 1]) {
-    throw new Error("--output requires a directory");
-  }
+  const directoryOption = (flag, fallback) => {
+    const index = argumentsList.indexOf(flag);
+    if (index === -1) return fallback;
+    if (!argumentsList[index + 1]) throw new Error(`${flag} requires a directory`);
+    return argumentsList[index + 1];
+  };
   return {
     check: argumentsSet.has("--check"),
-    outputDirectory:
-      outputIndex === -1 ? DEFAULT_OUTPUT_DIRECTORY : argumentsList[outputIndex + 1],
+    outputDirectory: directoryOption("--output", DEFAULT_OUTPUT_DIRECTORY),
+    schemaDirectory: directoryOption("--schema-dir", DEFAULT_SCHEMA_DIRECTORY),
   };
 }
 
@@ -41,6 +44,15 @@ function pascalCase(value) {
 
 function propertyName(name) {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(name) ? name : JSON.stringify(name);
+}
+
+/** Return the value type of an open map, or undefined when the object is closed. */
+function additionalValueType(schema) {
+  const additional = schema.additionalProperties;
+  if (additional === false) return undefined;
+  if (additional === undefined) return schema.properties ? undefined : "unknown";
+  if (additional === true) return "unknown";
+  return schemaType(additional);
 }
 
 function schemaType(schema) {
@@ -76,14 +88,24 @@ function schemaType(schema) {
   }
   if (type.includes("object") || schema.properties) {
     const required = new Set(schema.required ?? []);
-    const properties = Object.entries(schema.properties ?? {}).map(([name, property]) => {
+    const declared = Object.entries(schema.properties ?? {});
+    const valueType = additionalValueType(schema);
+    if (!declared.length) {
+      return `Readonly<Record<string, ${valueType ?? "never"}>>`;
+    }
+    const properties = declared.map(([name, property]) => {
       const optional = required.has(name) ? "" : "?";
       return `readonly ${propertyName(name)}${optional}: ${schemaType(property)};`;
     });
-    if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
-      properties.push("readonly [key: string]: unknown;");
+    if (valueType !== undefined) {
+      // An index signature must accept every declared property type, so widen it to their union.
+      const declaredTypes = declared.map(([, property]) => schemaType(property));
+      const indexType = valueType === "unknown"
+        ? "unknown"
+        : [...new Set([valueType, ...declaredTypes])].join(" | ");
+      properties.push(`readonly [key: string]: ${indexType};`);
     }
-    return properties.length ? `{ ${properties.join(" ")} }` : "Readonly<Record<string, never>>";
+    return `{ ${properties.join(" ")} }`;
   }
   if (type.includes("string")) return "string";
   if (type.includes("number") || type.includes("integer")) return "number";
@@ -135,6 +157,8 @@ type JsonSchema = boolean | {
   readonly additionalProperties?: JsonSchema;
   readonly items?: JsonSchema;
   readonly prefixItems?: ReadonlyArray<JsonSchema>;
+  readonly pattern?: string;
+  readonly format?: string;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly minimum?: number;
@@ -147,6 +171,33 @@ type JsonSchema = boolean | {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const compiledPatterns = new Map<string, RegExp>();
+
+function matchesPattern(value: string, pattern: string): boolean {
+  let expression = compiledPatterns.get(pattern);
+  if (expression === undefined) {
+    expression = new RegExp(pattern);
+    compiledPatterns.set(pattern, expression);
+  }
+  return expression.test(value);
+}
+
+const UUID4 = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const DATE_TIME = /^\\d{4}-\\d{2}-\\d{2}[Tt]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:[Zz]|[+-]\\d{2}:\\d{2})$/;
+const DATE = /^\\d{4}-\\d{2}-\\d{2}$/;
+
+/** Enforce the string formats these contracts actually declare; ignore any other annotation. */
+function matchesFormat(value: string, format: string): boolean {
+  switch (format) {
+    case "uuid4": return UUID4.test(value);
+    case "uuid": return UUID.test(value);
+    case "date-time": return DATE_TIME.test(value);
+    case "date": return DATE.test(value);
+    default: return true;
+  }
 }
 
 function resolveReference(reference: string, root: JsonSchema): JsonSchema | undefined {
@@ -174,6 +225,8 @@ function matchesSchema(value: unknown, schema: JsonSchema, root: JsonSchema): bo
   if (typeof value === "string") {
     if (schema.minLength !== undefined && value.length < schema.minLength) return false;
     if (schema.maxLength !== undefined && value.length > schema.maxLength) return false;
+    if (schema.pattern !== undefined && !matchesPattern(value, schema.pattern)) return false;
+    if (schema.format !== undefined && !matchesFormat(value, schema.format)) return false;
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return false;
@@ -185,10 +238,10 @@ function matchesSchema(value: unknown, schema: JsonSchema, root: JsonSchema): bo
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) return false;
     if (schema.maxItems !== undefined && value.length > schema.maxItems) return false;
-    if (schema.prefixItems && !schema.prefixItems.every((item, index) => {
-      const tupleValue = value[index];
-      return tupleValue !== undefined && matchesSchema(tupleValue, item, root);
-    })) return false;
+    if (schema.prefixItems) {
+      if (value.length < schema.prefixItems.length) return false;
+      if (!schema.prefixItems.every((item, index) => matchesSchema(value[index], item, root))) return false;
+    }
     const itemSchema = schema.items;
     if (itemSchema && !value.every((item) => matchesSchema(item, itemSchema, root))) return false;
   }
@@ -200,9 +253,8 @@ function matchesSchema(value: unknown, schema: JsonSchema, root: JsonSchema): bo
     if (schema.additionalProperties === false) {
       const properties = schema.properties ?? {};
       if (Object.keys(value).some((key) => !Object.hasOwn(properties, key))) return false;
-    } else {
+    } else if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
       const additionalProperties = schema.additionalProperties;
-      if (!additionalProperties || typeof additionalProperties !== "object") return true;
       const properties = schema.properties ?? {};
       if (Object.entries(value).some(([key, item]) => !Object.hasOwn(properties, key) && !matchesSchema(item, additionalProperties, root))) return false;
     }
@@ -224,6 +276,127 @@ function matchesType(value: unknown, type: string): boolean {
 }
 `.trim();
 }
+
+// --------------------------------------------------------------- malformed fixture mutations
+
+function dereference(schema, root) {
+  let current = schema;
+  const visited = new Set();
+  while (current && typeof current === "object" && typeof current.$ref === "string") {
+    if (visited.has(current.$ref)) return true;
+    visited.add(current.$ref);
+    current = root.$defs?.[current.$ref.slice("#/$defs/".length)];
+  }
+  return current ?? true;
+}
+
+function declaredTypes(schema) {
+  if (schema === true || schema === false || !schema || schema.type === undefined) return undefined;
+  return Array.isArray(schema.type) ? schema.type : [schema.type];
+}
+
+/** Whether a value could plausibly satisfy a branch, used to pick a single union member. */
+function branchAcceptsValue(schema, value) {
+  const types = declaredTypes(schema);
+  if (types === undefined) return true;
+  return types.some((type) => {
+    switch (type) {
+      case "array": return Array.isArray(value);
+      case "object": return typeof value === "object" && value !== null && !Array.isArray(value);
+      case "string": return typeof value === "string";
+      case "number": case "integer": return typeof value === "number";
+      case "boolean": return typeof value === "boolean";
+      case "null": return value === null;
+      default: return true;
+    }
+  });
+}
+
+function scalarMutation(schema, value) {
+  if (Object.hasOwn(schema, "const")) return `${UNEXPECTED_KEY}-const`;
+  if (Array.isArray(schema.enum)) return `${UNEXPECTED_KEY}-enum`;
+  const types = declaredTypes(schema) ?? [];
+  if (types.includes("string") && typeof value === "string") {
+    if (schema.format !== undefined) return `${UNEXPECTED_KEY}-format`;
+    if (schema.pattern !== undefined) return `${value}!`;
+    return undefined;
+  }
+  if ((types.includes("number") || types.includes("integer")) && typeof value === "number") {
+    return `${UNEXPECTED_KEY}-number`;
+  }
+  if (types.includes("boolean") && typeof value === "boolean") return `${UNEXPECTED_KEY}-boolean`;
+  return undefined;
+}
+
+/** Walk a fixture beside its schema and collect edits every guard must reject. */
+function collectMutations(schema, value, root, path, mutations) {
+  const resolved = dereference(schema, root);
+  if (resolved === true || resolved === false || !resolved) return;
+
+  for (const unionName of ["anyOf", "oneOf"]) {
+    const branches = resolved[unionName];
+    if (!Array.isArray(branches)) continue;
+    // Only descend when exactly one branch could accept the value; otherwise a mutation
+    // rejected by one branch might still be accepted by a sibling branch.
+    const candidates = branches
+      .map((branch) => dereference(branch, root))
+      .filter((branch) => branchAcceptsValue(branch, value));
+    if (candidates.length === 1) {
+      collectMutations(candidates[0], value, root, path, mutations);
+    }
+    return;
+  }
+  if (Array.isArray(resolved.allOf)) {
+    for (const branch of resolved.allOf) collectMutations(branch, value, root, path, mutations);
+    return;
+  }
+
+  const replacement = scalarMutation(resolved, value);
+  if (replacement !== undefined) {
+    mutations.push({ path, operation: "set", value: replacement });
+  }
+
+  if (Array.isArray(value)) {
+    if (Array.isArray(resolved.prefixItems)) {
+      mutations.push({ path, operation: "set", value: value.slice(0, -1) });
+      resolved.prefixItems.forEach((item, index) => {
+        if (index < value.length) {
+          collectMutations(item, value[index], root, [...path, index], mutations);
+        }
+      });
+    } else if (resolved.items) {
+      value.forEach((item, index) => {
+        collectMutations(resolved.items, item, root, [...path, index], mutations);
+      });
+    }
+    return;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    if (resolved.additionalProperties === false) {
+      mutations.push({ path, operation: "addKey" });
+    }
+    const required = new Set(resolved.required ?? []);
+    for (const key of Object.keys(value)) {
+      if (required.has(key)) {
+        mutations.push({ path: [...path, key], operation: "delete" });
+      }
+      const propertySchema = resolved.properties?.[key]
+        ?? (typeof resolved.additionalProperties === "object" ? resolved.additionalProperties : undefined);
+      if (propertySchema) {
+        collectMutations(propertySchema, value[key], root, [...path, key], mutations);
+      }
+    }
+  }
+}
+
+function mutationsFor(schema, fixture) {
+  const mutations = [];
+  collectMutations(schema, fixture, schema, [], mutations);
+  return mutations;
+}
+
+// ------------------------------------------------------------------------------- rendering
 
 function renderGenerated(schemas, fixturesByFilename) {
   const contracts = schemas
@@ -283,7 +456,18 @@ function renderIndex() {
   return "// Generated by scripts/generate_desktop_contracts.mjs. Do not edit.\n\nexport * from \"./generated.ts\";\n";
 }
 
-function renderTests() {
+function renderTests(schemas, fixturesByFilename) {
+  const contracts = schemas
+    .map((schema) => ({ name: schema.title, schema, fixture: fixturesByFilename[schema.__filename] }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const mutationsLiteral = JSON.stringify(
+    Object.fromEntries(
+      contracts.map(({ name, schema, fixture }) => [name, mutationsFor(schema, fixture)]),
+    ),
+    null,
+    2,
+  );
+
   return `// Generated by scripts/generate_desktop_contracts.mjs. Do not edit.
 
 import assert from "node:assert/strict";
@@ -293,7 +477,40 @@ import {
   desktopContractFixtures,
   desktopContractGuards,
   desktopContractNames,
+  type DesktopContractName,
 } from "./generated.ts";
+
+type Mutation = {
+  readonly path: ReadonlyArray<string | number>;
+  readonly operation: "set" | "delete" | "addKey";
+  readonly value?: unknown;
+};
+
+const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArray<Mutation>>> = ${mutationsLiteral} as Readonly<Record<DesktopContractName, ReadonlyArray<Mutation>>>;
+
+function container(root: unknown, path: ReadonlyArray<string | number>): Record<string, unknown> | unknown[] {
+  let current = root;
+  for (const step of path) {
+    current = (current as Record<string, unknown>)[step as string];
+  }
+  return current as Record<string, unknown> | unknown[];
+}
+
+function applyMutation(fixture: unknown, mutation: Mutation): unknown {
+  const clone = structuredClone(fixture);
+  if (mutation.operation === "addKey") {
+    (container(clone, mutation.path) as Record<string, unknown>)[${JSON.stringify(UNEXPECTED_KEY)}] = true;
+    return clone;
+  }
+  const parent = container(clone, mutation.path.slice(0, -1));
+  const key = mutation.path.at(-1)!;
+  if (mutation.operation === "delete") {
+    delete (parent as Record<string, unknown>)[key as string];
+    return clone;
+  }
+  (parent as Record<string, unknown>)[key as string] = mutation.value;
+  return clone;
+}
 
 test("Pydantic-serialized fixtures satisfy every generated desktop guard", () => {
   for (const name of desktopContractNames) {
@@ -301,43 +518,63 @@ test("Pydantic-serialized fixtures satisfy every generated desktop guard", () =>
   }
 });
 
-test("generated desktop guards reject malformed and version-wrong reports", () => {
+test("every desktop contract carries populated fixtures worth mutating", () => {
+  for (const name of desktopContractNames) {
+    assert.ok(
+      desktopContractMutations[name].length > 0,
+      \`${"${name}"} has no schema-derived mutations\`,
+    );
+  }
+});
+
+test("generated desktop guards reject every schema-derived mutation", () => {
+  for (const name of desktopContractNames) {
+    for (const mutation of desktopContractMutations[name]) {
+      const malformed = applyMutation(desktopContractFixtures[name], mutation);
+      assert.equal(
+        desktopContractGuards[name](malformed),
+        false,
+        \`${"${name}"}: \${mutation.operation} at \${JSON.stringify(mutation.path)}\`,
+      );
+    }
+  }
+});
+
+test("generated desktop guards reject version-wrong and non-object reports", () => {
   for (const name of desktopContractNames) {
     const fixture = desktopContractFixtures[name];
-    const malformed = { ...fixture };
-    delete malformed.ok;
-
-    assert.equal(desktopContractGuards[name](malformed), false, \`${"${name}"} malformed\`);
     assert.equal(
       desktopContractGuards[name]({ ...fixture, response_version: 2 }),
       false,
       \`${"${name}"} version\`,
     );
+    assert.equal(desktopContractGuards[name](null), false, \`${"${name}"} null\`);
+    assert.equal(desktopContractGuards[name]([fixture]), false, \`${"${name}"} array\`);
   }
 });
 `;
 }
 
-async function loadContracts() {
-  const filenames = (await readdir(SCHEMA_DIRECTORY))
+async function loadContracts(schemaDirectory) {
+  const filenames = (await readdir(schemaDirectory))
     .filter((filename) => filename.endsWith(".schema.json"))
     .sort((left, right) => left.localeCompare(right));
   const schemas = await Promise.all(
     filenames.map(async (filename) => ({
-      ...(JSON.parse(await readFile(join(SCHEMA_DIRECTORY, filename), "utf8"))),
+      ...(JSON.parse(await readFile(join(schemaDirectory, filename), "utf8"))),
       __filename: filename,
     })),
   );
-  const fixtures = JSON.parse(await readFile(join(SCHEMA_DIRECTORY, FIXTURE_FILENAME), "utf8"));
+  const fixtures = JSON.parse(await readFile(join(schemaDirectory, FIXTURE_FILENAME), "utf8"));
   return { schemas, fixtures };
 }
 
-async function renderedFiles() {
-  const { schemas, fixtures } = await loadContracts();
+async function renderedFiles(schemaDirectory) {
+  const { schemas, fixtures } = await loadContracts(schemaDirectory);
   return new Map([
     ["generated.ts", renderGenerated(schemas, fixtures)],
     ["index.ts", renderIndex()],
-    ["generated.test.ts", renderTests()],
+    ["generated.test.ts", renderTests(schemas, fixtures)],
   ]);
 }
 
@@ -346,12 +583,11 @@ async function writeGeneratedFiles(directory, files) {
   await Promise.all([...files].map(([filename, content]) => writeFile(join(directory, filename), `${content.trimEnd()}\n`, "utf8")));
 }
 
-async function checkGeneratedFiles() {
+async function checkGeneratedFiles(schemaDirectory, outputDirectory) {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "arcavex-desktop-contracts-"));
   try {
-    const files = await renderedFiles();
-    await writeGeneratedFiles(temporaryDirectory, files);
-    const actualFilenames = (await readdir(DEFAULT_OUTPUT_DIRECTORY)).sort((left, right) => left.localeCompare(right));
+    await writeGeneratedFiles(temporaryDirectory, await renderedFiles(schemaDirectory));
+    const actualFilenames = (await readdir(outputDirectory)).sort((left, right) => left.localeCompare(right));
     const expectedFilenames = [...GENERATED_FILENAMES].sort((left, right) => left.localeCompare(right));
     if (JSON.stringify(actualFilenames) !== JSON.stringify(expectedFilenames)) {
       throw new Error(`Generated contract files differ: expected ${GENERATED_FILENAMES.join(", ")}, found ${actualFilenames.join(", ")}`);
@@ -359,7 +595,7 @@ async function checkGeneratedFiles() {
     for (const filename of GENERATED_FILENAMES) {
       const [expected, actual] = await Promise.all([
         readFile(join(temporaryDirectory, filename)),
-        readFile(join(DEFAULT_OUTPUT_DIRECTORY, filename)),
+        readFile(join(outputDirectory, filename)),
       ]);
       if (!expected.equals(actual)) throw new Error(`Generated contract drift: ${filename}`);
     }
@@ -369,12 +605,12 @@ async function checkGeneratedFiles() {
 }
 
 async function main() {
-  const { check, outputDirectory } = readArguments(process.argv.slice(2));
+  const { check, outputDirectory, schemaDirectory } = readArguments(process.argv.slice(2));
   if (check) {
-    await checkGeneratedFiles();
+    await checkGeneratedFiles(schemaDirectory, outputDirectory);
     return;
   }
-  await writeGeneratedFiles(outputDirectory, await renderedFiles());
+  await writeGeneratedFiles(outputDirectory, await renderedFiles(schemaDirectory));
 }
 
 await main();

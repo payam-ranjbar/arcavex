@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 from arcavex.clients.mcp_server import (
@@ -200,7 +201,29 @@ def test_desktop_schema_export_writes_every_mcp_desktop_contract(tmp_path: Path)
         (tmp_path / "desktop-contract-fixtures.json").read_text(encoding="utf-8")
     ) == fixtures
     for filename, model in expected.items():
-        assert (
-            model.model_validate(fixtures[filename]).model_dump(mode="json")
-            == fixtures[filename]
-        )
+        # A canonical absolute path cannot be spelled the same way on every platform, so the
+        # checked-in fixture carries a placeholder that callers materialize before validating.
+        materialized = _EXPORTER.materialize_fixture(fixtures[filename])
+        assert _EXPORTER.tokenize_fixture(
+            model.model_validate(materialized).model_dump(mode="json")
+        ) == fixtures[filename]
+
+
+def test_desktop_fixtures_populate_the_branches_runtime_guards_must_police() -> None:
+    """Empty-collection fixtures would let generated guards pass without exercising a contract."""
+    fixtures = _EXPORTER.contract_fixtures()
+
+    for filename, fixture in fixtures.items():
+        assert fixture["diagnostics"], filename
+
+    proposal = fixtures["project-proposal-action.schema.json"]["proposal"]
+    assert re.fullmatch(r"[0-9a-f]{64}", proposal["base_project_revision"])
+    assert re.fullmatch(r"[0-9a-fA-F-]{36}", proposal["command_id"])
+    assert proposal["created_at"].endswith("Z")
+    assert proposal["command_payload"] and proposal["actor"]["channel"] == "mcp"
+
+    layers = fixtures["project-ui-metadata.schema.json"]["metadata"]["layers"]
+    assert layers["title"]["color"] == "#3A7BD5"
+    assert fixtures["project-preview.schema.json"]["previews"][0]["inferred"]
+    assert fixtures["layer-tree.schema.json"]["root"]["children"][0]["effects"]
+    assert fixtures["hit-test.schema.json"]["candidates"]

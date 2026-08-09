@@ -14,9 +14,9 @@ export type EnginePaths = { readonly assets: string; readonly cache: string; rea
 
 export type HitCandidate = { readonly authored_id: string; readonly bounds_pt: readonly [number, number, number, number]; readonly display_name: string; readonly editable: boolean; readonly id: string; readonly instance_id: string; readonly kind: "group" | "text" | "image" | "shape" | "path"; readonly locked: boolean; readonly paint_bounds_pt: readonly [number, number, number, number]; readonly parent_id?: string | null; };
 
-export type LayerEffect = { readonly category?: "geometry" | "color" | "raster" | "composite" | null; readonly index: number; readonly name: string; readonly params?: Readonly<Record<string, never>>; };
+export type LayerEffect = { readonly category?: "geometry" | "color" | "raster" | "composite" | null; readonly index: number; readonly name: string; readonly params?: Readonly<Record<string, unknown>>; };
 
-export type LayerMask = { readonly component: string; readonly params?: Readonly<Record<string, never>>; };
+export type LayerMask = { readonly component: string; readonly params?: Readonly<Record<string, unknown>>; };
 
 export type LayerNodeReport = { readonly absolute_transform?: readonly [number, number, number, number, number, number] | null; readonly authored_id: string; readonly authored_index: number; readonly bounds_pt?: readonly [number, number, number, number] | null; readonly bounds_px?: readonly [number, number, number, number] | null; readonly children?: ReadonlyArray<LayerNodeReport>; readonly collection?: string | null; readonly color?: string | null; readonly condition?: string | null; readonly display_name: string; readonly editable?: boolean; readonly effects?: ReadonlyArray<LayerEffect>; readonly hit_testable?: boolean; readonly id: string; readonly instance_id?: string | null; readonly key?: string | null; readonly kind: string; readonly locked?: boolean; readonly loop_var?: string | null; readonly mask?: LayerMask | null; readonly origin?: "static" | "repeat" | "if"; readonly overflow?: OverflowReport | null; readonly paint_bounds_pt?: readonly [number, number, number, number] | null; readonly paint_bounds_px?: readonly [number, number, number, number] | null; readonly paint_index?: number | null; readonly parent_id?: string | null; readonly rotate_deg?: number; readonly source?: LayerSource | null; readonly virtual?: boolean; readonly visible?: boolean; readonly z?: number; };
 
@@ -26,19 +26,19 @@ export type LayerUIMetadata = { readonly color?: string | null; readonly display
 
 export type OverflowReport = { readonly box_h_pt: number; readonly box_w_pt: number; readonly kind: string; readonly measured_h_pt: number; readonly measured_w_pt: number; };
 
-export type PreviewResult = { readonly changed_file?: string | null; readonly compile_ms?: number | null; readonly content_sha256?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly inferred?: { readonly [key: string]: unknown; }; readonly ok: boolean; readonly output_path?: string | null; readonly render_ms?: number | null; readonly response_version?: number; };
+export type PreviewResult = { readonly changed_file?: string | null; readonly compile_ms?: number | null; readonly content_sha256?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly inferred?: Readonly<Record<string, string>>; readonly ok: boolean; readonly output_path?: string | null; readonly render_ms?: number | null; readonly response_version?: number; };
 
-export type ProjectProposal = { readonly actor: ProposalActor; readonly base_project_revision: string; readonly command_id: string; readonly command_payload: Readonly<Record<string, never>>; readonly created_at: string; readonly project_path: string; readonly rejection_reason?: string | null; readonly state?: "pending" | "authorized" | "rejected"; readonly version?: 1; };
+export type ProjectProposal = { readonly actor: ProposalActor; readonly base_project_revision: string; readonly command_id: string; readonly command_payload: Readonly<Record<string, unknown>>; readonly created_at: string; readonly project_path: string; readonly rejection_reason?: string | null; readonly state?: "pending" | "authorized" | "rejected"; readonly version?: 1; };
 
 export type ProjectSourceFile = { readonly path: string; readonly project_owned: boolean; readonly resolved_path: string; readonly role: "project" | "ui" | "template" | "data" | "override" | "asset"; readonly sha256?: string | null; };
 
 export type ProjectTarget = { readonly format: string; readonly locale?: string | null; };
 
-export type ProjectUIMetadata = { readonly layers?: { readonly [key: string]: unknown; }; readonly version?: 1; readonly workspace?: ProjectWorkspaceState; };
+export type ProjectUIMetadata = { readonly layers?: Readonly<Record<string, LayerUIMetadata>>; readonly version?: 1; readonly workspace?: ProjectWorkspaceState; };
 
 export type ProjectWorkspaceState = { readonly active_format?: string | null; readonly active_locale?: string | null; readonly layer_tree_mode?: "definition" | "rendered"; readonly selected_layer_ids?: ReadonlyArray<string>; };
 
-export type ProposalActor = { readonly display_name?: string | null; readonly id: string; };
+export type ProposalActor = { readonly display_name?: string | null; readonly id: string; readonly [key: string]: unknown; };
 
 export type RevisionManifestEntry = { readonly bytes: number; readonly path: string; readonly sha256: string; };
 
@@ -3259,27 +3259,69 @@ export const desktopContractNames = ["CheckResult", "EngineHandshakeReport", "Hi
 
 export const desktopContractFixtures: Readonly<Record<DesktopContractName, Readonly<Record<string, unknown>>>> = {
   "CheckResult": {
-    "diagnostics": [],
-    "ok": true,
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
+    "ok": false,
     "response_version": 1
   },
   "EngineHandshakeReport": {
     "accepted_ir_versions": [
       "1.0"
     ],
-    "capabilities": [],
-    "diagnostics": [],
+    "capabilities": [
+      "desktop.handshake",
+      "desktop.layer_tree"
+    ],
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
     "doctor": {
-      "checks": [],
+      "checks": [
+        {
+          "detail": "3 families",
+          "hint": null,
+          "name": "fonts",
+          "status": "ok"
+        },
+        {
+          "detail": "cache directory is empty",
+          "hint": "Render once to populate it.",
+          "name": "cache",
+          "status": "warn"
+        }
+      ],
       "engine_version": "0.0.0-fixture",
       "ok": true,
       "response_version": 1
     },
     "extension_sdk_version": "1.0",
     "identity": {
-      "artifact_path": null,
-      "artifact_sha256": null,
-      "build_commit": null,
+      "artifact_path": "/fixture/bin/arcavex",
+      "artifact_sha256": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+      "build_commit": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
       "engine_version": "0.0.0-fixture"
     },
     "mcp_contract_version": "2025-06-18",
@@ -3297,109 +3339,508 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
     "response_version": 1
   },
   "HitTestReport": {
-    "candidates": [],
-    "diagnostics": [],
-    "format": null,
-    "locale": null,
+    "candidates": [
+      {
+        "authored_id": "title",
+        "bounds_pt": [
+          10,
+          20,
+          300,
+          64
+        ],
+        "display_name": "Title",
+        "editable": true,
+        "id": "title#0",
+        "instance_id": "title#0",
+        "kind": "text",
+        "locked": false,
+        "paint_bounds_pt": [
+          8,
+          18,
+          304,
+          68
+        ],
+        "parent_id": "root"
+      }
+    ],
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
+    "format": "poster-a3",
+    "locale": "fa-IR",
     "ok": true,
     "point_pt": [
-      0,
-      0
+      120.5,
+      240.25
     ],
-    "point_px": null,
+    "point_px": [
+      241,
+      480.5
+    ],
     "response_version": 1
   },
   "LayerTreeReport": {
     "canvas_pt": [
-      0,
-      0
+      842,
+      1191
     ],
     "canvas_px": [
-      0,
-      0
+      1684,
+      2382
     ],
-    "diagnostics": [],
-    "dpi": 0,
-    "format": null,
-    "locale": null,
-    "mode": "authored",
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
+    "dpi": 144,
+    "format": "poster-a3",
+    "locale": "fa-IR",
+    "mode": "rendered",
     "ok": true,
     "response_version": 1,
-    "root": null
+    "root": {
+      "absolute_transform": null,
+      "authored_id": "root",
+      "authored_index": 0,
+      "bounds_pt": null,
+      "bounds_px": null,
+      "children": [
+        {
+          "absolute_transform": [
+            1,
+            0,
+            0,
+            1,
+            10,
+            20
+          ],
+          "authored_id": "title",
+          "authored_index": 0,
+          "bounds_pt": [
+            10,
+            20,
+            300,
+            64
+          ],
+          "bounds_px": [
+            20,
+            40,
+            600,
+            128
+          ],
+          "children": [],
+          "collection": "items",
+          "color": "#3A7BD5",
+          "condition": null,
+          "display_name": "Title",
+          "editable": true,
+          "effects": [
+            {
+              "category": "raster",
+              "index": 0,
+              "name": "drop_shadow",
+              "params": {
+                "blur_pt": 4,
+                "color": "#00000055",
+                "enabled": true
+              }
+            }
+          ],
+          "hit_testable": true,
+          "id": "title#0",
+          "instance_id": "title#0",
+          "key": "0",
+          "kind": "text",
+          "locked": false,
+          "loop_var": "item",
+          "mask": {
+            "component": "rounded_rect",
+            "params": {
+              "radius_pt": 12
+            }
+          },
+          "origin": "repeat",
+          "overflow": {
+            "box_h_pt": 64,
+            "box_w_pt": 300,
+            "kind": "shrink",
+            "measured_h_pt": 70,
+            "measured_w_pt": 310
+          },
+          "paint_bounds_pt": [
+            8,
+            18,
+            304,
+            68
+          ],
+          "paint_bounds_px": [
+            16,
+            36,
+            608,
+            136
+          ],
+          "paint_index": 1,
+          "parent_id": "root",
+          "rotate_deg": 1.5,
+          "source": {
+            "file": "template.yaml",
+            "keypath": "layers.title",
+            "line": 42
+          },
+          "virtual": false,
+          "visible": true,
+          "z": 10
+        }
+      ],
+      "collection": null,
+      "color": null,
+      "condition": null,
+      "display_name": "Root",
+      "editable": false,
+      "effects": [],
+      "hit_testable": false,
+      "id": "root",
+      "instance_id": "root#0",
+      "key": null,
+      "kind": "group",
+      "locked": true,
+      "loop_var": null,
+      "mask": null,
+      "origin": "static",
+      "overflow": null,
+      "paint_bounds_pt": null,
+      "paint_bounds_px": null,
+      "paint_index": 0,
+      "parent_id": null,
+      "rotate_deg": 0,
+      "source": null,
+      "virtual": false,
+      "visible": true,
+      "z": 0
+    }
   },
   "PreviewProjectReport": {
-    "diagnostics": [],
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
     "ok": true,
-    "previews": [],
+    "previews": [
+      {
+        "changed_file": "data.yaml",
+        "compile_ms": 12.5,
+        "content_sha256": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+        "diagnostics": [
+          {
+            "code": "ARC-PRJ-001",
+            "hint": "Fixtures exercise every optional diagnostic field.",
+            "message": "Fixture diagnostic covering the located branch.",
+            "severity": "warning",
+            "source": {
+              "column": 3,
+              "file": "project.yaml",
+              "keypath": "targets[0]",
+              "line": 12
+            }
+          }
+        ],
+        "inferred": {
+          "format": "poster-a3",
+          "locale": "fa-IR"
+        },
+        "ok": true,
+        "output_path": "/fixture/outputs/poster-a3.fa-IR.png",
+        "render_ms": 84.25,
+        "response_version": 1
+      }
+    ],
     "response_version": 1
   },
   "ProjectPolicyReport": {
-    "canonical_path": null,
-    "diagnostics": [],
+    "canonical_path": "<arcavex-fixture-project>",
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
     "ok": true,
     "policy": {
-      "extensions": "unrestricted",
-      "mode": "unrestricted",
+      "extensions": "disabled",
+      "mode": "review",
       "version": 1
     },
-    "project_revision": null,
-    "render_revision": null,
+    "project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+    "render_revision": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
     "response_version": 1
   },
   "ProjectSnapshotReport": {
-    "canonical_path": null,
-    "capabilities": [],
-    "data": null,
-    "default_target": null,
-    "diagnostics": [],
-    "dpi": null,
-    "formats": [],
-    "locales": [],
-    "name": null,
+    "canonical_path": "<arcavex-fixture-project>",
+    "capabilities": [
+      "project.snapshot",
+      "project.preview"
+    ],
+    "data": "data.yaml",
+    "default_target": {
+      "format": "poster-a3",
+      "locale": "en-US"
+    },
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
+    "dpi": 144,
+    "formats": [
+      "poster-a3",
+      "story"
+    ],
+    "locales": [
+      "en-US",
+      "fa-IR"
+    ],
+    "name": "fixture-project",
     "ok": true,
-    "project_manifest": [],
-    "project_revision": null,
-    "render_manifest": [],
-    "render_revision": null,
+    "project_manifest": [
+      {
+        "bytes": 512,
+        "path": "project.yaml",
+        "sha256": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f"
+      }
+    ],
+    "project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+    "render_manifest": [
+      {
+        "bytes": 2048,
+        "path": "template.yaml",
+        "sha256": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+      }
+    ],
+    "render_revision": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
     "response_version": 1,
-    "source_files": [],
-    "status": null,
-    "style": null,
-    "tags": [],
-    "targets": [],
-    "template": null
+    "source_files": [
+      {
+        "path": "project.yaml",
+        "project_owned": true,
+        "resolved_path": "project.yaml",
+        "role": "project",
+        "sha256": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f"
+      },
+      {
+        "path": "assets/logo.png",
+        "project_owned": false,
+        "resolved_path": "/fixture/assets/logo.png",
+        "role": "asset",
+        "sha256": null
+      }
+    ],
+    "status": "ready",
+    "style": "studio-dark",
+    "tags": [
+      "fixture",
+      "desktop"
+    ],
+    "targets": [
+      {
+        "format": "poster-a3",
+        "locale": "fa-IR"
+      },
+      {
+        "format": "story",
+        "locale": null
+      }
+    ],
+    "template": "poster/editorial"
   },
   "ProjectUIMetadataReport": {
-    "canonical_path": null,
-    "diagnostics": [],
+    "canonical_path": "<arcavex-fixture-project>",
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
     "metadata": {
-      "layers": {},
+      "layers": {
+        "logo": {
+          "color": null,
+          "display_name": null,
+          "locked": false
+        },
+        "title": {
+          "color": "#3A7BD5",
+          "display_name": "Headline",
+          "locked": true
+        }
+      },
       "version": 1,
       "workspace": {
-        "active_format": null,
-        "active_locale": null,
-        "layer_tree_mode": "definition",
-        "selected_layer_ids": []
+        "active_format": "poster-a3",
+        "active_locale": "fa-IR",
+        "layer_tree_mode": "rendered",
+        "selected_layer_ids": [
+          "title",
+          "logo"
+        ]
       }
     },
     "ok": true,
-    "project_revision": null,
-    "render_revision": null,
+    "project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+    "render_revision": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
     "response_version": 1
   },
   "ProposalActionReport": {
-    "canonical_path": null,
-    "diagnostics": [],
+    "canonical_path": "<arcavex-fixture-project>",
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
     "ok": true,
-    "project_revision": null,
-    "proposal": null,
+    "project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+    "proposal": {
+      "actor": {
+        "channel": "mcp",
+        "display_name": "Codex",
+        "id": "codex"
+      },
+      "base_project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+      "command_id": "9f2c1d7e-4b3a-4c58-9e21-0d7a6f5b8c34",
+      "command_payload": {
+        "layer": "title",
+        "op": "set_text",
+        "value": "Fixture"
+      },
+      "created_at": "2026-01-02T03:04:05.678901Z",
+      "project_path": "<arcavex-fixture-project>",
+      "rejection_reason": null,
+      "state": "pending",
+      "version": 1
+    },
     "response_version": 1
   },
   "ProposalListReport": {
-    "canonical_path": null,
-    "diagnostics": [],
+    "canonical_path": "<arcavex-fixture-project>",
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
     "ok": true,
-    "proposals": [],
+    "proposals": [
+      {
+        "actor": {
+          "channel": "mcp",
+          "display_name": "Codex",
+          "id": "codex"
+        },
+        "base_project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+        "command_id": "9f2c1d7e-4b3a-4c58-9e21-0d7a6f5b8c34",
+        "command_payload": {
+          "layer": "title",
+          "op": "set_text",
+          "value": "Fixture"
+        },
+        "created_at": "2026-01-02T03:04:05.678901Z",
+        "project_path": "<arcavex-fixture-project>",
+        "rejection_reason": null,
+        "state": "pending",
+        "version": 1
+      },
+      {
+        "actor": {
+          "channel": "mcp",
+          "display_name": "Codex",
+          "id": "codex"
+        },
+        "base_project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+        "command_id": "9f2c1d7e-4b3a-4c58-9e21-0d7a6f5b8c34",
+        "command_payload": {
+          "layer": "title",
+          "op": "set_text",
+          "value": "Fixture"
+        },
+        "created_at": "2026-01-02T03:04:05.678901Z",
+        "project_path": "<arcavex-fixture-project>",
+        "rejection_reason": "Stale base revision.",
+        "state": "rejected",
+        "version": 1
+      }
+    ],
     "response_version": 1
   }
 } as Readonly<Record<DesktopContractName, Readonly<Record<string, unknown>>>>;
@@ -3418,6 +3859,8 @@ type JsonSchema = boolean | {
   readonly additionalProperties?: JsonSchema;
   readonly items?: JsonSchema;
   readonly prefixItems?: ReadonlyArray<JsonSchema>;
+  readonly pattern?: string;
+  readonly format?: string;
   readonly minLength?: number;
   readonly maxLength?: number;
   readonly minimum?: number;
@@ -3430,6 +3873,33 @@ type JsonSchema = boolean | {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const compiledPatterns = new Map<string, RegExp>();
+
+function matchesPattern(value: string, pattern: string): boolean {
+  let expression = compiledPatterns.get(pattern);
+  if (expression === undefined) {
+    expression = new RegExp(pattern);
+    compiledPatterns.set(pattern, expression);
+  }
+  return expression.test(value);
+}
+
+const UUID4 = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const DATE_TIME = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Enforce the string formats these contracts actually declare; ignore any other annotation. */
+function matchesFormat(value: string, format: string): boolean {
+  switch (format) {
+    case "uuid4": return UUID4.test(value);
+    case "uuid": return UUID.test(value);
+    case "date-time": return DATE_TIME.test(value);
+    case "date": return DATE.test(value);
+    default: return true;
+  }
 }
 
 function resolveReference(reference: string, root: JsonSchema): JsonSchema | undefined {
@@ -3457,6 +3927,8 @@ function matchesSchema(value: unknown, schema: JsonSchema, root: JsonSchema): bo
   if (typeof value === "string") {
     if (schema.minLength !== undefined && value.length < schema.minLength) return false;
     if (schema.maxLength !== undefined && value.length > schema.maxLength) return false;
+    if (schema.pattern !== undefined && !matchesPattern(value, schema.pattern)) return false;
+    if (schema.format !== undefined && !matchesFormat(value, schema.format)) return false;
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return false;
@@ -3468,10 +3940,10 @@ function matchesSchema(value: unknown, schema: JsonSchema, root: JsonSchema): bo
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) return false;
     if (schema.maxItems !== undefined && value.length > schema.maxItems) return false;
-    if (schema.prefixItems && !schema.prefixItems.every((item, index) => {
-      const tupleValue = value[index];
-      return tupleValue !== undefined && matchesSchema(tupleValue, item, root);
-    })) return false;
+    if (schema.prefixItems) {
+      if (value.length < schema.prefixItems.length) return false;
+      if (!schema.prefixItems.every((item, index) => matchesSchema(value[index], item, root))) return false;
+    }
     const itemSchema = schema.items;
     if (itemSchema && !value.every((item) => matchesSchema(item, itemSchema, root))) return false;
   }
@@ -3483,9 +3955,8 @@ function matchesSchema(value: unknown, schema: JsonSchema, root: JsonSchema): bo
     if (schema.additionalProperties === false) {
       const properties = schema.properties ?? {};
       if (Object.keys(value).some((key) => !Object.hasOwn(properties, key))) return false;
-    } else {
+    } else if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
       const additionalProperties = schema.additionalProperties;
-      if (!additionalProperties || typeof additionalProperties !== "object") return true;
       const properties = schema.properties ?? {};
       if (Object.entries(value).some(([key, item]) => !Object.hasOwn(properties, key) && !matchesSchema(item, additionalProperties, root))) return false;
     }
