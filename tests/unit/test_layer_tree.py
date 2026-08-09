@@ -721,6 +721,164 @@ def test_layer_trees_apply_project_patch_set_remove_and_reorder_with_provenance(
         assert rendered_by_id[node_id].source == source
 
 
+def test_structural_set_payloads_keep_format_locale_and_project_provenance(
+    tmp_path: Path,
+) -> None:
+    """A children replacement must source every introduced definition from its patch value."""
+    project = tmp_path / "structural-set"
+    template = project / "template"
+    template.mkdir(parents=True)
+    (project / "project.yaml").write_text(
+        "name: structural-set\ntemplate: ./template\n"
+        "formats: [square]\nlocales: [en, fa]\n",
+        encoding="utf-8",
+    )
+    (template / "template.yaml").write_text(
+        """version: 0.1.0
+variables:
+  show: {type: boolean, default: true}
+  items: {type: list, default: [{id: one}]}
+root:
+  id: root
+  type: group
+  children:
+    - id: original
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+""",
+        encoding="utf-8",
+    )
+    (template / "formats.yaml").write_text(
+        """square:
+  canvas: {width: 200pt, height: 200pt, dpi: 72}
+  patch:
+    - set: nodes.root.children
+      value:
+        - if: "{{ show }}"
+          node:
+            id: format-group
+            type: group
+            constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 100pt, h: 100pt}}
+            children:
+              - id: format-leaf
+                type: shape
+                shape: rect
+                constraints:
+                  anchor: {top: parent.top, left: parent.left}
+                  size: {w: 10pt, h: 10pt}
+""",
+        encoding="utf-8",
+    )
+    (template / "locales.yaml").write_text(
+        """en: {direction: ltr, digits: en}
+fa:
+  direction: rtl
+  digits: fa
+  patch:
+    - set: nodes.format-group.children
+      value:
+        - repeat: "{{ items }}"
+          as: item
+          key: "{{ item.id }}"
+          node:
+            id: locale-leaf
+            type: shape
+            shape: rect
+            constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+""",
+        encoding="utf-8",
+    )
+    facade = build_facade()
+
+    format_report = facade.layer_tree(
+        project=project, mode="authored", format_name="square", locale="en"
+    )
+    locale_report = facade.layer_tree(
+        project=project, mode="authored", format_name="square", locale="fa"
+    )
+
+    assert format_report.ok and format_report.root is not None
+    format_group = next(row for row in format_report.root.children if row.id == "format-group")
+    format_leaf = next(row for row in format_group.children if row.id == "format-leaf")
+    assert format_group.source is not None and format_leaf.source is not None
+    assert Path(format_group.source.file) == template / "formats.yaml"
+    assert format_group.source.keypath == "formats.square.patch[0].value[0].node"
+    assert format_group.source.line is not None
+    assert Path(format_leaf.source.file) == template / "formats.yaml"
+    assert format_leaf.source.keypath == (
+        "formats.square.patch[0].value[0].node.children[0]"
+    )
+    assert format_leaf.source.line is not None
+
+    assert locale_report.ok and locale_report.root is not None
+    locale_group = next(row for row in locale_report.root.children if row.id == "format-group")
+    locale_leaf = next(row for row in locale_group.children if row.id == "locale-leaf")
+    assert locale_leaf.source is not None
+    assert Path(locale_leaf.source.file) == template / "locales.yaml"
+    assert locale_leaf.source.keypath == "locales.fa.patch[0].value[0].node"
+    assert locale_leaf.source.line is not None
+
+    overrides = project / "overrides"
+    overrides.mkdir()
+    patch_file = overrides / "template.patch.yaml"
+    patch_file.write_text(
+        """- set: nodes.root.children
+  value:
+    - id: project-kept
+      type: group
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 100pt, h: 100pt}}
+      children:
+        - if: "{{ show }}"
+          node:
+            id: project-nested
+            type: shape
+            shape: rect
+            constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+    - id: project-move
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+    - id: project-anchor
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+- remove: nodes.project-move
+- insert_before: nodes.project-anchor
+  node:
+    repeat: "{{ items }}"
+    as: item
+    key: "{{ item.id }}"
+    node:
+      id: project-move
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+""",
+        encoding="utf-8",
+    )
+
+    project_report = facade.layer_tree(
+        project=project, mode="authored", format_name="square", locale="fa"
+    )
+
+    assert project_report.ok and project_report.root is not None
+    project_rows = {row.id: row for row in project_report.root.children}
+    project_kept = project_rows["project-kept"]
+    project_nested = next(row for row in project_kept.children if row.id == "project-nested")
+    project_move = project_rows["project-move"]
+    assert project_kept.source is not None and project_nested.source is not None
+    assert Path(project_kept.source.file) == patch_file
+    assert project_kept.source.keypath == "project.patch[0].value[0]"
+    assert project_kept.source.line is not None
+    assert Path(project_nested.source.file) == patch_file
+    assert project_nested.source.keypath == "project.patch[0].value[0].children[0].node"
+    assert project_nested.source.line is not None
+    assert project_move.source is not None and Path(project_move.source.file) == patch_file
+    assert project_move.source.keypath == "project.patch[2].node.node"
+    assert project_move.source.line is not None
+
+
 def test_project_dpi_drives_layer_and_hit_pixel_projections(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

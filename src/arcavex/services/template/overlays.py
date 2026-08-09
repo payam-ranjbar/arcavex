@@ -60,6 +60,15 @@ def index_node_sources(
     source_map: NodeSourceMap,
 ) -> None:
     """Record source provenance for every authored node mapping in ``entry``."""
+    if isinstance(entry, list):
+        for index, child in enumerate(entry):
+            index_node_sources(
+                child,
+                source_file,
+                f"{keypath}[{index}]",
+                source_map,
+            )
+        return
     node = _node_of(entry)
     node_keypath = (
         f"{keypath}.node" if node is not entry else keypath
@@ -157,7 +166,10 @@ def apply_patches(
         node_id, segments = _parse_path(path)
         line = line_of(op, verb)
         if verb == "set":
-            _do_set(root_map, node_id, segments, op.get("value"), template_file, kp, line)
+            value = op.get("value")
+            _do_set(root_map, node_id, segments, value, template_file, kp, line)
+            if source_map is not None and segments[-1:] == ["children"]:
+                index_node_sources(value, template_file, f"{kp}.value", source_map)
         elif verb == "remove":
             _do_remove(root_map, node_id, segments, template_file, kp, line)
         else:

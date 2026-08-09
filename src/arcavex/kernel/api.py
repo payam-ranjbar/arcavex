@@ -3450,6 +3450,16 @@ def _edge_value(edge: str, node: LayoutNode) -> float:
     }[edge]
 
 
+def _canvas_bounds(node: LayoutNode) -> Rect:
+    """Return cumulative canvas geometry, with compatibility for legacy solvers."""
+    return node.canvas_bounds or node.bounds
+
+
+def _canvas_paint_bounds(node: LayoutNode) -> Rect:
+    """Return cumulative effect-grown geometry, with compatibility for legacy solvers."""
+    return node.canvas_paint_bounds or node.paint_bounds
+
+
 def _build_node_report(
     compiled: CompiledNode,
     layout: LayoutNode,
@@ -3461,8 +3471,8 @@ def _build_node_report(
     # Desktop layout inspection and layer selection share cumulative canvas-space geometry.
     # Third-party/legacy solvers may omit the excluded provenance fields, so retain the
     # pre-ancestor values only as a compatibility fallback.
-    b = layout.canvas_bounds or layout.bounds
-    pb = layout.canvas_paint_bounds or layout.paint_bounds
+    b = _canvas_bounds(layout)
+    pb = _canvas_paint_bounds(layout)
     scale = dpi / 72.0
     overflow = None
     if layout.overflow.kind != "none" or layout.overflow.measured_h_pt > 0.0:
@@ -3486,7 +3496,7 @@ def _build_node_report(
             children_reports.append(
                 _build_node_report(child, lchild, compiled.direction, dpi, overlaps, stack_kind)
             )
-        _collect_overlaps(layout.children, overlaps, layout.bounds)
+        _collect_overlaps(layout.children, overlaps, _canvas_bounds(layout))
 
     t = layout.absolute_transform
     return LayoutNodeReport(
@@ -3554,6 +3564,11 @@ def _content_aabb(node: LayoutNode) -> Rect:
     (CR-14); the AABB of a rotated node is coarser than its ink, which is why such a pair is
     reported as ``content`` and left to the author to judge.
     """
+    if node.canvas_bounds is not None:
+        # The solver has already projected the unexpanded layout rectangle through every
+        # ancestor transform. This is exactly the content footprint: cumulative, but without
+        # effect growth. Re-transforming it here would apply ancestor rotations twice.
+        return node.canvas_bounds
     if node.render_bounds == node.bounds:
         # Nothing grew the box, so paint_bounds already *is* the content AABB. Reusing it keeps
         # the solver's 1/1024pt geometry quantization intact instead of re-deriving a rect that
@@ -3596,7 +3611,12 @@ def _collect_overlaps(
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
             (a, ca), (b, cb) = visible[i], visible[j]
-            classified = _classify_overlap(ca, cb, a.paint_bounds, b.paint_bounds)
+            classified = _classify_overlap(
+                ca,
+                cb,
+                _canvas_paint_bounds(a),
+                _canvas_paint_bounds(b),
+            )
             if classified is None:
                 continue
             # DX-8/RR2-9: containment is suppressed as noise only when the *container* is a
@@ -3671,7 +3691,7 @@ def _coverage_grid(layout: LayoutDocument, cells: int) -> list[list[bool]] | Non
             return
         if not node.visible:
             return
-        b = node.bounds
+        b = _canvas_bounds(node)
         cx0 = max(0, int(b.x / w * cells))
         cx1 = min(cells, int((b.x + b.w) / w * cells) + 1)
         cy0 = max(0, int(b.y / h * cells))
