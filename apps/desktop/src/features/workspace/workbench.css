@@ -1,0 +1,238 @@
+/*
+ * The proofing bench: a darkroom of dense panels around one lit proof.
+ *
+ * Regions are grid areas rather than nested flex, so a panel can never push the canvas out of
+ * position, and the compact layout is one grid-template change rather than a second component.
+ */
+
+.workbench {
+  display: grid;
+  grid-template-areas:
+    "bar bar bar"
+    "sidebar canvas inspector"
+    "activity activity activity";
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--inspector-width);
+  grid-template-rows: var(--bar-height) minmax(0, 1fr) auto;
+  height: 100%;
+  background: var(--arcavex-surface);
+}
+
+.workbench[data-compact="true"] {
+  /* Below roughly 1100px the inspector folds away; the proof keeps the room. */
+  grid-template-areas:
+    "bar bar"
+    "sidebar canvas"
+    "activity activity";
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.workbench__bar {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-3);
+  background: var(--arcavex-surface-raised);
+  border-bottom: 1px solid var(--arcavex-border);
+}
+
+.workbench__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The mark is a plate label: monospaced, boxed, the accent used once. */
+.workbench__mark {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--arcavex-accent);
+  color: var(--arcavex-accent-contrast);
+  font-family: var(--font-measure);
+  font-size: var(--text-small);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.workbench__product {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.workbench__commands {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+}
+
+.workbench__sidebar,
+.workbench__inspector {
+  overflow-y: auto;
+  background: var(--arcavex-surface-raised);
+  display: flex;
+  flex-direction: column;
+}
+
+.workbench__sidebar {
+  grid-area: sidebar;
+  border-right: 1px solid var(--arcavex-border);
+}
+
+.workbench__inspector {
+  grid-area: inspector;
+  border-left: 1px solid var(--arcavex-border);
+}
+
+.workbench[data-compact="true"] .workbench__inspector {
+  display: none;
+}
+
+.workbench__canvas {
+  grid-area: canvas;
+  position: relative;
+  overflow: hidden;
+  background: var(--arcavex-surface-sunken);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.workbench__activity {
+  grid-area: activity;
+  max-height: var(--activity-height);
+  overflow-y: auto;
+  background: var(--arcavex-surface-raised);
+  border-top: 1px solid var(--arcavex-border);
+}
+
+.panel {
+  border-bottom: 1px solid var(--arcavex-border);
+}
+
+.panel:last-child {
+  border-bottom: none;
+}
+
+.panel__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--arcavex-surface-raised);
+  border-bottom: 1px solid var(--arcavex-border);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--arcavex-text-secondary);
+}
+
+.panel__body {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+/*
+ * The signature: registration ticks framing the proof, as on a press sheet. They are the only
+ * ornament in the shell, and they carry state — amber when the proof no longer matches source.
+ */
+.registration {
+  position: absolute;
+  inset: var(--space-4);
+  pointer-events: none;
+  --tick: var(--arcavex-border);
+}
+
+.registration[data-state="current"] {
+  --tick: var(--arcavex-accent);
+}
+
+.registration[data-state="stale"] {
+  --tick: var(--arcavex-stale);
+}
+
+.registration[data-state="failed"] {
+  --tick: var(--arcavex-danger);
+}
+
+.registration::before,
+.registration::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--tick);
+  border-style: solid;
+  transition: border-color var(--duration-fast) linear;
+}
+
+.registration::before {
+  top: 0;
+  left: 0;
+  border-width: 1px 0 0 1px;
+}
+
+.registration::after {
+  bottom: 0;
+  right: 0;
+  border-width: 0 1px 1px 0;
+}
+
+/* The proof strip: what this picture is, in the units the engine reports. */
+.proof-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--arcavex-border);
+  background: var(--arcavex-surface-raised);
+  font-family: var(--font-measure);
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--arcavex-text-secondary);
+}
+
+.proof-strip__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--arcavex-text-primary);
+}
+
+.proof-strip__state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--arcavex-text-secondary);
+}
+
+.proof-strip[data-state="current"] .proof-strip__state::before {
+  background: var(--arcavex-accent);
+}
+
+.proof-strip[data-state="rendering"] .proof-strip__state::before {
+  background: var(--arcavex-accent);
+  opacity: 0.5;
+}
+
+.proof-strip[data-state="stale"] .proof-strip__state::before {
+  background: var(--arcavex-stale);
+}
+
+.proof-strip[data-state="failed"] .proof-strip__state::before {
+  background: var(--arcavex-danger);
+}

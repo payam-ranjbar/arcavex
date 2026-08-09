@@ -1,0 +1,111 @@
+/*
+ * The workbench's dimensional system. Colours arrive as custom properties from ThemeProvider;
+ * everything here is spacing, type, and the few shapes the bench is built from.
+ */
+
+:root {
+  /* A 4pt grid, because the engine measures in points and so should the chrome around it. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Segoe UI Variable is the characterful face Windows already ships; the stack degrades. */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+  --font-display:
+    "Segoe UI Variable Display", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+  /* Every measurement, revision, and identifier is set in this face with tabular figures. */
+  --font-measure: "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace;
+
+  --text-micro: 10px;
+  --text-small: 11px;
+  --text-body: 13px;
+  --text-title: 15px;
+  --text-display: 20px;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+
+  --bar-height: 44px;
+  --sidebar-width: 268px;
+  --inspector-width: 300px;
+  --activity-height: 168px;
+
+  --duration-fast: 90ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--arcavex-surface);
+  color: var(--arcavex-text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  /* The WebView's own scrollbars and form controls follow the theme. */
+  color-scheme: var(--arcavex-color-scheme, dark);
+  overflow: hidden;
+}
+
+/* Measurements are compared column-wise far more often than they are read as prose. */
+.measure {
+  font-family: var(--font-measure);
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.eyebrow {
+  font-size: var(--text-micro);
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--arcavex-text-secondary);
+}
+
+/* Focus is never removed. On the high-contrast theme it is the same white as the borders. */
+:focus-visible {
+  outline: 2px solid var(--arcavex-focus);
+  outline-offset: 1px;
+  border-radius: var(--radius-sm);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--arcavex-text-primary) 8%, transparent);
+}
+
+button:disabled,
+button[aria-disabled="true"] {
+  color: var(--arcavex-text-secondary);
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

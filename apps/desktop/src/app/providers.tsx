@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import type { ArcavexGateway } from "../gateway/index.ts";
+import { ThemeProvider } from "../theme/ThemeProvider.tsx";
 
 const GatewayContext = createContext<ArcavexGateway | null>(null);
 
@@ -20,14 +21,20 @@ export function createQueryClient(): QueryClient {
 export interface ProvidersProps {
   readonly gateway: ArcavexGateway;
   readonly queryClient?: QueryClient;
+  /** Which bundled or imported theme to start in; settings supply the remembered one. */
+  readonly themeId?: string;
   readonly children: ReactNode;
 }
 
-export function Providers({ gateway, queryClient, children }: ProvidersProps): ReactNode {
+export function Providers({ gateway, queryClient, themeId, children }: ProvidersProps): ReactNode {
   const client = useMemo(() => queryClient ?? createQueryClient(), [queryClient]);
   return (
     <GatewayContext.Provider value={gateway}>
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <QueryClientProvider client={client}>
+        <ThemeProvider {...(themeId === undefined ? {} : { initialThemeId: themeId })}>
+          {children}
+        </ThemeProvider>
+      </QueryClientProvider>
     </GatewayContext.Provider>
   );
 }

@@ -20,6 +20,11 @@ export default typescript.config(
       ...reactHooks.configs.recommended.rules,
       "@typescript-eslint/consistent-type-imports": "error",
       "@typescript-eslint/no-unnecessary-condition": "error",
+      // A leading underscore is how this codebase says "deliberately discarded".
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
       "no-restricted-syntax": [
         "error",
         {
