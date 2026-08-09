@@ -17,12 +17,14 @@
     "test:contracts": "node --experimental-strip-types --test src/contracts/generated.test.ts",
     "test": "npm run test:contracts && vitest run",
     "test:coverage": "npm run test:contracts && vitest run --coverage",
+    "e2e": "npm run build && playwright test",
     "dev": "vite",
     "build": "vite build",
     "tauri": "tauri"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
     "@tauri-apps/cli": "2.11.4",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",

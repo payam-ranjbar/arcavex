@@ -1,1 +1,2 @@
-export { AppearanceSettings } from "./AppearanceSettings.tsx";
+﻿export { AppearanceSettings } from "./AppearanceSettings.tsx";
+export { RuntimeSettings } from "./RuntimeSettings.tsx";

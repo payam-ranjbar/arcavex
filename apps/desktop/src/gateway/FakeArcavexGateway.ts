@@ -57,6 +57,18 @@ export interface RecordedCall {
   readonly argument?: unknown;
 }
 
+/**
+ * One event without its envelope version, which `emit` supplies.
+ *
+ * The distribution over the union matters: a plain `Omit` would collapse the variants to their
+ * shared keys and reject every payload.
+ */
+export type UnversionedDesktopEvent = DesktopEvent extends infer Variant
+  ? Variant extends DesktopEvent
+    ? Omit<Variant, "version">
+    : never
+  : never;
+
 const DEFAULT_TARGET: ProjectTarget = { format: "poster-a3", locale: "en-US" };
 
 const DEFAULT_SETTINGS: DesktopSettings = {
@@ -134,7 +146,7 @@ export class FakeArcavexGateway implements ArcavexGateway {
   }
 
   /** Publish an event exactly as the Rust core would, for watcher and scheduler scenarios. */
-  emit(event: Omit<DesktopEvent, "version">): void {
+  emit(event: UnversionedDesktopEvent): void {
     const envelope = { ...event, version: DESKTOP_EVENT_VERSION } as DesktopEvent;
     for (const listener of [...this.listeners]) listener(envelope);
   }

@@ -38,3 +38,5 @@ memory/
 # Stray render run dirs at repo root (never authoritative; curated examples live under examples/)
 /outputs/
 /apps/desktop/src-tauri/gen/
+/apps/desktop/test-results/
+/apps/desktop/playwright-report/

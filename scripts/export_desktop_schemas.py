@@ -138,6 +138,16 @@ _LEAF_LAYER = {
 }
 
 
+def _desktop_capabilities() -> list[str]:
+    """Read the engine's real capability names so fixtures can never advertise invented ones."""
+    source = str(ROOT / "src")
+    if source not in sys.path:
+        sys.path.insert(0, source)
+    from arcavex.services.desktop import DESKTOP_CAPABILITIES
+
+    return list(DESKTOP_CAPABILITIES)
+
+
 def _fixture_inputs() -> dict[str, dict[str, Any]]:
     """Return populated report inputs that reach every union, map, tuple, and pattern branch."""
     return {
@@ -153,7 +163,7 @@ def _fixture_inputs() -> dict[str, dict[str, Any]]:
             "accepted_ir_versions": ["1.0"],
             "produced_ir_version": "1.0",
             "extension_sdk_version": "1.0",
-            "capabilities": ["desktop.handshake", "desktop.layer_tree"],
+            "capabilities": _desktop_capabilities(),
             "paths": {
                 "home": "/fixture",
                 "assets": "/fixture/assets",

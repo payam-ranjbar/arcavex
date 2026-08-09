@@ -1,0 +1,103 @@
+/* Dense rows, one line each, with state carried by weight and colour rather than icons. */
+
+.layers__modes {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.layers__modes button[aria-pressed="true"] {
+  border-color: var(--arcavex-accent);
+  color: var(--arcavex-accent);
+}
+
+.layers__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.layers__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 22px;
+  padding-inline-end: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.layers__row[aria-selected="true"] {
+  background: color-mix(in srgb, var(--arcavex-accent) 22%, transparent);
+}
+
+.layers__row[data-hidden="true"] .layers__name {
+  color: var(--arcavex-text-secondary);
+  text-decoration: line-through;
+}
+
+.layers__row[data-locked="true"] .layers__name {
+  color: var(--arcavex-text-secondary);
+}
+
+/* Subrows are what a layer carries, not layers of their own. */
+.layers__row[data-kind="mask"] .layers__name,
+.layers__row[data-kind="effect"] .layers__name {
+  font-style: italic;
+  color: var(--arcavex-text-secondary);
+}
+
+.layers__twisty {
+  width: 16px;
+  flex: none;
+  padding: 0;
+  color: var(--arcavex-text-secondary);
+  font-size: var(--text-micro);
+}
+
+.layers__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  text-align: start;
+}
+
+.layers__swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.layers__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layers__kind,
+.layers__origin {
+  flex: none;
+  color: var(--arcavex-text-secondary);
+  font-size: var(--text-micro);
+}
+
+.layers__kind {
+  /* The kind is reference information, not something to scan; it recedes until looked for. */
+  opacity: 0;
+}
+
+.layers__row:hover .layers__kind,
+.layers__row[aria-selected="true"] .layers__kind {
+  opacity: 1;
+}
+
+.layers__flag {
+  flex: none;
+  font-size: var(--text-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--arcavex-text-secondary);
+}

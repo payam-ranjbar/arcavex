@@ -1,0 +1,59 @@
+/* A lit bed for the proof, with the picture positioned absolutely so panning never reflows. */
+
+.canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--arcavex-surface-sunken);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.canvas__proof {
+  position: absolute;
+  /* The engine's pixels are the truth; the browser must not soften them when zoomed in. */
+  image-rendering: pixelated;
+  box-shadow: 0 0 0 1px var(--arcavex-border);
+  transition: opacity var(--duration-fast) linear;
+}
+
+/* A stale or failed proof stays visible, dimmed, because it is still the best picture there is. */
+.canvas__proof[data-state="stale"],
+.canvas__proof[data-state="failed"] {
+  opacity: 0.55;
+}
+
+.canvas__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  margin: 0;
+  color: var(--arcavex-text-secondary);
+}
+
+.canvas__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.canvas__selection {
+  fill: none;
+  stroke: var(--arcavex-accent);
+  stroke-width: 1;
+  /* A dashed edge reads as a selection rather than as part of the artwork. */
+  stroke-dasharray: 4 3;
+}
+
+.proof-strip__fit {
+  margin-inline-start: auto;
+}
+
+.proof-strip__zoom {
+  min-width: 4ch;
+  text-align: end;
+}

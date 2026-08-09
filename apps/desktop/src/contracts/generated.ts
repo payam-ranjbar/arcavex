@@ -3281,8 +3281,14 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
       "1.0"
     ],
     "capabilities": [
-      "desktop.handshake",
-      "desktop.layer_tree"
+      "desktop.engine-handshake",
+      "layers.tree",
+      "project.policy",
+      "project.proposals",
+      "project.snapshot",
+      "project.ui-metadata",
+      "render.preview",
+      "selection.hit-test"
     ],
     "diagnostics": [
       {
