@@ -1,0 +1,271 @@
+/** A deterministic in-memory gateway so every component test runs without an engine process. */
+
+import {
+  desktopContractFixtures,
+  type CheckResult,
+  type DesktopContractName,
+  type HitTestReport,
+  type LayerTreeReport,
+  type ProjectPolicyReport,
+  type ProjectSnapshotReport,
+  type ProjectUIMetadataReport,
+  type ProposalActionReport,
+  type ProposalListReport,
+} from "../contracts/index.ts";
+import {
+  DESKTOP_EVENT_VERSION,
+  type ActivityEntry,
+  type ArcavexGateway,
+  type AutomationPolicyValue,
+  type DesktopEvent,
+  type DesktopEventListener,
+  type DesktopSettings,
+  type EngineState,
+  type HitTestRequest,
+  type LayerTreeRequest,
+  type ProjectTarget,
+  type ProjectUIMetadataValue,
+  type RenderRequest,
+  type RenderStatus,
+  type Unsubscribe,
+} from "./ArcavexGateway.ts";
+
+/** Seeded from the generated fixtures so the fake can never drift from the real contracts. */
+function fixture<T>(name: DesktopContractName): T {
+  return structuredClone(desktopContractFixtures[name]) as unknown as T;
+}
+
+export const FAKE_PROJECT_PATH = "/workspace/fixture-poster";
+
+export interface FakeGatewayScript {
+  readonly engine?: Partial<EngineState>;
+  readonly snapshot?: ProjectSnapshotReport;
+  readonly layerTree?: LayerTreeReport;
+  readonly hitTest?: HitTestReport;
+  readonly validate?: CheckResult;
+  readonly uiMetadata?: ProjectUIMetadataReport;
+  readonly policy?: ProjectPolicyReport;
+  readonly proposals?: ProposalListReport;
+  readonly settings?: Partial<DesktopSettings>;
+  readonly renderStatus?: RenderStatus;
+  readonly activity?: ReadonlyArray<ActivityEntry>;
+  /** Directory the open dialog returns; null models a cancelled dialog. */
+  readonly chosenDirectory?: string | null;
+}
+
+export interface RecordedCall {
+  readonly method: string;
+  readonly argument?: unknown;
+}
+
+const DEFAULT_TARGET: ProjectTarget = { format: "poster-a3", locale: "en-US" };
+
+const DEFAULT_SETTINGS: DesktopSettings = {
+  recentProjects: [FAKE_PROJECT_PATH],
+  themeId: "arcavex-dark",
+  brandingId: "arcavex",
+  liveRender: "every-change",
+  checkForUpdates: false,
+  engineOverridePath: null,
+};
+
+function defaultRenderStatus(target: ProjectTarget): RenderStatus {
+  return {
+    state: "current",
+    target,
+    lastGood: {
+      target,
+      imageUrl: "arcavex://render/fixture-poster.png",
+      widthPx: 1684,
+      heightPx: 2382,
+      renderRevision: "3c".repeat(32),
+      contentSha256: "9f".repeat(32),
+      compileMs: 12.5,
+      renderMs: 84.25,
+    },
+    jobId: "job-1",
+    diagnostics: [],
+  };
+}
+
+export class FakeArcavexGateway implements ArcavexGateway {
+  readonly calls: RecordedCall[] = [];
+
+  private readonly listeners = new Set<DesktopEventListener>();
+  private readonly failures = new Map<string, Error>();
+  private readonly script: FakeGatewayScript;
+
+  private engine: EngineState;
+  private target: ProjectTarget;
+  private settingsState: DesktopSettings;
+  private render: RenderStatus;
+  private openPath: string | null = null;
+
+  constructor(script: FakeGatewayScript = {}) {
+    this.script = script;
+    this.engine = {
+      status: "ready",
+      handshake: fixture("EngineHandshakeReport"),
+      artifactPath: "/opt/arcavex/arcavex",
+      restartCount: 0,
+      message: null,
+      ...script.engine,
+    };
+    this.target = DEFAULT_TARGET;
+    this.settingsState = { ...DEFAULT_SETTINGS, ...script.settings };
+    this.render = script.renderStatus ?? defaultRenderStatus(this.target);
+  }
+
+  /** Make the next call to one method reject, modelling engine and filesystem failures. */
+  failNext(method: keyof ArcavexGateway, error: Error): void {
+    this.failures.set(method, error);
+  }
+
+  /** Publish an event exactly as the Rust core would, for watcher and scheduler scenarios. */
+  emit(event: Omit<DesktopEvent, "version">): void {
+    const envelope = { ...event, version: DESKTOP_EVENT_VERSION } as DesktopEvent;
+    for (const listener of [...this.listeners]) listener(envelope);
+  }
+
+  private record<T>(method: keyof ArcavexGateway, value: T, argument?: unknown): Promise<T> {
+    this.calls.push(argument === undefined ? { method } : { method, argument });
+    const failure = this.failures.get(method);
+    if (failure) {
+      this.failures.delete(method);
+      return Promise.reject(failure);
+    }
+    return Promise.resolve(value);
+  }
+
+  engineState(): Promise<EngineState> {
+    return this.record("engineState", this.engine);
+  }
+
+  restartEngine(): Promise<EngineState> {
+    this.engine = { ...this.engine, status: "ready", restartCount: this.engine.restartCount + 1 };
+    return this.record("restartEngine", this.engine);
+  }
+
+  chooseProjectDirectory(): Promise<string | null> {
+    const chosen =
+      this.script.chosenDirectory === undefined ? FAKE_PROJECT_PATH : this.script.chosenDirectory;
+    return this.record("chooseProjectDirectory", chosen);
+  }
+
+  openProject(path: string): Promise<ProjectSnapshotReport> {
+    this.openPath = path;
+    this.settingsState = {
+      ...this.settingsState,
+      recentProjects: [
+        path,
+        ...this.settingsState.recentProjects.filter((entry) => entry !== path),
+      ],
+    };
+    return this.record("openProject", this.snapshotValue(), path);
+  }
+
+  closeProject(): Promise<void> {
+    this.openPath = null;
+    return this.record("closeProject", undefined);
+  }
+
+  projectSnapshot(): Promise<ProjectSnapshotReport> {
+    return this.record("projectSnapshot", this.snapshotValue());
+  }
+
+  validateProject(): Promise<CheckResult> {
+    return this.record("validateProject", this.script.validate ?? fixture("CheckResult"));
+  }
+
+  activeTarget(): Promise<ProjectTarget> {
+    return this.record("activeTarget", this.target);
+  }
+
+  setActiveTarget(target: ProjectTarget): Promise<ProjectTarget> {
+    this.target = target;
+    this.render = { ...this.render, target, state: "stale" };
+    return this.record("setActiveTarget", this.target, target);
+  }
+
+  layerTree(request: LayerTreeRequest): Promise<LayerTreeReport> {
+    const tree = this.script.layerTree ?? fixture<LayerTreeReport>("LayerTreeReport");
+    return this.record("layerTree", { ...tree, mode: request.mode }, request);
+  }
+
+  hitTest(request: HitTestRequest): Promise<HitTestReport> {
+    return this.record("hitTest", this.script.hitTest ?? fixture("HitTestReport"), request);
+  }
+
+  requestRender(request: RenderRequest): Promise<RenderStatus> {
+    this.render = { ...this.render, state: "current" };
+    return this.record("requestRender", this.render, request);
+  }
+
+  renderStatus(): Promise<RenderStatus> {
+    return this.record("renderStatus", this.render);
+  }
+
+  uiMetadata(): Promise<ProjectUIMetadataReport> {
+    return this.record("uiMetadata", this.script.uiMetadata ?? fixture("ProjectUIMetadataReport"));
+  }
+
+  setUiMetadata(metadata: ProjectUIMetadataValue): Promise<ProjectUIMetadataReport> {
+    const current =
+      this.script.uiMetadata ?? fixture<ProjectUIMetadataReport>("ProjectUIMetadataReport");
+    return this.record("setUiMetadata", { ...current, metadata }, metadata);
+  }
+
+  policy(): Promise<ProjectPolicyReport> {
+    return this.record("policy", this.script.policy ?? fixture("ProjectPolicyReport"));
+  }
+
+  setPolicy(policy: AutomationPolicyValue): Promise<ProjectPolicyReport> {
+    const current = this.script.policy ?? fixture<ProjectPolicyReport>("ProjectPolicyReport");
+    return this.record("setPolicy", { ...current, policy }, policy);
+  }
+
+  proposals(): Promise<ProposalListReport> {
+    return this.record("proposals", this.script.proposals ?? fixture("ProposalListReport"));
+  }
+
+  approveProposal(commandId: string): Promise<ProposalActionReport> {
+    return this.record(
+      "approveProposal",
+      fixture<ProposalActionReport>("ProposalActionReport"),
+      commandId,
+    );
+  }
+
+  rejectProposal(commandId: string, reason: string): Promise<ProposalActionReport> {
+    return this.record("rejectProposal", fixture<ProposalActionReport>("ProposalActionReport"), {
+      commandId,
+      reason,
+    });
+  }
+
+  activity(): Promise<ReadonlyArray<ActivityEntry>> {
+    return this.record("activity", this.script.activity ?? []);
+  }
+
+  settings(): Promise<DesktopSettings> {
+    return this.record("settings", this.settingsState);
+  }
+
+  updateSettings(patch: Partial<DesktopSettings>): Promise<DesktopSettings> {
+    this.settingsState = { ...this.settingsState, ...patch };
+    return this.record("updateSettings", this.settingsState, patch);
+  }
+
+  subscribe(listener: DesktopEventListener): Unsubscribe {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private snapshotValue(): ProjectSnapshotReport {
+    const snapshot =
+      this.script.snapshot ?? fixture<ProjectSnapshotReport>("ProjectSnapshotReport");
+    return { ...snapshot, canonical_path: this.openPath ?? snapshot.canonical_path ?? null };
+  }
+}

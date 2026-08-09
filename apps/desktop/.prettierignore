@@ -1,0 +1,7 @@
+dist
+node_modules
+src-tauri/target
+src-tauri/gen
+src/contracts/generated.ts
+src/contracts/generated.test.ts
+src/contracts/index.ts

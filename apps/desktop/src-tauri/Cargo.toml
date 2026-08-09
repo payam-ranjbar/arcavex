@@ -1,0 +1,32 @@
+[package]
+name = "arcavex-desktop"
+version = "0.0.0"
+description = "Arcavex Desktop"
+authors = ["Arcavex"]
+edition = "2021"
+rust-version = "1.97"
+publish = false
+
+[lib]
+name = "arcavex_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+thiserror = "2"
+
+[features]
+# Windows release builds must not open a console window alongside the WebView.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true
