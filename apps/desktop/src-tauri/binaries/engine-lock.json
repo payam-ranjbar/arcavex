@@ -1,0 +1,8 @@
+{
+  "engine_version": "0.1.0",
+  "release_tag": "engine-v0.1.0",
+  "mcp_contract_version": "2025-06-18",
+  "produced_ir_version": "1.0",
+  "accepted_ir_versions": ["1.0"],
+  "artifacts": {}
+}
