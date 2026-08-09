@@ -1,0 +1,235 @@
+{
+  "$defs": {
+    "Diagnostic": {
+      "description": "A single structured diagnostic.",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "default": "error",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Diagnostic",
+      "type": "object"
+    },
+    "PreviewResult": {
+      "description": "The result of a single ``arcavex preview`` render (watch or one-shot).",
+      "properties": {
+        "changed_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Changed File"
+        },
+        "compile_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Compile Ms"
+        },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Sha256"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/Diagnostic"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "inferred": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Inferred",
+          "type": "object"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Path"
+        },
+        "render_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Render Ms"
+        },
+        "response_version": {
+          "default": 1,
+          "title": "Response Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "title": "PreviewResult",
+      "type": "object"
+    },
+    "SourceLocation": {
+      "description": "A location in an authored source file.",
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "keypath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keypath"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        }
+      },
+      "title": "SourceLocation",
+      "type": "object"
+    }
+  },
+  "description": "The result of ``arcavex preview`` in project mode: one preview per format × locale (DX-1).",
+  "properties": {
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/Diagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "previews": {
+      "items": {
+        "$ref": "#/$defs/PreviewResult"
+      },
+      "title": "Previews",
+      "type": "array"
+    },
+    "response_version": {
+      "default": 1,
+      "title": "Response Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "title": "PreviewProjectReport",
+  "type": "object"
+}

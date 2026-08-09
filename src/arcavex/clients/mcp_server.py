@@ -45,6 +45,7 @@ from arcavex.kernel.api import (
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
+    PreviewProjectReport,
     PreviewResult,
     ProjectListReport,
     ProjectPolicyReport,
@@ -169,6 +170,29 @@ class ArcavexTools:
     def project_snapshot(self, project: str | None = None) -> ProjectSnapshotReport:
         """Open a project read-only and report its source and render revision manifests."""
         return self._facade.project_snapshot(project=_opt_path(project))
+
+    def project_validate(
+        self,
+        project: str | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+    ) -> CheckResult:
+        """Validate the requested project targets without rendering or writing source files."""
+        return self._facade.validate_project(
+            project=_opt_path(project), formats=formats, locales=locales
+        )
+
+    def project_preview(
+        self,
+        project: str | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+        dpi: int | None = None,
+    ) -> PreviewProjectReport:
+        """Render structured per-target project preview reports for desktop viewers."""
+        return self._facade.preview_project(
+            project=_opt_path(project), formats=formats, locales=locales, dpi=dpi
+        )
 
     def layer_tree(
         self,
@@ -453,6 +477,8 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_project_list", "project_list"),
     ("arcavex_project_status", "project_status"),
     ("project_snapshot", "project_snapshot"),
+    ("project_validate", "project_validate"),
+    ("project_preview", "project_preview"),
     ("layer_tree", "layer_tree"),
     ("hit_test", "hit_test"),
     ("project_ui_metadata", "project_ui_metadata"),

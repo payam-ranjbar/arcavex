@@ -8,6 +8,10 @@ patch tool's input reuses the shared :class:`PatchOp` model rather than a parall
 
 from __future__ import annotations
 
+import importlib.util
+import json
+from pathlib import Path
+
 from arcavex.clients.mcp_server import (
     _TOOL_METHODS,
     build_mcp_server,
@@ -22,12 +26,20 @@ from arcavex.kernel.api import (
     EffectListReport,
     EngineHandshakeReport,
     FontListReport,
+    HitTestReport,
+    LayerTreeReport,
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
+    PreviewProjectReport,
     ProjectListReport,
+    ProjectPolicyReport,
     ProjectResult,
+    ProjectSnapshotReport,
     ProjectStatusReport,
+    ProjectUIMetadataReport,
+    ProposalActionReport,
+    ProposalListReport,
     RenderResult,
     RerunReport,
     RunListReport,
@@ -38,11 +50,31 @@ from arcavex.kernel.api import (
     TemplateListReport,
 )
 
+_EXPORTER_SPEC = importlib.util.spec_from_file_location(
+    "export_desktop_schemas",
+    Path(__file__).parents[2] / "scripts" / "export_desktop_schemas.py",
+)
+assert _EXPORTER_SPEC is not None and _EXPORTER_SPEC.loader is not None
+_EXPORTER = importlib.util.module_from_spec(_EXPORTER_SPEC)
+_EXPORTER_SPEC.loader.exec_module(_EXPORTER)
+
 # Each structured tool maps to the exact facade model it returns. render_preview is absent: it
 # returns mixed image + text content (its structured payload is a PreviewResult inside a text
 # block), so it has no single output schema.
 _TOOL_OUTPUT_MODELS = {
     "engine_handshake": EngineHandshakeReport,
+    "project_snapshot": ProjectSnapshotReport,
+    "project_ui_metadata": ProjectUIMetadataReport,
+    "project_ui_metadata_set": ProjectUIMetadataReport,
+    "project_policy": ProjectPolicyReport,
+    "project_policy_set": ProjectPolicyReport,
+    "project_proposal_list": ProposalListReport,
+    "project_proposal_approve": ProposalActionReport,
+    "project_proposal_reject": ProposalActionReport,
+    "layer_tree": LayerTreeReport,
+    "hit_test": HitTestReport,
+    "project_validate": CheckResult,
+    "project_preview": PreviewProjectReport,
     "arcavex_template_list": TemplateListReport,
     "arcavex_template_inspect": TemplateInspectReport,
     "arcavex_template_validate": CheckResult,
@@ -78,7 +110,7 @@ def test_catalog_lists_every_declared_tool() -> None:
     """The built server exposes exactly the declared tool catalog (names)."""
     catalog = _catalog()
     assert set(catalog) == {name for name, _ in _TOOL_METHODS}
-    assert len(catalog) == len(_TOOL_METHODS) == 36
+    assert len(catalog) == len(_TOOL_METHODS) == 38
 
 
 def test_output_schemas_match_facade_models() -> None:
@@ -88,9 +120,12 @@ def test_output_schemas_match_facade_models() -> None:
         assert catalog[name]["outputSchema"] == model.model_json_schema(), name
 
 
-def test_render_preview_returns_mixed_content_not_a_schema() -> None:
-    """render_preview yields image content, so it declares no single output schema."""
-    assert _catalog()["arcavex_render_preview"]["outputSchema"] is None
+def test_direct_preview_is_mixed_but_project_preview_is_a_structured_report() -> None:
+    """Project preview is a desktop contract, unlike direct image-plus-text preview output."""
+    catalog = _catalog()
+
+    assert catalog["arcavex_render_preview"]["outputSchema"] is None
+    assert catalog["project_preview"]["outputSchema"] == PreviewProjectReport.model_json_schema()
 
 
 def test_patch_tool_input_reuses_the_shared_patchop_model() -> None:
@@ -111,6 +146,10 @@ def test_every_tool_delegates_to_a_facade_method() -> None:
 
     for facade_method in (
         "engine_handshake",
+        "project_snapshot", "project_ui_metadata", "set_project_ui_metadata",
+        "project_policy", "set_project_policy", "list_project_proposals",
+        "approve_project_proposal", "reject_project_proposal", "layer_tree", "hit_test",
+        "validate_project", "preview_project",
         "list_templates", "inspect_template", "validate_template", "patch_template",
         "create_project", "list_projects", "project_status", "clone_project",
         "render_project", "record_render",
@@ -127,3 +166,41 @@ def test_server_constructs_with_instructions() -> None:
     server = build_mcp_server()
     assert server.name == "arcavex"
     assert server.instructions and "arcavex_template_inspect" in server.instructions
+
+
+def test_desktop_schema_export_writes_every_mcp_desktop_contract(tmp_path: Path) -> None:
+    """Omitting a desktop report from the exporter would let generated TypeScript drift."""
+    written = _EXPORTER.export_schemas(tmp_path)
+
+    expected = {
+        "engine-handshake.schema.json": EngineHandshakeReport,
+        "project-snapshot.schema.json": ProjectSnapshotReport,
+        "project-ui-metadata.schema.json": ProjectUIMetadataReport,
+        "project-policy.schema.json": ProjectPolicyReport,
+        "project-proposal-list.schema.json": ProposalListReport,
+        "project-proposal-action.schema.json": ProposalActionReport,
+        "layer-tree.schema.json": LayerTreeReport,
+        "hit-test.schema.json": HitTestReport,
+        "project-validate.schema.json": CheckResult,
+        "project-preview.schema.json": PreviewProjectReport,
+    }
+
+    assert written == set(expected)
+    for filename, model in expected.items():
+        assert (tmp_path / filename).read_text(encoding="utf-8") == (
+            json.dumps(
+                model.model_json_schema(), ensure_ascii=False, indent=2, sort_keys=True
+            )
+            + "\n"
+        )
+
+    fixtures = _EXPORTER.export_contract_fixtures(tmp_path)
+    assert set(fixtures) == set(expected)
+    assert json.loads(
+        (tmp_path / "desktop-contract-fixtures.json").read_text(encoding="utf-8")
+    ) == fixtures
+    for filename, model in expected.items():
+        assert (
+            model.model_validate(fixtures[filename]).model_dump(mode="json")
+            == fixtures[filename]
+        )

@@ -1,0 +1,146 @@
+{
+  "engine-handshake.schema.json": {
+    "accepted_ir_versions": [
+      "1.0"
+    ],
+    "capabilities": [],
+    "diagnostics": [],
+    "doctor": {
+      "checks": [],
+      "engine_version": "0.0.0-fixture",
+      "ok": true,
+      "response_version": 1
+    },
+    "extension_sdk_version": "1.0",
+    "identity": {
+      "artifact_path": null,
+      "artifact_sha256": null,
+      "build_commit": null,
+      "engine_version": "0.0.0-fixture"
+    },
+    "mcp_contract_version": "2025-06-18",
+    "ok": true,
+    "paths": {
+      "assets": "/fixture/assets",
+      "cache": "/fixture/cache",
+      "extensions": "/fixture/extensions",
+      "fonts": "/fixture/fonts",
+      "home": "/fixture",
+      "styles": "/fixture/styles",
+      "templates": "/fixture/templates"
+    },
+    "produced_ir_version": "1.0",
+    "response_version": 1
+  },
+  "hit-test.schema.json": {
+    "candidates": [],
+    "diagnostics": [],
+    "format": null,
+    "locale": null,
+    "ok": true,
+    "point_pt": [
+      0.0,
+      0.0
+    ],
+    "point_px": null,
+    "response_version": 1
+  },
+  "layer-tree.schema.json": {
+    "canvas_pt": [
+      0.0,
+      0.0
+    ],
+    "canvas_px": [
+      0,
+      0
+    ],
+    "diagnostics": [],
+    "dpi": 0,
+    "format": null,
+    "locale": null,
+    "mode": "authored",
+    "ok": true,
+    "response_version": 1,
+    "root": null
+  },
+  "project-policy.schema.json": {
+    "canonical_path": null,
+    "diagnostics": [],
+    "ok": true,
+    "policy": {
+      "extensions": "unrestricted",
+      "mode": "unrestricted",
+      "version": 1
+    },
+    "project_revision": null,
+    "render_revision": null,
+    "response_version": 1
+  },
+  "project-preview.schema.json": {
+    "diagnostics": [],
+    "ok": true,
+    "previews": [],
+    "response_version": 1
+  },
+  "project-proposal-action.schema.json": {
+    "canonical_path": null,
+    "diagnostics": [],
+    "ok": true,
+    "project_revision": null,
+    "proposal": null,
+    "response_version": 1
+  },
+  "project-proposal-list.schema.json": {
+    "canonical_path": null,
+    "diagnostics": [],
+    "ok": true,
+    "proposals": [],
+    "response_version": 1
+  },
+  "project-snapshot.schema.json": {
+    "canonical_path": null,
+    "capabilities": [],
+    "data": null,
+    "default_target": null,
+    "diagnostics": [],
+    "dpi": null,
+    "formats": [],
+    "locales": [],
+    "name": null,
+    "ok": true,
+    "project_manifest": [],
+    "project_revision": null,
+    "render_manifest": [],
+    "render_revision": null,
+    "response_version": 1,
+    "source_files": [],
+    "status": null,
+    "style": null,
+    "tags": [],
+    "targets": [],
+    "template": null
+  },
+  "project-ui-metadata.schema.json": {
+    "canonical_path": null,
+    "diagnostics": [],
+    "metadata": {
+      "layers": {},
+      "version": 1,
+      "workspace": {
+        "active_format": null,
+        "active_locale": null,
+        "layer_tree_mode": "definition",
+        "selected_layer_ids": []
+      }
+    },
+    "ok": true,
+    "project_revision": null,
+    "render_revision": null,
+    "response_version": 1
+  },
+  "project-validate.schema.json": {
+    "diagnostics": [],
+    "ok": true,
+    "response_version": 1
+  }
+}
