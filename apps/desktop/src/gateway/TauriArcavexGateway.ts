@@ -22,11 +22,9 @@ import {
   type DesktopEventListener,
   type DesktopSettings,
   type EngineState,
-  type HitTestRequest,
-  type LayerTreeRequest,
+  type LayerTreeMode,
   type ProjectTarget,
   type ProjectUIMetadataValue,
-  type RenderRequest,
   type RenderStatus,
   type Unsubscribe,
 } from "./ArcavexGateway.ts";
@@ -71,16 +69,16 @@ export class TauriArcavexGateway implements ArcavexGateway {
     return invoke("set_active_target", { target });
   }
 
-  layerTree(request: LayerTreeRequest): Promise<LayerTreeReport> {
-    return invoke("layer_tree", { request });
+  layerTree(mode: LayerTreeMode): Promise<LayerTreeReport> {
+    return invoke("layer_tree", { mode });
   }
 
-  hitTest(request: HitTestRequest): Promise<HitTestReport> {
-    return invoke("hit_test", { request });
+  hitTest(xPt: number, yPt: number): Promise<HitTestReport> {
+    return invoke("hit_test", { xPt, yPt });
   }
 
-  requestRender(request: RenderRequest): Promise<RenderStatus> {
-    return invoke("request_render", { request });
+  requestRender(): Promise<RenderStatus> {
+    return invoke("request_render");
   }
 
   renderStatus(): Promise<RenderStatus> {

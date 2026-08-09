@@ -3,5 +3,10 @@
   "identifier": "default",
   "description": "Least privilege for the workbench window: typed commands and events only.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default", "core:window:allow-set-title"]
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-set-title",
+    "dialog:allow-open"
+  ]
 }

@@ -21,11 +21,10 @@ import {
   type DesktopEventListener,
   type DesktopSettings,
   type EngineState,
-  type HitTestRequest,
-  type LayerTreeRequest,
+  type LayerTreeMode,
   type ProjectTarget,
   type ProjectUIMetadataValue,
-  type RenderRequest,
+  type RenderKey,
   type RenderStatus,
   type Unsubscribe,
 } from "./ArcavexGateway.ts";
@@ -61,29 +60,42 @@ export interface RecordedCall {
 const DEFAULT_TARGET: ProjectTarget = { format: "poster-a3", locale: "en-US" };
 
 const DEFAULT_SETTINGS: DesktopSettings = {
+  version: 1,
   recentProjects: [FAKE_PROJECT_PATH],
   themeId: "arcavex-dark",
   brandingId: "arcavex",
   liveRender: "every-change",
+  automation: "unrestricted",
+  extensions: "unrestricted",
   checkForUpdates: false,
   engineOverridePath: null,
+  workspace: {
+    leftSidebarVisible: true,
+    rightInspectorVisible: true,
+    activityVisible: false,
+  },
 };
 
 function defaultRenderStatus(target: ProjectTarget): RenderStatus {
+  const key: RenderKey = {
+    renderRevision: "3c".repeat(32),
+    format: target.format,
+    locale: target.locale,
+    options: {},
+  };
   return {
     state: "current",
-    target,
+    key,
     lastGood: {
-      target,
-      imageUrl: "arcavex://render/fixture-poster.png",
+      key,
+      imageUrl: "arcavex://localhost/outputs/fixture-poster.png",
       widthPx: 1684,
       heightPx: 2382,
-      renderRevision: "3c".repeat(32),
       contentSha256: "9f".repeat(32),
-      compileMs: 12.5,
-      renderMs: 84.25,
+      compileMs: 13,
+      renderMs: 84,
     },
-    jobId: "job-1",
+    jobId: 1,
     diagnostics: [],
   };
 }
@@ -183,22 +195,25 @@ export class FakeArcavexGateway implements ArcavexGateway {
 
   setActiveTarget(target: ProjectTarget): Promise<ProjectTarget> {
     this.target = target;
-    this.render = { ...this.render, target, state: "stale" };
+    this.render = { ...this.render, state: "stale" };
     return this.record("setActiveTarget", this.target, target);
   }
 
-  layerTree(request: LayerTreeRequest): Promise<LayerTreeReport> {
+  layerTree(mode: LayerTreeMode): Promise<LayerTreeReport> {
     const tree = this.script.layerTree ?? fixture<LayerTreeReport>("LayerTreeReport");
-    return this.record("layerTree", { ...tree, mode: request.mode }, request);
+    return this.record("layerTree", { ...tree, mode }, mode);
   }
 
-  hitTest(request: HitTestRequest): Promise<HitTestReport> {
-    return this.record("hitTest", this.script.hitTest ?? fixture("HitTestReport"), request);
+  hitTest(xPt: number, yPt: number): Promise<HitTestReport> {
+    return this.record("hitTest", this.script.hitTest ?? fixture("HitTestReport"), {
+      xPt,
+      yPt,
+    });
   }
 
-  requestRender(request: RenderRequest): Promise<RenderStatus> {
+  requestRender(): Promise<RenderStatus> {
     this.render = { ...this.render, state: "current" };
-    return this.record("requestRender", this.render, request);
+    return this.record("requestRender", this.render);
   }
 
   renderStatus(): Promise<RenderStatus> {

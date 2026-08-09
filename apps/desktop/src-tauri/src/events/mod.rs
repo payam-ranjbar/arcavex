@@ -65,7 +65,7 @@ mod tests {
         assert_eq!(value["version"], DESKTOP_EVENT_VERSION);
         assert_eq!(value["type"], "engine");
         assert_eq!(value["engine"]["status"], "ready");
-        assert_eq!(value["engine"]["artifact_path"], "/opt/arcavex");
+        assert_eq!(value["engine"]["artifactPath"], "/opt/arcavex");
     }
 
     #[test]

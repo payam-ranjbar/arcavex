@@ -229,7 +229,10 @@ pub enum EngineStatus {
 }
 
 /// Exactly the engine state the workbench renders; the field names match the frontend port.
+// Desktop-owned payloads are camelCase because that is what the WebView declares; engine
+// reports keep the snake_case the Pydantic contracts define.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EngineState {
     pub status: EngineStatus,
     pub handshake: Option<Value>,

@@ -37,13 +37,20 @@ export interface EngineState {
 
 export type RenderState = "idle" | "rendering" | "current" | "stale" | "failed";
 
+/** Everything that makes one rendered picture different from another. */
+export interface RenderKey {
+  readonly renderRevision: string;
+  readonly format: string | null;
+  readonly locale: string | null;
+  readonly options: Readonly<Record<string, string>>;
+}
+
 export interface RenderOutput {
-  readonly target: ProjectTarget;
+  readonly key: RenderKey;
   /** A WebView-loadable URL for the raster the engine produced; never a frontend-drawn scene. */
   readonly imageUrl: string;
   readonly widthPx: number;
   readonly heightPx: number;
-  readonly renderRevision: string | null;
   readonly contentSha256: string | null;
   readonly compileMs: number | null;
   readonly renderMs: number | null;
@@ -51,18 +58,20 @@ export interface RenderOutput {
 
 export interface RenderStatus {
   readonly state: RenderState;
-  readonly target: ProjectTarget;
+  /** What the workbench is currently asking for; null before a project is open. */
+  readonly key: RenderKey | null;
   /** The last successful raster, kept visible through validation and render failures. */
   readonly lastGood: RenderOutput | null;
-  readonly jobId: string | null;
+  readonly jobId: number | null;
   readonly diagnostics: CheckResult["diagnostics"];
 }
 
-export type ActivityActor = "desktop" | "external" | "engine";
+export type ActivityActor = "desktop" | "external";
 
 export interface ActivityEntry {
   readonly id: string;
-  readonly at: string;
+  /** Milliseconds since the Unix epoch; the workbench decides how to display it. */
+  readonly at: number;
   readonly actor: ActivityActor;
   readonly summary: string;
   readonly projectRevision: string | null;
@@ -71,14 +80,26 @@ export interface ActivityEntry {
 }
 
 export type LiveRenderMode = "every-change" | "manual";
+export type AutomationMode = "unrestricted" | "review" | "read_only";
+export type ExtensionMode = "unrestricted" | "disabled";
+
+export interface WorkspacePreferences {
+  readonly leftSidebarVisible: boolean;
+  readonly rightInspectorVisible: boolean;
+  readonly activityVisible: boolean;
+}
 
 export interface DesktopSettings {
+  readonly version: number;
   readonly recentProjects: ReadonlyArray<string>;
   readonly themeId: string;
   readonly brandingId: string;
   readonly liveRender: LiveRenderMode;
+  readonly automation: AutomationMode;
+  readonly extensions: ExtensionMode;
   readonly checkForUpdates: boolean;
   readonly engineOverridePath: string | null;
+  readonly workspace: WorkspacePreferences;
 }
 
 export type DesktopEvent =
@@ -91,22 +112,8 @@ export type DesktopEvent =
 export type DesktopEventListener = (event: DesktopEvent) => void;
 export type Unsubscribe = () => void;
 
-export interface LayerTreeRequest {
-  readonly mode: "authored" | "rendered";
-  readonly target?: ProjectTarget;
-}
-
-export interface HitTestRequest {
-  readonly xPt: number;
-  readonly yPt: number;
-  readonly target?: ProjectTarget;
-}
-
-export interface RenderRequest {
-  readonly target?: ProjectTarget;
-  /** Render every declared target rather than only the active one. */
-  readonly all?: boolean;
-}
+/** The active target is core state, so tree and hit-test requests never restate it. */
+export type LayerTreeMode = "authored" | "rendered";
 
 /**
  * Every engine operation the workbench may perform.
@@ -127,10 +134,10 @@ export interface ArcavexGateway {
   activeTarget(): Promise<ProjectTarget>;
   setActiveTarget(target: ProjectTarget): Promise<ProjectTarget>;
 
-  layerTree(request: LayerTreeRequest): Promise<LayerTreeReport>;
-  hitTest(request: HitTestRequest): Promise<HitTestReport>;
+  layerTree(mode: LayerTreeMode): Promise<LayerTreeReport>;
+  hitTest(xPt: number, yPt: number): Promise<HitTestReport>;
 
-  requestRender(request: RenderRequest): Promise<RenderStatus>;
+  requestRender(): Promise<RenderStatus>;
   renderStatus(): Promise<RenderStatus>;
 
   uiMetadata(): Promise<ProjectUIMetadataReport>;
