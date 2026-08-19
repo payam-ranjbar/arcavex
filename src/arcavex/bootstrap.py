@@ -33,6 +33,7 @@ from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
 from arcavex.services.extensions import ExtensionService, load_enabled_extensions
 from arcavex.services.fonts import FontService
+from arcavex.services.fsutil import home_dir
 from arcavex.services.layers import LayerService
 from arcavex.services.library import Library
 from arcavex.services.orchestrator import IR_VERSION, Orchestrator
@@ -189,6 +190,10 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         # Font management resolves its directories on every call rather than capturing the ones
         # this engine loaded, so 'font add' always writes to the home currently in effect.
         fonts=FontService(),
+        # The kernel may not import services, so its own fallback is an OS temp directory that
+        # disagrees with the home every other reader uses. Wiring it here is what keeps `doctor`,
+        # the desktop handshake, and the directory previews are actually written to identical.
+        preview_root=home_dir() / "cache" / "preview",
         skills=SkillService(),
         budget=budget,
         engine_version=version,
