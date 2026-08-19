@@ -139,6 +139,48 @@ pub fn render_url(root: &Path, engine_cache: Option<&Path>, output_path: &str) -
     }
 }
 
+/// Choose the preview to display from an engine report, or the diagnostics explaining why there
+/// is none.
+///
+/// A failed target carries its own diagnostics — the missing font, the overflowing text, the line
+/// of the template at fault — while the report-level list stays empty. Reading only the outer list
+/// turns an engine that said exactly what was wrong into a workbench that says "render failed" and
+/// nothing else, which is the opposite of what the diagnostics panel exists for.
+///
+/// # Errors
+///
+/// Returns every diagnostic the report offers when no target produced an image, and never an empty
+/// list: a failure the user cannot read about is worse than a blunt one.
+pub fn preview_to_display(report: &Value) -> Result<&Value, Vec<Value>> {
+    let previews = report
+        .get("previews")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+
+    if let Some(rendered) = previews
+        .iter()
+        .find(|preview| preview.get("output_path").and_then(Value::as_str).is_some())
+    {
+        return Ok(rendered);
+    }
+
+    let mut diagnostics: Vec<Value> = previews
+        .iter()
+        .filter_map(|preview| preview.get("diagnostics").and_then(Value::as_array))
+        .flat_map(|entries| entries.iter().cloned())
+        .collect();
+    if let Some(outer) = report.get("diagnostics").and_then(Value::as_array) {
+        diagnostics.extend(outer.iter().cloned());
+    }
+    if diagnostics.is_empty() {
+        diagnostics.push(serde_json::json!({
+            "message": "The engine produced no preview for this target and gave no reason.",
+        }));
+    }
+    Err(diagnostics)
+}
+
 /// Read a PNG's pixel dimensions from its header, without decoding the image.
 #[must_use]
 pub fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
@@ -224,6 +266,66 @@ mod tests {
             render_url(root, None, "/home/user/.arcavex/cache/preview/a1.png"),
             None
         );
+    }
+
+    #[test]
+    fn displays_the_target_that_produced_an_image() {
+        let report = json!({
+            "ok": true,
+            "previews": [{"ok": true, "output_path": "/cache/preview/a1.png"}],
+            "diagnostics": [],
+        });
+
+        let preview = preview_to_display(&report).expect("an image to show");
+
+        assert_eq!(preview["output_path"], "/cache/preview/a1.png");
+    }
+
+    #[test]
+    fn reports_the_diagnostics_the_failing_target_carried() {
+        // The engine names the node, the font, and the line. Reading only the report-level list
+        // left the workbench saying "render failed" with nothing a person could act on.
+        let report = json!({
+            "ok": false,
+            "previews": [{
+                "ok": false,
+                "output_path": null,
+                "diagnostics": [{
+                    "code": "ARC-RND-010",
+                    "severity": "error",
+                    "message": "Node 'organization-line-1' requests font family 'Archivo Black', which is not in the bundled font database",
+                }],
+            }],
+            "diagnostics": [],
+        });
+
+        let diagnostics = preview_to_display(&report).expect_err("no image");
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0]["code"], "ARC-RND-010");
+    }
+
+    #[test]
+    fn falls_back_to_the_report_level_diagnostics_when_no_target_was_attempted() {
+        let report = json!({
+            "ok": false,
+            "previews": [],
+            "diagnostics": [{"code": "ARC-PRJ-002", "message": "the project declares no formats"}],
+        });
+
+        let diagnostics = preview_to_display(&report).expect_err("no image");
+
+        assert_eq!(diagnostics[0]["code"], "ARC-PRJ-002");
+    }
+
+    #[test]
+    fn never_fails_a_render_without_saying_anything() {
+        let report = json!({"ok": true, "previews": [], "diagnostics": []});
+
+        let diagnostics = preview_to_display(&report).expect_err("no image");
+
+        assert!(!diagnostics.is_empty());
+        assert!(diagnostics[0]["message"].as_str().is_some());
     }
 
     #[test]

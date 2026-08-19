@@ -19,7 +19,8 @@ use crate::rendering::{RenderJob, RenderOutput, RenderStatus};
 use crate::settings::{DesktopSettings, LiveRenderMode, SettingsStore};
 
 use session::{
-    png_dimensions, render_url, summarize, ActivityEntry, ProjectTarget, Session, ACTIVITY_LIMIT,
+    png_dimensions, preview_to_display, render_url, summarize, ActivityEntry, ProjectTarget,
+    Session, ACTIVITY_LIMIT,
 };
 
 /// Gateway state for the real application.
@@ -393,21 +394,11 @@ impl<L: EngineLauncher> GatewayState<L> {
             .await
             .map_err(|error| vec![json!({ "message": error })])?;
 
-        let diagnostics = report
-            .get("diagnostics")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let preview = report
-            .get("previews")
-            .and_then(Value::as_array)
-            .and_then(|previews| previews.first())
-            .cloned()
-            .ok_or_else(|| diagnostics.clone())?;
+        let preview = preview_to_display(&report)?.clone();
         let output_path = preview
             .get("output_path")
             .and_then(Value::as_str)
-            .ok_or_else(|| diagnostics.clone())?;
+            .expect("preview_to_display only returns a target with an output path");
         let image_url = render_url(&root, self.engine_cache_root().as_deref(), output_path)
             .ok_or_else(|| {
                 vec![json!({
