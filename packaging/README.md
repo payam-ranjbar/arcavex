@@ -12,6 +12,16 @@ by double-click.
 | [`build.py`](build.py) | Runs PyInstaller and applies the one post-build step the spec cannot. |
 | [`verify_frozen.py`](verify_frozen.py) | Proves the binary is byte-identical to the installed engine. |
 
+PyInstaller itself is a shipped input rather than a developer convenience — its bootloader ends up
+inside the artifact — so it is pinned in the `packaging` extra:
+
+```bash
+uv pip install -e ".[dev,packaging]"
+```
+
+The same frozen bundle is also the engine Arcavex Desktop supervises; see
+[Shipping the engine inside Arcavex Desktop](#shipping-the-engine-inside-arcavex-desktop).
+
 ## Pinned desktop toolchains
 
 The repository pins the locally verified desktop toolchains: Node `22.21.0` in `.nvmrc` and Rust
@@ -101,8 +111,85 @@ boundary. Anything that must not be redistributed belongs on a server, not in a 
   developer command and is not expected to work from the binary.
 - **Extensions with third-party dependencies** cannot be installed into the frozen runtime.
 
-## Next step
+## Shipping the engine inside Arcavex Desktop
 
-Wrap `dist/frozen/arcavex/` in an MCP bundle so Claude Desktop installs it by double-click:
-`npx @anthropic-ai/mcpb init` to scaffold the manifest, declaring a `binary` server that runs
-`arcavex.exe mcp serve`, then `mcpb pack`.
+The desktop does not contain a renderer. It supervises this same frozen engine as a child process
+and refuses to launch one whose SHA-256 differs from
+[`engine-lock.json`](../apps/desktop/src-tauri/binaries/engine-lock.json). Two scripts own that
+relationship:
+
+| Script | Role |
+|---|---|
+| [`scripts/stage_engine_sidecar.ps1`](../scripts/stage_engine_sidecar.ps1) | Put an engine in the bundle: freeze one locally, or download the pinned release archive and verify its digest. |
+| [`scripts/verify_desktop_bundle.ps1`](../scripts/verify_desktop_bundle.ps1) | Install a built setup executable and prove the packaged product works. |
+
+Build the whole thing locally:
+
+```powershell
+pwsh scripts/stage_engine_sidecar.ps1 -Source Build -UpdateLock   # freeze + stage + record the pin
+cd apps/desktop; npm ci; npm run tauri build                      # -> ...\bundle\nsis\*-setup.exe
+pwsh ..\..\scripts\verify_desktop_bundle.ps1                      # install it and drive it
+```
+
+`-Source Build` always rewrites the lock, because PyInstaller output is not byte-reproducible and a
+freshly frozen engine can never match a previously committed digest. A release does the opposite:
+`-Source Release` downloads the archive the lock names, refuses anything whose digest differs, and
+stages that exact tree, so a desktop release ships the engine build the engine lane actually tested
+rather than a same-version rebuild.
+
+Two facts about the Windows bundle are asserted rather than assumed, because both are easy to get
+wrong and silent when wrong: the engine tree lands *beside* the installed executable (at
+`engine\arcavex.exe`, which is what `artifacts.file` in the lock records), and that installed engine
+still works as a standalone CLI/MCP product away from any source checkout.
+
+### `--self-check`
+
+The workbench starts no engine until someone opens a project, so simply launching the installed
+application proves very little — a window appears whether or not the bundled engine is present,
+trusted, or able to render. The installed executable therefore takes a headless mode:
+
+```powershell
+& "$env:LOCALAPPDATA\Arcavex Desktop\Arcavex Desktop.exe" --self-check `
+    --project C:\path\to\project --report C:\temp\self-check.json
+```
+
+It runs the workbench's own startup path with no window — resolve the pinned artifact, verify its
+digest, hand it to the supervisor, handshake, open the project, render, restart the engine, render
+again — and writes a per-step JSON report, exiting non-zero if any step fails. A Windows release
+build has no console, which is why the report goes to a file. `verify_desktop_bundle.ps1` drives it
+against a real installation, and it is the fastest thing to ask for in a support request.
+
+## Releases
+
+Two products, two version streams, one repository. Release Please keeps a separate release pull
+request for each; merging one tags `engine-vX.Y.Z` or `desktop-vA.B.C` and runs its lane:
+
+| Workflow | Produces |
+|---|---|
+| [`release-engine.yml`](../.github/workflows/release-engine.yml) | Wheel and sdist (PyPI via OIDC), the frozen Windows engine archive, contract schemas, checksums, SBOM, provenance. |
+| [`release-desktop.yml`](../.github/workflows/release-desktop.yml) | The Windows installer with the pinned engine staged from its release, signed updater artifacts, `latest.json`, checksums, SBOM, provenance. |
+
+The lanes are invoked as reusable workflows from [`release.yml`](../.github/workflows/release.yml)
+rather than by tag push, because a tag created with the built-in `GITHUB_TOKEN` does not start
+another workflow run.
+
+### Signing
+
+Updater signatures are mandatory. The desktop release lane fails outright when
+`TAURI_SIGNING_PRIVATE_KEY` is missing from the `release` environment, because an update signed by
+any other key cannot be installed by anyone. The matching public key is compiled into the
+application through `plugins.updater.pubkey` in
+[`tauri.windows.conf.json`](../apps/desktop/src-tauri/tauri.windows.conf.json); rotating the private
+key means updating that value in the same commit. Pull-request CI mints a throwaway key and rewrites
+that public key for the build, so forks still exercise the entire signing path.
+
+Authenticode signing is separate and conditional. With no `WINDOWS_SIGN_COMMAND` secret the
+installer is still produced and still updates, but Windows SmartScreen warns on first run, so the
+release is published as a **prerelease** with that warning in its notes. Public distribution to
+nontechnical users should not be called production-ready until a certificate is configured.
+
+## Also worth knowing
+
+`dist/frozen/arcavex/` can be wrapped in an MCP bundle so Claude Desktop installs the engine alone
+by double-click: `npx @anthropic-ai/mcpb init` to scaffold a manifest declaring a `binary` server
+that runs `arcavex.exe mcp serve`, then `mcpb pack`.

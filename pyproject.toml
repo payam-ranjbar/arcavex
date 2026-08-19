@@ -47,6 +47,12 @@ dev = [
     "pillow>=12.3,<13",             # 12.3.0
     "mcp>=1.28,<2",                 # 1.28.1 — 2.0.0 removed mcp.server.fastmcp
 ]
+# Freezing the standalone engine that Arcavex Desktop bundles. Separate from `dev` because the
+# engine's own suite never needs it, and because the PyInstaller bootloader is itself a shipped
+# artifact: the pin is a release input, not a developer convenience.
+packaging = [
+    "pyinstaller>=6.19,<7",         # 6.22.2
+]
 
 [project.urls]
 Homepage = "https://github.com/payam-ranjbar/arcavex"

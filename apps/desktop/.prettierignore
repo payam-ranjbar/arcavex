@@ -5,3 +5,10 @@ src-tauri/gen
 src/contracts/generated.ts
 src/contracts/generated.test.ts
 src/contracts/index.ts
+# The staged engine is a vendored 116 MB build artifact, not source.
+src-tauri/binaries/engine
+# Verification and test output.
+bundle-verification
+test-results
+playwright-report
+blob-report

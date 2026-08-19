@@ -11,6 +11,7 @@ pub mod events;
 pub mod gateway;
 pub mod projects;
 pub mod rendering;
+pub mod selfcheck;
 pub mod settings;
 
 use std::path::{Path, PathBuf};
@@ -97,16 +98,27 @@ fn serve_render(
             .expect("404 response")
     };
 
-    let Ok(root) = state.open_project_path() else {
+    // The first segment names which of the two addressable roots this file came from; the rest is
+    // relative to that root. Anything else has no root to resolve against and is refused.
+    let full = request.uri().path().trim_start_matches('/');
+    let Some((space, relative)) = full.split_once('/') else {
         return not_found();
     };
-    let relative = request.uri().path().trim_start_matches('/');
     if relative.is_empty() || relative.contains("..") {
         return not_found();
     }
 
-    let path = Path::new(&root).join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
-    // Re-resolve rather than trust the URL: a symlink must not escape the open project.
+    let root = match space {
+        gateway::session::PROJECT_SPACE => state.open_project_path().ok().map(PathBuf::from),
+        gateway::session::PREVIEW_SPACE => state.engine_cache_root(),
+        _ => None,
+    };
+    let Some(root) = root else {
+        return not_found();
+    };
+
+    let path = root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+    // Re-resolve rather than trust the URL: a symlink must not escape the root it was served from.
     let Ok(resolved) = dunce::canonicalize(&path) else {
         return not_found();
     };
@@ -142,8 +154,15 @@ fn serve_render(
 ///
 /// Panics when Tauri cannot create the window, which is unrecoverable at startup.
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+
+    // Registered so a signed release can be verified against the public key compiled into this
+    // build. Phase 1 produces and verifies signed updater artifacts; the in-application check
+    // and prompt are a later phase, so nothing here contacts the network on its own.
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .register_uri_scheme_protocol("arcavex", |context, request| {
             let state = context.app_handle().state::<SharedState>();
             serve_render(&state, &request)

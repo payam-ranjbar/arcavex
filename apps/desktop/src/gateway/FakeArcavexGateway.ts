@@ -100,7 +100,7 @@ function defaultRenderStatus(target: ProjectTarget): RenderStatus {
     key,
     lastGood: {
       key,
-      imageUrl: "arcavex://localhost/outputs/fixture-poster.png",
+      imageUrl: "arcavex://localhost/project/outputs/fixture-poster.png",
       widthPx: 1684,
       heightPx: 2382,
       contentSha256: "9f".repeat(32),

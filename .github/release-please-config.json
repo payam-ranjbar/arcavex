@@ -1,0 +1,52 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "//": "Two independently versioned products in one repository: the engine is a public standalone CLI/MCP tool, and the desktop bundles a pinned engine build without owning its release cadence. Separate pull requests keep an engine fix from forcing a desktop release, and vice versa.",
+  "separate-pull-requests": true,
+  "include-component-in-tag": true,
+  "tag-separator": "-",
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "draft": true,
+      "component": "engine",
+      "package-name": "arcavex",
+      "changelog-path": "CHANGELOG.md",
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug fixes" },
+        { "type": "perf", "section": "Performance" },
+        { "type": "refactor", "section": "Refactoring" },
+        { "type": "docs", "section": "Documentation" },
+        { "type": "test", "section": "Tests", "hidden": true },
+        { "type": "ci", "section": "Build and CI", "hidden": true },
+        { "type": "chore", "section": "Chores", "hidden": true }
+      ],
+      "exclude-paths": ["apps/desktop"]
+    },
+    "apps/desktop": {
+      "release-type": "node",
+      "draft": true,
+      "component": "desktop",
+      "package-name": "@arcavex/desktop",
+      "changelog-path": "CHANGELOG.md",
+      "//": "tauri.conf.json reads its version from package.json, so only these two files carry it.",
+      "extra-files": [
+        {
+          "type": "toml",
+          "path": "src-tauri/Cargo.toml",
+          "jsonpath": "$.package.version"
+        }
+      ],
+      "changelog-sections": [
+        { "type": "feat", "section": "Features" },
+        { "type": "fix", "section": "Bug fixes" },
+        { "type": "perf", "section": "Performance" },
+        { "type": "refactor", "section": "Refactoring" },
+        { "type": "docs", "section": "Documentation" },
+        { "type": "test", "section": "Tests", "hidden": true },
+        { "type": "ci", "section": "Build and CI", "hidden": true },
+        { "type": "chore", "section": "Chores", "hidden": true }
+      ]
+    }
+  }
+}

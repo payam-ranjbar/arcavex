@@ -24,6 +24,11 @@ htmlcov/
 /apps/desktop/node_modules/
 /apps/desktop/dist/
 /apps/desktop/src-tauri/target/
+# The staged engine is a 116 MB build artifact; engine-lock.json beside it is the committed pin.
+/apps/desktop/src-tauri/binaries/engine/
+# Where verify_desktop_bundle.ps1 unpacks and installs a built setup executable.
+/apps/desktop/bundle-verification/
+/apps/desktop/coverage/
 
 # OS / editor
 .DS_Store

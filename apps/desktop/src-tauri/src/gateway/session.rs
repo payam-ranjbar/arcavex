@@ -105,22 +105,37 @@ pub fn summarize(change: &ChangeSet) -> String {
     }
 }
 
+/// The two directories a rendered file may legitimately come from.
+///
+/// Everything else is unaddressable, which is what lets the window load pictures without the
+/// application holding any filesystem permission at all.
+pub const PROJECT_SPACE: &str = "project";
+pub const PREVIEW_SPACE: &str = "preview";
+
 /// Resolve a rendered output path to a URL the WebView may load.
 ///
-/// Only paths inside the open project are addressable, so a report naming a file elsewhere
-/// cannot be turned into a URL the window will fetch. Windows serves custom schemes over a
-/// localhost host name, so the two platforms spell the same resource differently.
+/// A project render lands inside the open project, but `project_preview` — the call behind live
+/// preview — writes into the engine's own cache, outside any project. Both are addressable and
+/// nothing else is, so the URL names which space it came from and the scheme handler resolves it
+/// against that root alone. Windows serves custom schemes over a localhost host name, so the two
+/// platforms spell the same resource differently.
 #[must_use]
-pub fn render_url(root: &Path, output_path: &str) -> Option<String> {
+pub fn render_url(root: &Path, engine_cache: Option<&Path>, output_path: &str) -> Option<String> {
     let absolute = PathBuf::from(output_path);
-    let relative = crate::projects::relative_posix(root, &absolute)?;
+    let (space, relative) = crate::projects::relative_posix(root, &absolute)
+        .map(|relative| (PROJECT_SPACE, relative))
+        .or_else(|| {
+            engine_cache
+                .and_then(|cache| crate::projects::relative_posix(cache, &absolute))
+                .map(|relative| (PREVIEW_SPACE, relative))
+        })?;
     #[cfg(windows)]
     {
-        Some(format!("http://arcavex.localhost/{relative}"))
+        Some(format!("http://arcavex.localhost/{space}/{relative}"))
     }
     #[cfg(not(windows))]
     {
-        Some(format!("arcavex://localhost/{relative}"))
+        Some(format!("arcavex://localhost/{space}/{relative}"))
     }
 }
 
@@ -175,12 +190,40 @@ mod tests {
     }
 
     #[test]
-    fn refuses_to_address_a_render_written_outside_the_open_project() {
+    fn addresses_a_render_written_inside_the_open_project() {
         let root = Path::new("/workspace/poster");
 
-        let inside = render_url(root, "/workspace/poster/outputs/a3.png").expect("addressable");
-        assert!(inside.ends_with("/outputs/a3.png"), "{inside}");
-        assert_eq!(render_url(root, "/etc/shadow"), None);
+        let inside =
+            render_url(root, None, "/workspace/poster/outputs/a3.png").expect("addressable");
+        assert!(inside.ends_with("/project/outputs/a3.png"), "{inside}");
+    }
+
+    #[test]
+    fn addresses_a_preview_written_into_the_engine_cache() {
+        // Live preview goes through project_preview, which writes into the engine's own cache
+        // rather than the project. Refusing it left the canvas permanently empty.
+        let root = Path::new("/workspace/poster");
+        let cache = Path::new("/home/user/.arcavex/cache");
+
+        let preview = render_url(
+            root,
+            Some(cache),
+            "/home/user/.arcavex/cache/preview/a1.png",
+        )
+        .expect("addressable");
+        assert!(preview.ends_with("/preview/preview/a1.png"), "{preview}");
+    }
+
+    #[test]
+    fn refuses_a_render_written_outside_both_roots() {
+        let root = Path::new("/workspace/poster");
+        let cache = Path::new("/home/user/.arcavex/cache");
+
+        assert_eq!(render_url(root, Some(cache), "/etc/shadow"), None);
+        assert_eq!(
+            render_url(root, None, "/home/user/.arcavex/cache/preview/a1.png"),
+            None
+        );
     }
 
     #[test]

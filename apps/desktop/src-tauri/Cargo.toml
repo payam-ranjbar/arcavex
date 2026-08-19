@@ -45,3 +45,6 @@ codegen-units = 1
 lto = true
 panic = "abort"
 strip = true
+
+[target."cfg(windows)".dependencies]
+tauri-plugin-updater = "2.10.1"

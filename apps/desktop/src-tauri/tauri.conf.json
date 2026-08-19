@@ -1,8 +1,9 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Arcavex Desktop",
-  "version": "0.0.0",
+  "version": "../package.json",
   "identifier": "ai.arcavex.desktop",
+  "mainBinaryName": "Arcavex Desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -38,7 +39,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "category": "Graphics",
+    "category": "Graphics and Design",
     "shortDescription": "Arcavex poster workbench",
     "longDescription": "View and edit Arcavex projects against a pinned local rendering engine."
   }

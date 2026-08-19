@@ -2,7 +2,7 @@
 
 pub mod session;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -408,9 +408,14 @@ impl<L: EngineLauncher> GatewayState<L> {
             .get("output_path")
             .and_then(Value::as_str)
             .ok_or_else(|| diagnostics.clone())?;
-        let image_url = render_url(&root, output_path).ok_or_else(|| {
-            vec![json!({"message": format!("render wrote outside the project: {output_path}")})]
-        })?;
+        let image_url = render_url(&root, self.engine_cache_root().as_deref(), output_path)
+            .ok_or_else(|| {
+                vec![json!({
+                    "message": format!(
+                        "render wrote outside the project and the engine cache: {output_path}"
+                    )
+                })]
+            })?;
 
         let (width_px, height_px) = std::fs::read(output_path)
             .ok()
@@ -485,6 +490,22 @@ impl<L: EngineLauncher> GatewayState<L> {
             .as_ref()
             .map(|session| session.root.display().to_string())
             .ok_or_else(|| "no project is open".to_owned())
+    }
+
+    /// The engine's cache directory, as the running engine reported it at handshake.
+    ///
+    /// Live preview renders land under this directory rather than inside the project, so the
+    /// scheme handler must be able to serve from it. Reading it from the handshake rather than
+    /// recomputing it keeps the desktop correct when the engine's home is not the default.
+    #[must_use]
+    pub fn engine_cache_root(&self) -> Option<PathBuf> {
+        self.engine_state()
+            .handshake
+            .as_ref()
+            .and_then(|report| report.get("paths"))
+            .and_then(|paths| paths.get("cache"))
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
     }
 
     /// Tell the watcher a write is ours, so the event it causes is not called an external edit.
