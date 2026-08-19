@@ -7,7 +7,7 @@
   "artifacts": {
     "x86_64-pc-windows-msvc": {
       "file": "engine/arcavex.exe",
-      "sha256": "438a30a4b7d4fc6eeda9c111393d33d978c246583efae95aae1dd001c39c1935",
+      "sha256": "6691c2991a8e10acb9635aa537f4b7d5b282580a2a7e37f7427a6501484a4012",
       "archive": "arcavex-engine-0.1.0-x86_64-pc-windows-msvc.zip",
       "archive_sha256": ""
     }
