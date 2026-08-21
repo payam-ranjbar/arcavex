@@ -50,6 +50,12 @@ from arcavex.kernel.api import (
     TemplateInspectReport,
     TemplateListReport,
 )
+from arcavex.kernel.editor import (
+    COMMAND_KINDS,
+    HistoryReport,
+    SemanticTransaction,
+    TransactionReport,
+)
 
 _EXPORTER_SPEC = importlib.util.spec_from_file_location(
     "export_desktop_schemas",
@@ -184,6 +190,9 @@ def test_desktop_schema_export_writes_every_mcp_desktop_contract(tmp_path: Path)
         "hit-test.schema.json": HitTestReport,
         "project-validate.schema.json": CheckResult,
         "project-preview.schema.json": PreviewProjectReport,
+        "editor-transaction.schema.json": SemanticTransaction,
+        "editor-transaction-report.schema.json": TransactionReport,
+        "editor-history.schema.json": HistoryReport,
     }
 
     assert written == set(expected)
@@ -214,7 +223,18 @@ def test_desktop_fixtures_populate_the_branches_runtime_guards_must_police() -> 
     fixtures = _EXPORTER.contract_fixtures()
 
     for filename, fixture in fixtures.items():
+        # A request contract has no diagnostics to carry; every report does, and an empty list
+        # would let its guard pass without ever exercising the diagnostic branch.
+        if filename == "editor-transaction.schema.json":
+            continue
         assert fixture["diagnostics"], filename
+
+    # The command union is the widest branch in the whole desktop surface, so the transaction
+    # fixture must reach every member rather than one representative kind.
+    transaction = fixtures["editor-transaction.schema.json"]
+    assert {command["kind"] for command in transaction["commands"]} == set(COMMAND_KINDS)
+    assert fixtures["editor-transaction-report.schema.json"]["inverse"]["commands"]
+    assert fixtures["editor-history.schema.json"]["entries"]
 
     proposal = fixtures["project-proposal-action.schema.json"]["proposal"]
     assert re.fullmatch(r"[0-9a-f]{64}", proposal["base_project_revision"])

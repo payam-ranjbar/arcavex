@@ -62,8 +62,15 @@ def _schema_models() -> dict[str, type[BaseModel]]:
         ProposalActionReport,
         ProposalListReport,
     )
+    from arcavex.kernel.editor import HistoryReport, SemanticTransaction, TransactionReport
 
     return {
+        # The transaction schema is exported as well as the reports: the desktop composes one and
+        # re-submits the inverse the engine returns, so it is a request contract, not only a wire
+        # format the engine happens to emit.
+        "editor-history.schema.json": HistoryReport,
+        "editor-transaction-report.schema.json": TransactionReport,
+        "editor-transaction.schema.json": SemanticTransaction,
         "engine-handshake.schema.json": EngineHandshakeReport,
         "hit-test.schema.json": HitTestReport,
         "layer-tree.schema.json": LayerTreeReport,
@@ -331,7 +338,87 @@ def _fixture_inputs() -> dict[str, dict[str, Any]]:
             "diagnostics": [_DIAGNOSTIC],
         },
         "project-validate.schema.json": {"ok": False, "diagnostics": [_DIAGNOSTIC]},
+        "editor-transaction.schema.json": _editor_transaction(),
+        "editor-transaction-report.schema.json": {
+            "ok": True,
+            "command_id": _COMMAND_ID,
+            "canonical_path": PROJECT_PATH_TOKEN,
+            "project_revision": _OTHER_SHA256,
+            "render_revision": _SHA256,
+            "changed": [
+                {"path": "template.yaml", "change": "modified"},
+                {"path": "overrides/square.patch.yaml", "change": "created"},
+                {"path": "overrides/story.patch.yaml", "change": "deleted"},
+            ],
+            "changed_layer_ids": ["title", "subtitle"],
+            # The success path carries an inverse and no conflict, because a report that claimed
+            # both would describe a state the engine cannot produce.
+            "inverse": _editor_transaction(
+                command_id="0a3f6b21-5c7d-4e9a-8b12-3f4d5e6a7b8c",
+                base_project_revision=_OTHER_SHA256,
+            ),
+            "diagnostics": [_DIAGNOSTIC],
+        },
+        "editor-history.schema.json": {
+            "ok": True,
+            "canonical_path": PROJECT_PATH_TOKEN,
+            "entries": [
+                {
+                    "command_id": _COMMAND_ID,
+                    "actor": {"id": "desktop", "display_name": "Arcavex Desktop"},
+                    "summary": "Set text of 'title'",
+                    "before_project_revision": _SHA256,
+                    "after_project_revision": _OTHER_SHA256,
+                    "created_at": _CREATED_AT,
+                }
+            ],
+            "can_undo": True,
+            "can_redo": False,
+            "branched_by_external_edit": True,
+            "diagnostics": [_DIAGNOSTIC],
+        },
     }
+
+
+def _editor_transaction(**overrides: Any) -> dict[str, Any]:
+    """One transaction carrying every command kind, so each union member reaches a fixture."""
+    payload: dict[str, Any] = {
+        "version": 1,
+        "command_id": _COMMAND_ID,
+        "project_path": PROJECT_PATH_TOKEN,
+        "base_project_revision": _SHA256,
+        "actor": {"id": "desktop", "display_name": "Arcavex Desktop"},
+        "target": {"format": "poster-a3", "locale": "fa-IR"},
+        "commands": [
+            {"kind": "set_text", "layer_id": "title", "text": "Building professional bridges"},
+            {
+                "kind": "set_property",
+                "layer_id": "title",
+                "keypath": "style.font_size",
+                "value": "48pt",
+            },
+            {"kind": "set_visibility", "layer_id": "badge", "visible": False},
+            {"kind": "translate", "layer_ids": ["title", "subtitle"], "dx_pt": 12.5, "dy_pt": -4.0},
+            {"kind": "resize", "layer_id": "photo", "w_pt": 320.0, "h_pt": 240.0},
+            {"kind": "rotate", "layer_id": "badge", "degrees": 15.0},
+            {"kind": "reorder", "layer_id": "badge", "parent_id": "root", "index": 2},
+            {"kind": "reparent", "layer_id": "badge", "parent_id": "header", "index": 0},
+            {"kind": "duplicate", "layer_id": "badge"},
+            {"kind": "delete", "layer_ids": ["draft-note"]},
+            {"kind": "group", "layer_ids": ["title", "subtitle"], "group_id": "headline"},
+            {"kind": "set_display_name", "layer_id": "title", "display_name": "Headline"},
+            {
+                "kind": "set_effects",
+                "layer_id": "photo",
+                "effects": [
+                    {"name": "halftone", "params": {"dot_pt": 2.0}, "enabled": True},
+                    {"name": "grain", "params": {}, "enabled": False},
+                ],
+            },
+        ],
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _proposal(state: str = "pending") -> dict[str, Any]:

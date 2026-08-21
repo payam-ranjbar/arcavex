@@ -4,7 +4,17 @@ import globals from "globals";
 import typescript from "typescript-eslint";
 
 export default typescript.config(
-  { ignores: ["dist/**", "src-tauri/target/**", "src/contracts/generated*.ts"] },
+  // Generated or build output: coverage and bundle-verification appear only after a
+  // local run, and linting them fails on files no tsconfig owns.
+  {
+    ignores: [
+      "dist/**",
+      "coverage/**",
+      "bundle-verification/**",
+      "src-tauri/target/**",
+      "src/contracts/generated*.ts",
+    ],
+  },
   js.configs.recommended,
   ...typescript.configs.recommendedTypeChecked,
   {

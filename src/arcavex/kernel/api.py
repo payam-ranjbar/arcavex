@@ -34,6 +34,7 @@ from arcavex.kernel.diagnostics import (
     has_errors,
     internal_error,
 )
+from arcavex.kernel.editor import Actor
 from arcavex.kernel.ir.models import (
     CompiledDocument,
     CompiledGroup,
@@ -731,13 +732,9 @@ class ProjectPolicyReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
-class ProposalActor(BaseModel):
-    """Identity attached to a queued semantic command proposal."""
-
-    model_config = ConfigDict(frozen=True, extra="allow")
-
-    id: str = Field(min_length=1)
-    display_name: str | None = None
+#: A queued proposal and an executed transaction name the same actor, so they share one model
+#: rather than two identical ones that could drift apart.
+ProposalActor = Actor
 
 
 ProposalState = Literal["pending", "authorized", "rejected"]

@@ -366,6 +366,156 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
       "value": "__arcavex_unexpected__-number"
     }
   ],
+  "HistoryReport": [
+    {
+      "path": [
+        "branched_by_external_edit"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-boolean"
+    },
+    {
+      "path": [
+        "can_redo"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-boolean"
+    },
+    {
+      "path": [
+        "can_undo"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-boolean"
+    },
+    {
+      "path": [
+        "contract_version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "entries",
+        0
+      ],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "actor"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "actor",
+        "id"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "after_project_revision"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "after_project_revision"
+      ],
+      "operation": "set",
+      "value": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c!"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "before_project_revision"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "before_project_revision"
+      ],
+      "operation": "set",
+      "value": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "command_id"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "command_id"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-format"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "created_at"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "created_at"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-format"
+    },
+    {
+      "path": [
+        "entries",
+        0,
+        "summary"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "ok"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "ok"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-boolean"
+    },
+    {
+      "path": [
+        "response_version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    }
+  ],
   "HitTestReport": [
     {
       "path": [
@@ -2672,6 +2822,264 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
       ],
       "operation": "set",
       "value": "__arcavex_unexpected__-const"
+    },
+    {
+      "path": [
+        "response_version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    }
+  ],
+  "SemanticTransaction": [
+    {
+      "path": [],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "actor"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "actor",
+        "id"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "base_project_revision"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "base_project_revision"
+      ],
+      "operation": "set",
+      "value": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!"
+    },
+    {
+      "path": [
+        "command_id"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "command_id"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-format"
+    },
+    {
+      "path": [
+        "commands"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "project_path"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "target"
+      ],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-const"
+    }
+  ],
+  "TransactionReport": [
+    {
+      "path": [
+        "changed",
+        0
+      ],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "changed",
+        0,
+        "change"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-enum"
+    },
+    {
+      "path": [
+        "changed",
+        0,
+        "path"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "changed",
+        1
+      ],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "changed",
+        1,
+        "change"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-enum"
+    },
+    {
+      "path": [
+        "changed",
+        1,
+        "path"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "changed",
+        2
+      ],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "changed",
+        2,
+        "change"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-enum"
+    },
+    {
+      "path": [
+        "changed",
+        2,
+        "path"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "command_id"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-format"
+    },
+    {
+      "path": [
+        "contract_version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "inverse"
+      ],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "inverse",
+        "actor"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "inverse",
+        "actor",
+        "id"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "inverse",
+        "base_project_revision"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "inverse",
+        "base_project_revision"
+      ],
+      "operation": "set",
+      "value": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c!"
+    },
+    {
+      "path": [
+        "inverse",
+        "command_id"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "inverse",
+        "command_id"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-format"
+    },
+    {
+      "path": [
+        "inverse",
+        "commands"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "inverse",
+        "project_path"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "inverse",
+        "target"
+      ],
+      "operation": "addKey"
+    },
+    {
+      "path": [
+        "inverse",
+        "version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-const"
+    },
+    {
+      "path": [
+        "ok"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "ok"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-boolean"
     },
     {
       "path": [

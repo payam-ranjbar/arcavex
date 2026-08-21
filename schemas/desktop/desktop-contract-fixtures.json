@@ -1,4 +1,293 @@
 {
+  "editor-history.schema.json": {
+    "branched_by_external_edit": true,
+    "can_redo": false,
+    "can_undo": true,
+    "canonical_path": "<arcavex-fixture-project>",
+    "contract_version": 1,
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
+    "entries": [
+      {
+        "actor": {
+          "display_name": "Arcavex Desktop",
+          "id": "desktop"
+        },
+        "after_project_revision": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+        "before_project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+        "command_id": "9f2c1d7e-4b3a-4c58-9e21-0d7a6f5b8c34",
+        "created_at": "2026-01-02T03:04:05.678901Z",
+        "summary": "Set text of 'title'"
+      }
+    ],
+    "ok": true,
+    "response_version": 1
+  },
+  "editor-transaction-report.schema.json": {
+    "canonical_path": "<arcavex-fixture-project>",
+    "changed": [
+      {
+        "change": "modified",
+        "path": "template.yaml"
+      },
+      {
+        "change": "created",
+        "path": "overrides/square.patch.yaml"
+      },
+      {
+        "change": "deleted",
+        "path": "overrides/story.patch.yaml"
+      }
+    ],
+    "changed_layer_ids": [
+      "title",
+      "subtitle"
+    ],
+    "command_id": "9f2c1d7e-4b3a-4c58-9e21-0d7a6f5b8c34",
+    "conflict": null,
+    "contract_version": 1,
+    "diagnostics": [
+      {
+        "code": "ARC-PRJ-001",
+        "hint": "Fixtures exercise every optional diagnostic field.",
+        "message": "Fixture diagnostic covering the located branch.",
+        "severity": "warning",
+        "source": {
+          "column": 3,
+          "file": "project.yaml",
+          "keypath": "targets[0]",
+          "line": 12
+        }
+      }
+    ],
+    "inverse": {
+      "actor": {
+        "display_name": "Arcavex Desktop",
+        "id": "desktop"
+      },
+      "base_project_revision": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+      "command_id": "0a3f6b21-5c7d-4e9a-8b12-3f4d5e6a7b8c",
+      "commands": [
+        {
+          "kind": "set_text",
+          "layer_id": "title",
+          "text": "Building professional bridges"
+        },
+        {
+          "keypath": "style.font_size",
+          "kind": "set_property",
+          "layer_id": "title",
+          "value": "48pt"
+        },
+        {
+          "kind": "set_visibility",
+          "layer_id": "badge",
+          "visible": false
+        },
+        {
+          "dx_pt": 12.5,
+          "dy_pt": -4.0,
+          "kind": "translate",
+          "layer_ids": [
+            "title",
+            "subtitle"
+          ]
+        },
+        {
+          "h_pt": 240.0,
+          "kind": "resize",
+          "layer_id": "photo",
+          "w_pt": 320.0
+        },
+        {
+          "degrees": 15.0,
+          "kind": "rotate",
+          "layer_id": "badge"
+        },
+        {
+          "index": 2,
+          "kind": "reorder",
+          "layer_id": "badge",
+          "parent_id": "root"
+        },
+        {
+          "index": 0,
+          "kind": "reparent",
+          "layer_id": "badge",
+          "parent_id": "header"
+        },
+        {
+          "kind": "duplicate",
+          "layer_id": "badge"
+        },
+        {
+          "kind": "delete",
+          "layer_ids": [
+            "draft-note"
+          ]
+        },
+        {
+          "group_id": "headline",
+          "kind": "group",
+          "layer_ids": [
+            "title",
+            "subtitle"
+          ]
+        },
+        {
+          "display_name": "Headline",
+          "kind": "set_display_name",
+          "layer_id": "title"
+        },
+        {
+          "effects": [
+            {
+              "enabled": true,
+              "name": "halftone",
+              "params": {
+                "dot_pt": 2.0
+              }
+            },
+            {
+              "enabled": false,
+              "name": "grain",
+              "params": {}
+            }
+          ],
+          "kind": "set_effects",
+          "layer_id": "photo"
+        }
+      ],
+      "project_path": "<arcavex-fixture-project>",
+      "target": {
+        "format": "poster-a3",
+        "locale": "fa-IR"
+      },
+      "version": 1
+    },
+    "ok": true,
+    "project_revision": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+    "queued_command_id": null,
+    "render_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+    "response_version": 1
+  },
+  "editor-transaction.schema.json": {
+    "actor": {
+      "display_name": "Arcavex Desktop",
+      "id": "desktop"
+    },
+    "base_project_revision": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+    "command_id": "9f2c1d7e-4b3a-4c58-9e21-0d7a6f5b8c34",
+    "commands": [
+      {
+        "kind": "set_text",
+        "layer_id": "title",
+        "text": "Building professional bridges"
+      },
+      {
+        "keypath": "style.font_size",
+        "kind": "set_property",
+        "layer_id": "title",
+        "value": "48pt"
+      },
+      {
+        "kind": "set_visibility",
+        "layer_id": "badge",
+        "visible": false
+      },
+      {
+        "dx_pt": 12.5,
+        "dy_pt": -4.0,
+        "kind": "translate",
+        "layer_ids": [
+          "title",
+          "subtitle"
+        ]
+      },
+      {
+        "h_pt": 240.0,
+        "kind": "resize",
+        "layer_id": "photo",
+        "w_pt": 320.0
+      },
+      {
+        "degrees": 15.0,
+        "kind": "rotate",
+        "layer_id": "badge"
+      },
+      {
+        "index": 2,
+        "kind": "reorder",
+        "layer_id": "badge",
+        "parent_id": "root"
+      },
+      {
+        "index": 0,
+        "kind": "reparent",
+        "layer_id": "badge",
+        "parent_id": "header"
+      },
+      {
+        "kind": "duplicate",
+        "layer_id": "badge"
+      },
+      {
+        "kind": "delete",
+        "layer_ids": [
+          "draft-note"
+        ]
+      },
+      {
+        "group_id": "headline",
+        "kind": "group",
+        "layer_ids": [
+          "title",
+          "subtitle"
+        ]
+      },
+      {
+        "display_name": "Headline",
+        "kind": "set_display_name",
+        "layer_id": "title"
+      },
+      {
+        "effects": [
+          {
+            "enabled": true,
+            "name": "halftone",
+            "params": {
+              "dot_pt": 2.0
+            }
+          },
+          {
+            "enabled": false,
+            "name": "grain",
+            "params": {}
+          }
+        ],
+        "kind": "set_effects",
+        "layer_id": "photo"
+      }
+    ],
+    "project_path": "<arcavex-fixture-project>",
+    "target": {
+      "format": "poster-a3",
+      "locale": "fa-IR"
+    },
+    "version": 1
+  },
   "engine-handshake.schema.json": {
     "accepted_ir_versions": [
       "1.0"

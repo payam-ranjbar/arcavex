@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "Actor": {
+      "additionalProperties": true,
+      "description": "Who submitted a mutation.\n\nExtra keys are allowed: an MCP client may carry its own identity fields, and the engine's job\nis to record them in history, not to have anticipated them.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
     "Diagnostic": {
       "description": "A single structured diagnostic.",
       "properties": {
@@ -57,7 +85,7 @@
       "description": "Versioned queue record for a future semantic editor command.",
       "properties": {
         "actor": {
-          "$ref": "#/$defs/ProposalActor"
+          "$ref": "#/$defs/Actor"
         },
         "base_project_revision": {
           "pattern": "^[0-9a-f]{64}$",
@@ -121,34 +149,6 @@
         "created_at"
       ],
       "title": "ProjectProposal",
-      "type": "object"
-    },
-    "ProposalActor": {
-      "additionalProperties": true,
-      "description": "Identity attached to a queued semantic command proposal.",
-      "properties": {
-        "display_name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Display Name"
-        },
-        "id": {
-          "minLength": 1,
-          "title": "Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id"
-      ],
-      "title": "ProposalActor",
       "type": "object"
     },
     "SourceLocation": {
