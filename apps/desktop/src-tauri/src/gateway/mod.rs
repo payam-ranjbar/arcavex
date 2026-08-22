@@ -399,14 +399,23 @@ impl<L: EngineLauncher> GatewayState<L> {
             .get("output_path")
             .and_then(Value::as_str)
             .expect("preview_to_display only returns a target with an output path");
-        let image_url = render_url(&root, self.engine_cache_root().as_deref(), output_path)
-            .ok_or_else(|| {
-                vec![json!({
-                    "message": format!(
-                        "render wrote outside the project and the engine cache: {output_path}"
-                    )
-                })]
-            })?;
+        let content_sha256 = preview
+            .get("content_sha256")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let image_url = render_url(
+            &root,
+            self.engine_cache_root().as_deref(),
+            output_path,
+            content_sha256.as_deref(),
+        )
+        .ok_or_else(|| {
+            vec![json!({
+                "message": format!(
+                    "render wrote outside the project and the engine cache: {output_path}"
+                )
+            })]
+        })?;
 
         let (width_px, height_px) = std::fs::read(output_path)
             .ok()
@@ -418,10 +427,7 @@ impl<L: EngineLauncher> GatewayState<L> {
             image_url,
             width_px,
             height_px,
-            content_sha256: preview
-                .get("content_sha256")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
+            content_sha256,
             compile_ms: preview
                 .get("compile_ms")
                 .and_then(Value::as_f64)

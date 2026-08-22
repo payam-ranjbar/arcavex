@@ -119,8 +119,19 @@ pub const PREVIEW_SPACE: &str = "preview";
 /// nothing else is, so the URL names which space it came from and the scheme handler resolves it
 /// against that root alone. Windows serves custom schemes over a localhost host name, so the two
 /// platforms spell the same resource differently.
+///
+/// `version` is what makes the picture change on screen. Rendering is deterministic and writes
+/// the same file name every time, so without it the WebView keeps serving the copy it already
+/// cached: the status strip updates, the revision changes, the layer tree changes, and the
+/// pixels do not — a proofing bench showing a proof that is not the current one. Passing the
+/// render's content hash makes each distinct picture a distinct URL.
 #[must_use]
-pub fn render_url(root: &Path, engine_cache: Option<&Path>, output_path: &str) -> Option<String> {
+pub fn render_url(
+    root: &Path,
+    engine_cache: Option<&Path>,
+    output_path: &str,
+    version: Option<&str>,
+) -> Option<String> {
     let absolute = PathBuf::from(output_path);
     let (space, relative) = crate::projects::relative_posix(root, &absolute)
         .map(|relative| (PROJECT_SPACE, relative))
@@ -129,13 +140,16 @@ pub fn render_url(root: &Path, engine_cache: Option<&Path>, output_path: &str) -
                 .and_then(|cache| crate::projects::relative_posix(cache, &absolute))
                 .map(|relative| (PREVIEW_SPACE, relative))
         })?;
+    let query = version.map_or_else(String::new, |version| format!("?v={version}"));
     #[cfg(windows)]
     {
-        Some(format!("http://arcavex.localhost/{space}/{relative}"))
+        Some(format!(
+            "http://arcavex.localhost/{space}/{relative}{query}"
+        ))
     }
     #[cfg(not(windows))]
     {
-        Some(format!("arcavex://localhost/{space}/{relative}"))
+        Some(format!("arcavex://localhost/{space}/{relative}{query}"))
     }
 }
 
@@ -236,8 +250,24 @@ mod tests {
         let root = Path::new("/workspace/poster");
 
         let inside =
-            render_url(root, None, "/workspace/poster/outputs/a3.png").expect("addressable");
+            render_url(root, None, "/workspace/poster/outputs/a3.png", None).expect("addressable");
         assert!(inside.ends_with("/project/outputs/a3.png"), "{inside}");
+    }
+
+    #[test]
+    fn a_new_render_of_the_same_file_is_a_new_url() {
+        // Rendering is deterministic and reuses the file name, so two different pictures share a
+        // path. Without a version the WebView serves its cached copy and the canvas silently
+        // shows the previous render while every number beside it says "current".
+        let root = Path::new("/workspace/poster");
+
+        let first = render_url(root, None, "/workspace/poster/outputs/a3.png", Some("aaa"))
+            .expect("addressable");
+        let second = render_url(root, None, "/workspace/poster/outputs/a3.png", Some("bbb"))
+            .expect("addressable");
+
+        assert_ne!(first, second);
+        assert!(first.ends_with("?v=aaa"), "{first}");
     }
 
     #[test]
@@ -251,6 +281,7 @@ mod tests {
             root,
             Some(cache),
             "/home/user/.arcavex/cache/preview/a1.png",
+            None,
         )
         .expect("addressable");
         assert!(preview.ends_with("/preview/preview/a1.png"), "{preview}");
@@ -261,9 +292,9 @@ mod tests {
         let root = Path::new("/workspace/poster");
         let cache = Path::new("/home/user/.arcavex/cache");
 
-        assert_eq!(render_url(root, Some(cache), "/etc/shadow"), None);
+        assert_eq!(render_url(root, Some(cache), "/etc/shadow", None), None);
         assert_eq!(
-            render_url(root, None, "/home/user/.arcavex/cache/preview/a1.png"),
+            render_url(root, None, "/home/user/.arcavex/cache/preview/a1.png", None),
             None
         );
     }
