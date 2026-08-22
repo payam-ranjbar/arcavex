@@ -25,7 +25,7 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**178** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**182** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
 
 ## Unknown fields are always rejected
@@ -93,7 +93,7 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 | `ARC-LIB` | 4 | Versioned library publish/resolve | `ARC-LIB-002` version immutable, `ARC-LIB-003` ambiguous bare name |
 | `ARC-RUN` | 2 | Recorded runs, rerun drift | `ARC-RUN-001` run not found, `ARC-RUN-002` input drift |
 | `ARC-SKL` | 4 | Bundled design-skill installation | `ARC-SKL-001` unknown target, `ARC-SKL-003` already installed |
-| `ARC-EDT` | 7 | Semantic editor: locking, transactions, structure, history | `ARC-EDT-001` project locked by another writer, `ARC-EDT-005` cycle refused, `ARC-EDT-007` orphaned anchors |
+| `ARC-EDT` | 11 | Semantic editor: locking, transactions, structure, policy, history | `ARC-EDT-001` project locked by another writer, `ARC-EDT-005` cycle refused, `ARC-EDT-007` orphaned anchors, `ARC-EDT-009` policy refusal |
 | `ARC-INT` | 4 | Engine/build identity and wrapped internal error (exit 5) | `ARC-INT-010` build commit unavailable, `ARC-INT-011` no executable artifact, `ARC-INT-999` internal error |
 
 Browse the full per-code detail under [`docs/diagnostics/`](diagnostics/), or ask the engine with

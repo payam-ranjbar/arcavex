@@ -415,6 +415,13 @@ def _editor_transaction(**overrides: Any) -> dict[str, Any]:
                     {"name": "grain", "params": {}, "enabled": False},
                 ],
             },
+            {
+                "kind": "splice_children",
+                "parent_id": "root",
+                "index": 2,
+                "remove_count": 1,
+                "entries": [{"id": "badge", "type": "shape", "shape": "rect"}],
+            },
         ],
     }
     payload.update(overrides)

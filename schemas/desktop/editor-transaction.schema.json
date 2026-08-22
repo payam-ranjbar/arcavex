@@ -360,7 +360,7 @@
     },
     "SetPropertyCommand": {
       "additionalProperties": false,
-      "description": "Set one authored property, addressed by keypath relative to the node.\n\nThe value stays `Any` because the property space is the template schema's, not this module's;\nthe executing service validates it against the node kind before anything is written.",
+      "description": "Set one authored property, addressed by keypath relative to the node.\n\nThe value stays `Any` because the property space is the template schema's, not this module's;\nthe executing service validates it against the node kind before anything is written.\n\n``remove`` exists because \"set to null\" and \"delete the key\" are different edits in YAML, and\nan inverse that restores \"the key was absent\" must be able to say so.",
       "properties": {
         "keypath": {
           "minLength": 1,
@@ -376,6 +376,11 @@
           "minLength": 1,
           "title": "Layer Id",
           "type": "string"
+        },
+        "remove": {
+          "default": false,
+          "title": "Remove",
+          "type": "boolean"
         },
         "value": {
           "default": null,
@@ -442,6 +447,48 @@
         "visible"
       ],
       "title": "SetVisibilityCommand",
+      "type": "object"
+    },
+    "SpliceCommand": {
+      "additionalProperties": false,
+      "description": "Engine-authored restoration: replace a slice of a parent's child list with raw entries.\n\nThe inverse of ``delete`` must re-insert the exact authored subtree, and the inverse of\n``group`` must put the original siblings back where the group stood — neither is expressible\nin the semantic vocabulary above, because both restore *content*, not intent. The engine\nemits this kind in inverses and accepts it back on undo; clients normally never compose one.",
+      "properties": {
+        "entries": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "splice_children",
+          "title": "Kind",
+          "type": "string"
+        },
+        "parent_id": {
+          "minLength": 1,
+          "title": "Parent Id",
+          "type": "string"
+        },
+        "remove_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Remove Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "parent_id",
+        "index"
+      ],
+      "title": "SpliceCommand",
       "type": "object"
     },
     "TranslateCommand": {
@@ -513,6 +560,7 @@
             "set_property": "#/$defs/SetPropertyCommand",
             "set_text": "#/$defs/SetTextCommand",
             "set_visibility": "#/$defs/SetVisibilityCommand",
+            "splice_children": "#/$defs/SpliceCommand",
             "translate": "#/$defs/TranslateCommand"
           },
           "propertyName": "kind"
@@ -556,6 +604,9 @@
           },
           {
             "$ref": "#/$defs/SetEffectsCommand"
+          },
+          {
+            "$ref": "#/$defs/SpliceCommand"
           }
         ]
       },

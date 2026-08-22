@@ -1030,6 +1030,39 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Delete the dependent layers too, or re-anchor them to another sibling first.",
         ),
         _e(
+            "ARC-EDT-008",
+            "Semantic editing requires a project-local template",
+            "The project pins a shared library template, which semantic editing cannot change "
+            "in place: the edit would alter every project that pins the same version. Nothing "
+            "was changed.",
+            "Clone the template into the project ('arcavex project clone') to get an editable "
+            "project-local template.yaml.",
+        ),
+        _e(
+            "ARC-EDT-009",
+            "Automation policy refuses this edit",
+            "The project's automation mode is read-only, so semantic mutations are refused at "
+            "the engine boundary for every client — desktop, MCP, and CLI alike. Nothing was "
+            "changed.",
+            "Change the automation mode in project settings to review or unrestricted.",
+        ),
+        _e(
+            "ARC-EDT-010",
+            "Invalid editor transaction",
+            "A submitted payload is not a valid semantic transaction: an unknown command kind, "
+            "an undeclared key, non-finite geometry, a non-canonical project path, or a "
+            "malformed revision. Nothing was executed.",
+            "Compose transactions against the editor-transaction schema and re-submit.",
+        ),
+        _e(
+            "ARC-EDT-011",
+            "Nothing to undo or redo",
+            "The history is empty in the requested direction, or an external edit moved the "
+            "project to a revision the history chain has never seen, which closes the line "
+            "rather than replaying over someone else's work.",
+            "Check the activity stream for the external change and continue editing forward.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",

@@ -13,10 +13,17 @@ answer to "can I redo across that?" is no — replaying would overwrite their wo
 
 Records are one JSON file per entry, named by sequence number, written atomically. A corrupt file
 is reported as a diagnostic and skipped rather than poisoning the entries around it.
+
+Each record also carries the exact bytes of every file the transaction changed, before and after.
+The semantic inverse is the public contract a client can reason about, but replaying it cannot
+promise byte-identity — YAML scalar style (quoting, flow vs block) does not survive a semantic
+round trip — and undo/redo *must* return the project to the exact revision the chain recorded,
+or the chain closes. So the engine's own undo restores bytes and keeps the inverse for reporting.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -51,6 +58,9 @@ class _HistoryRecord(BaseModel):
     created_at: datetime
     forward: SemanticTransaction
     inverse: SemanticTransaction
+    #: Exact bytes (base64) of each changed file before and after; ``None`` means absent.
+    before_files: dict[str, str | None] = Field(default_factory=dict)
+    after_files: dict[str, str | None] = Field(default_factory=dict)
     #: Where the cursor logically sits. "applied" entries are undo candidates newest-first;
     #: "undone" entries are redo candidates oldest-first.
     state: Literal["applied", "undone"] = "applied"
@@ -72,6 +82,8 @@ class HistoryStep:
 
     entry: HistoryEntry
     transaction: SemanticTransaction
+    #: Exact bytes to restore per project-relative path; ``None`` deletes the file.
+    restore_files: dict[str, bytes | None] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -101,6 +113,8 @@ class HistoryStore:
         before_project_revision: str,
         after_project_revision: str,
         summary: str,
+        before_files: dict[str, bytes | None] | None = None,
+        after_files: dict[str, bytes | None] | None = None,
     ) -> None:
         """Append one applied transaction, discarding any redo branch it supersedes.
 
@@ -126,6 +140,8 @@ class HistoryStore:
                 created_at=datetime.now(tz=UTC),
                 forward=forward,
                 inverse=inverse,
+                before_files=_encode_files(before_files or {}),
+                after_files=_encode_files(after_files or {}),
             )
         )
 
@@ -157,7 +173,11 @@ class HistoryStore:
         if candidate.after_project_revision != current_revision:
             # The project is not where this entry left it: someone else edited it since.
             return None
-        return HistoryStep(entry=candidate.entry(), transaction=candidate.inverse)
+        return HistoryStep(
+            entry=candidate.entry(),
+            transaction=candidate.inverse,
+            restore_files=_decode_files(candidate.before_files),
+        )
 
     def redo(self, *, current_revision: str) -> HistoryStep | None:
         """The forward to replay, or ``None`` when the redo line is closed."""
@@ -168,7 +188,11 @@ class HistoryStore:
         candidate = undone[0]
         if candidate.before_project_revision != current_revision:
             return None
-        return HistoryStep(entry=candidate.entry(), transaction=candidate.forward)
+        return HistoryStep(
+            entry=candidate.entry(),
+            transaction=candidate.forward,
+            restore_files=_decode_files(candidate.after_files),
+        )
 
     def state(self, *, current_revision: str) -> HistoryState:
         """The timeline as the desktop and MCP report it."""
@@ -234,3 +258,17 @@ class HistoryStore:
                 )
         records.sort(key=lambda record: record.sequence)
         return records, diagnostics
+
+
+def _encode_files(files: dict[str, bytes | None]) -> dict[str, str | None]:
+    return {
+        path: None if content is None else base64.b64encode(content).decode("ascii")
+        for path, content in files.items()
+    }
+
+
+def _decode_files(files: dict[str, str | None]) -> dict[str, bytes | None]:
+    return {
+        path: None if content is None else base64.b64decode(content)
+        for path, content in files.items()
+    }

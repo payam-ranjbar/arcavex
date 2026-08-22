@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, Protocol, get_args
 
 from pydantic import (
     UUID4,
@@ -98,12 +98,16 @@ class SetPropertyCommand(_Command):
 
     The value stays `Any` because the property space is the template schema's, not this module's;
     the executing service validates it against the node kind before anything is written.
+
+    ``remove`` exists because "set to null" and "delete the key" are different edits in YAML, and
+    an inverse that restores "the key was absent" must be able to say so.
     """
 
     kind: Literal["set_property"]
     layer_id: _LayerId
     keypath: str = Field(min_length=1)
     value: Any = None
+    remove: bool = False
 
 
 class SetVisibilityCommand(_Command):
@@ -206,6 +210,22 @@ class EffectSpec(BaseModel):
     enabled: bool = True
 
 
+class SpliceCommand(_Command):
+    """Engine-authored restoration: replace a slice of a parent's child list with raw entries.
+
+    The inverse of ``delete`` must re-insert the exact authored subtree, and the inverse of
+    ``group`` must put the original siblings back where the group stood — neither is expressible
+    in the semantic vocabulary above, because both restore *content*, not intent. The engine
+    emits this kind in inverses and accepts it back on undo; clients normally never compose one.
+    """
+
+    kind: Literal["splice_children"]
+    parent_id: _LayerId
+    index: int = Field(ge=0)
+    remove_count: int = Field(ge=0, default=0)
+    entries: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class SetEffectsCommand(_Command):
     """Replace a node's whole effect list, which is how ordering changes stay expressible."""
 
@@ -229,6 +249,7 @@ EditorCommand = Annotated[
         | GroupCommand
         | SetDisplayNameCommand
         | SetEffectsCommand
+        | SpliceCommand
     ),
     Field(discriminator="kind"),
 ]
@@ -373,3 +394,17 @@ class HistoryReport(BaseModel):
     #: else's work would overwrite it, so redo stops rather than guessing.
     branched_by_external_edit: bool = False
     diagnostics: list[Any] = Field(default_factory=list)
+
+
+class EditorProtocol(Protocol):
+    """The semantic editor as the Facade sees it; bootstrap injects the implementation."""
+
+    def apply(self, payload: dict[str, Any]) -> TransactionReport: ...
+
+    def apply_authorized(self, project: Path, command_id: str) -> TransactionReport: ...
+
+    def undo(self, project: Path) -> TransactionReport: ...
+
+    def redo(self, project: Path) -> TransactionReport: ...
+
+    def history(self, project: Path) -> HistoryReport: ...

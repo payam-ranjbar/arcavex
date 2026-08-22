@@ -66,19 +66,21 @@ export type RevisionManifestEntry = { readonly bytes: number; readonly path: str
 
 export type RotateCommand = { readonly degrees: number; readonly kind: "rotate"; readonly layer_id: string; };
 
-export type SemanticTransaction = { readonly actor: Actor; readonly base_project_revision: string; readonly command_id: string; readonly commands: ReadonlyArray<SetTextCommand | SetPropertyCommand | SetVisibilityCommand | TranslateCommand | ResizeCommand | RotateCommand | ReorderCommand | ReparentCommand | DuplicateCommand | DeleteCommand | GroupCommand | SetDisplayNameCommand | SetEffectsCommand>; readonly project_path: string; readonly target?: EditorTarget; readonly version?: 1; };
+export type SemanticTransaction = { readonly actor: Actor; readonly base_project_revision: string; readonly command_id: string; readonly commands: ReadonlyArray<SetTextCommand | SetPropertyCommand | SetVisibilityCommand | TranslateCommand | ResizeCommand | RotateCommand | ReorderCommand | ReparentCommand | DuplicateCommand | DeleteCommand | GroupCommand | SetDisplayNameCommand | SetEffectsCommand | SpliceCommand>; readonly project_path: string; readonly target?: EditorTarget; readonly version?: 1; };
 
 export type SetDisplayNameCommand = { readonly display_name?: string | null; readonly kind: "set_display_name"; readonly layer_id: string; };
 
 export type SetEffectsCommand = { readonly effects?: ReadonlyArray<EffectSpec>; readonly kind: "set_effects"; readonly layer_id: string; };
 
-export type SetPropertyCommand = { readonly keypath: string; readonly kind: "set_property"; readonly layer_id: string; readonly value?: unknown; };
+export type SetPropertyCommand = { readonly keypath: string; readonly kind: "set_property"; readonly layer_id: string; readonly remove?: boolean; readonly value?: unknown; };
 
 export type SetTextCommand = { readonly kind: "set_text"; readonly layer_id: string; readonly text: string; };
 
 export type SetVisibilityCommand = { readonly kind: "set_visibility"; readonly layer_id: string; readonly visible: boolean; };
 
 export type SourceLocation = { readonly column?: number | null; readonly file?: string | null; readonly keypath?: string | null; readonly line?: number | null; };
+
+export type SpliceCommand = { readonly entries?: ReadonlyArray<Readonly<Record<string, unknown>>>; readonly index: number; readonly kind: "splice_children"; readonly parent_id: string; readonly remove_count?: number; };
 
 export type TranslateCommand = { readonly dx_pt: number; readonly dy_pt: number; readonly kind: "translate"; readonly layer_ids: ReadonlyArray<string>; };
 
@@ -3794,7 +3796,7 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
       },
       "SetPropertyCommand": {
         "additionalProperties": false,
-        "description": "Set one authored property, addressed by keypath relative to the node.\n\nThe value stays `Any` because the property space is the template schema's, not this module's;\nthe executing service validates it against the node kind before anything is written.",
+        "description": "Set one authored property, addressed by keypath relative to the node.\n\nThe value stays `Any` because the property space is the template schema's, not this module's;\nthe executing service validates it against the node kind before anything is written.\n\n``remove`` exists because \"set to null\" and \"delete the key\" are different edits in YAML, and\nan inverse that restores \"the key was absent\" must be able to say so.",
         "properties": {
           "keypath": {
             "minLength": 1,
@@ -3810,6 +3812,11 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             "minLength": 1,
             "title": "Layer Id",
             "type": "string"
+          },
+          "remove": {
+            "default": false,
+            "title": "Remove",
+            "type": "boolean"
           },
           "value": {
             "default": null,
@@ -3876,6 +3883,48 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
           "visible"
         ],
         "title": "SetVisibilityCommand",
+        "type": "object"
+      },
+      "SpliceCommand": {
+        "additionalProperties": false,
+        "description": "Engine-authored restoration: replace a slice of a parent's child list with raw entries.\n\nThe inverse of ``delete`` must re-insert the exact authored subtree, and the inverse of\n``group`` must put the original siblings back where the group stood — neither is expressible\nin the semantic vocabulary above, because both restore *content*, not intent. The engine\nemits this kind in inverses and accepts it back on undo; clients normally never compose one.",
+        "properties": {
+          "entries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "index": {
+            "minimum": 0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "splice_children",
+            "title": "Kind",
+            "type": "string"
+          },
+          "parent_id": {
+            "minLength": 1,
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "remove_count": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Remove Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "parent_id",
+          "index"
+        ],
+        "title": "SpliceCommand",
         "type": "object"
       },
       "TranslateCommand": {
@@ -3947,6 +3996,7 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
               "set_property": "#/$defs/SetPropertyCommand",
               "set_text": "#/$defs/SetTextCommand",
               "set_visibility": "#/$defs/SetVisibilityCommand",
+              "splice_children": "#/$defs/SpliceCommand",
               "translate": "#/$defs/TranslateCommand"
             },
             "propertyName": "kind"
@@ -3990,6 +4040,9 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             },
             {
               "$ref": "#/$defs/SetEffectsCommand"
+            },
+            {
+              "$ref": "#/$defs/SpliceCommand"
             }
           ]
         },
@@ -4414,6 +4467,7 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
                   "set_property": "#/$defs/SetPropertyCommand",
                   "set_text": "#/$defs/SetTextCommand",
                   "set_visibility": "#/$defs/SetVisibilityCommand",
+                  "splice_children": "#/$defs/SpliceCommand",
                   "translate": "#/$defs/TranslateCommand"
                 },
                 "propertyName": "kind"
@@ -4457,6 +4511,9 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
                 },
                 {
                   "$ref": "#/$defs/SetEffectsCommand"
+                },
+                {
+                  "$ref": "#/$defs/SpliceCommand"
                 }
               ]
             },
@@ -4553,7 +4610,7 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
       },
       "SetPropertyCommand": {
         "additionalProperties": false,
-        "description": "Set one authored property, addressed by keypath relative to the node.\n\nThe value stays `Any` because the property space is the template schema's, not this module's;\nthe executing service validates it against the node kind before anything is written.",
+        "description": "Set one authored property, addressed by keypath relative to the node.\n\nThe value stays `Any` because the property space is the template schema's, not this module's;\nthe executing service validates it against the node kind before anything is written.\n\n``remove`` exists because \"set to null\" and \"delete the key\" are different edits in YAML, and\nan inverse that restores \"the key was absent\" must be able to say so.",
         "properties": {
           "keypath": {
             "minLength": 1,
@@ -4569,6 +4626,11 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             "minLength": 1,
             "title": "Layer Id",
             "type": "string"
+          },
+          "remove": {
+            "default": false,
+            "title": "Remove",
+            "type": "boolean"
           },
           "value": {
             "default": null,
@@ -4635,6 +4697,48 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
           "visible"
         ],
         "title": "SetVisibilityCommand",
+        "type": "object"
+      },
+      "SpliceCommand": {
+        "additionalProperties": false,
+        "description": "Engine-authored restoration: replace a slice of a parent's child list with raw entries.\n\nThe inverse of ``delete`` must re-insert the exact authored subtree, and the inverse of\n``group`` must put the original siblings back where the group stood — neither is expressible\nin the semantic vocabulary above, because both restore *content*, not intent. The engine\nemits this kind in inverses and accepts it back on undo; clients normally never compose one.",
+        "properties": {
+          "entries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "index": {
+            "minimum": 0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "kind": {
+            "const": "splice_children",
+            "title": "Kind",
+            "type": "string"
+          },
+          "parent_id": {
+            "minLength": 1,
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "remove_count": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Remove Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "parent_id",
+          "index"
+        ],
+        "title": "SpliceCommand",
         "type": "object"
       },
       "TranslateCommand": {
@@ -5450,6 +5554,7 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
         "keypath": "style.font_size",
         "kind": "set_property",
         "layer_id": "title",
+        "remove": false,
         "value": "48pt"
       },
       {
@@ -5529,6 +5634,19 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
         ],
         "kind": "set_effects",
         "layer_id": "photo"
+      },
+      {
+        "entries": [
+          {
+            "id": "badge",
+            "shape": "rect",
+            "type": "shape"
+          }
+        ],
+        "index": 2,
+        "kind": "splice_children",
+        "parent_id": "root",
+        "remove_count": 1
       }
     ],
     "project_path": "<arcavex-fixture-project>",
@@ -5592,6 +5710,7 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
           "keypath": "style.font_size",
           "kind": "set_property",
           "layer_id": "title",
+          "remove": false,
           "value": "48pt"
         },
         {
@@ -5671,6 +5790,19 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
           ],
           "kind": "set_effects",
           "layer_id": "photo"
+        },
+        {
+          "entries": [
+            {
+              "id": "badge",
+              "shape": "rect",
+              "type": "shape"
+            }
+          ],
+          "index": 2,
+          "kind": "splice_children",
+          "parent_id": "root",
+          "remove_count": 1
         }
       ],
       "project_path": "<arcavex-fixture-project>",

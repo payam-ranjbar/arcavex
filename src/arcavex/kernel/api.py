@@ -34,7 +34,12 @@ from arcavex.kernel.diagnostics import (
     has_errors,
     internal_error,
 )
-from arcavex.kernel.editor import Actor
+from arcavex.kernel.editor import (
+    Actor,
+    EditorProtocol,
+    HistoryReport,
+    TransactionReport,
+)
 from arcavex.kernel.ir.models import (
     CompiledDocument,
     CompiledGroup,
@@ -1950,6 +1955,7 @@ class Facade:
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
         desktop: DesktopServiceProtocol | None = None,
+        editor: EditorProtocol | None = None,
     ) -> None:
         """Wire the facade.
 
@@ -1982,6 +1988,64 @@ class Facade:
         self._budget = budget
         self._engine_version = engine_version
         self._desktop = desktop
+        self._editor = editor
+
+    # ------------------------------------------------------------------ semantic editor
+    def editor_apply(self, transaction: dict[str, Any]) -> TransactionReport:
+        """Execute one semantic transaction against its project. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.apply(transaction)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False, diagnostics=[internal_error("Editor apply failed", detail=repr(exc))]
+            )
+
+    def editor_apply_authorized(self, project: Path, command_id: str) -> TransactionReport:
+        """Execute a proposal a person authorized, re-checked against the fresh revision."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.apply_authorized(project, command_id)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False,
+                diagnostics=[internal_error("Editor authorized apply failed", detail=repr(exc))],
+            )
+
+    def editor_undo(self, project: Path) -> TransactionReport:
+        """Restore the state before the newest applied history entry. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.undo(project)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False, diagnostics=[internal_error("Editor undo failed", detail=repr(exc))]
+            )
+
+    def editor_redo(self, project: Path) -> TransactionReport:
+        """Re-apply the oldest undone history entry. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.redo(project)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False, diagnostics=[internal_error("Editor redo failed", detail=repr(exc))]
+            )
+
+    def editor_history(self, project: Path) -> HistoryReport:
+        """The project's undo/redo state. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return HistoryReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.history(project)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return HistoryReport(
+                ok=False, diagnostics=[internal_error("Editor history failed", detail=repr(exc))]
+            )
 
     def validate_template(
         self,

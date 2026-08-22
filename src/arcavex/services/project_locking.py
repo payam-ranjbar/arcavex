@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -63,12 +65,26 @@ def ensure_project_path_safe(root: Path, path: Path) -> None:
         current /= part
         if _is_link(current):
             raise _unsafe(current, "symlinks and directory junctions are not allowed")
-        if current.exists():
-            resolved = current.resolve()
-            try:
-                resolved.relative_to(canonical_root)
-            except ValueError as exc:
-                raise _unsafe(current, "resolved path leaves the project") from exc
+        if current.exists() and not _resolves_inside(current, canonical_root):
+            # A file another process is creating, deleting, or holding open at this exact
+            # moment can transiently resolve through a short-name or unresolved fallback on
+            # Windows and appear to escape. A real junction or symlink escape is *stable*, so
+            # only a resolution that still escapes on a fresh look — for a path that still
+            # exists — is refused. A vanished path escapes nothing.
+            time.sleep(0.01)
+            if current.exists() and not _resolves_inside(current, canonical_root):
+                raise _unsafe(current, "resolved path leaves the project")
+
+
+def _resolves_inside(path: Path, canonical_root: Path) -> bool:
+    """Whether ``path`` resolves under the root, comparing case-insensitively on Windows."""
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return True  # unreadable mid-transition; the caller re-checks
+    root = os.path.normcase(str(canonical_root))
+    candidate = os.path.normcase(str(resolved))
+    return candidate == root or candidate.startswith(root + os.sep)
 
 
 def _is_link(path: Path) -> bool:

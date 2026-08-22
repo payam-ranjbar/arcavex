@@ -66,6 +66,7 @@ from arcavex.kernel.api import (
     TemplateListReport,
 )
 from arcavex.kernel.diagnostics import has_errors
+from arcavex.kernel.editor import HistoryReport, TransactionReport
 
 _INSTRUCTIONS = (
     "Arcavex rendering engine, MCP authoring surface. Every tool mirrors a service API method "
@@ -205,6 +206,27 @@ class ArcavexTools:
         return self._facade.layer_tree(
             project=_opt_path(project), mode=mode, format_name=format, locale=locale
         )
+
+    # ---------------------------------------------------------------- semantic editor
+    def editor_apply(self, transaction: dict[str, Any]) -> TransactionReport:
+        """Execute one semantic editor transaction; refusals return conflicts or diagnostics."""
+        return self._facade.editor_apply(transaction)
+
+    def editor_apply_authorized(self, project: str, command_id: str) -> TransactionReport:
+        """Execute an authorized proposal under a fresh revision check."""
+        return self._facade.editor_apply_authorized(Path(project), command_id)
+
+    def editor_undo(self, project: str | None = None) -> TransactionReport:
+        """Restore the project state before its newest applied history entry."""
+        return self._facade.editor_undo(_opt_path(project) or Path.cwd())
+
+    def editor_redo(self, project: str | None = None) -> TransactionReport:
+        """Re-apply the oldest undone history entry."""
+        return self._facade.editor_redo(_opt_path(project) or Path.cwd())
+
+    def editor_history(self, project: str | None = None) -> HistoryReport:
+        """Report the project's undo/redo timeline and whether an external edit branched it."""
+        return self._facade.editor_history(_opt_path(project) or Path.cwd())
 
     def hit_test(
         self,
@@ -506,6 +528,11 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_run_diff", "run_diff"),
     ("arcavex_run_rerun", "run_rerun"),
     ("arcavex_diagnostic_explain", "diagnostic_explain"),
+    ("arcavex_editor_apply", "editor_apply"),
+    ("arcavex_editor_apply_authorized", "editor_apply_authorized"),
+    ("arcavex_editor_undo", "editor_undo"),
+    ("arcavex_editor_redo", "editor_redo"),
+    ("arcavex_editor_history", "editor_history"),
 )
 
 

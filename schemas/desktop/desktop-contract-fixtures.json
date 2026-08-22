@@ -89,6 +89,7 @@
           "keypath": "style.font_size",
           "kind": "set_property",
           "layer_id": "title",
+          "remove": false,
           "value": "48pt"
         },
         {
@@ -168,6 +169,19 @@
           ],
           "kind": "set_effects",
           "layer_id": "photo"
+        },
+        {
+          "entries": [
+            {
+              "id": "badge",
+              "shape": "rect",
+              "type": "shape"
+            }
+          ],
+          "index": 2,
+          "kind": "splice_children",
+          "parent_id": "root",
+          "remove_count": 1
         }
       ],
       "project_path": "<arcavex-fixture-project>",
@@ -200,6 +214,7 @@
         "keypath": "style.font_size",
         "kind": "set_property",
         "layer_id": "title",
+        "remove": false,
         "value": "48pt"
       },
       {
@@ -279,6 +294,19 @@
         ],
         "kind": "set_effects",
         "layer_id": "photo"
+      },
+      {
+        "entries": [
+          {
+            "id": "badge",
+            "shape": "rect",
+            "type": "shape"
+          }
+        ],
+        "index": 2,
+        "kind": "splice_children",
+        "parent_id": "root",
+        "remove_count": 1
       }
     ],
     "project_path": "<arcavex-fixture-project>",

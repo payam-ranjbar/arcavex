@@ -78,6 +78,15 @@ _COMMANDS: list[dict[str, Any]] = [
         "layer_id": "photo",
         "effects": [{"name": "halftone", "params": {"dot_pt": 2.0}}],
     },
+    # Engine-authored: the restoring inverse of delete and group. Clients rarely compose one,
+    # but it round-trips like every other kind because undo re-submits it.
+    {
+        "kind": "splice_children",
+        "parent_id": "root",
+        "index": 2,
+        "remove_count": 0,
+        "entries": [{"id": "badge", "type": "shape"}],
+    },
 ]
 
 
