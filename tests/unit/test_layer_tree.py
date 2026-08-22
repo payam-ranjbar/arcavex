@@ -304,6 +304,8 @@ def test_layer_node_contract_separates_authored_and_rendered_identity() -> None:
         "loop_var": "card",
         "key": "{{ card.slug }}",
         "display_name": "Feature card",
+        # A group has no authored text; text nodes report theirs so an editor can diff it.
+        "text": None,
         "visible": True,
         "locked": True,
         "color": "#AABBCC",

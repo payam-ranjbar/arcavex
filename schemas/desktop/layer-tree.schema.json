@@ -456,6 +456,18 @@
           ],
           "default": null
         },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
         "virtual": {
           "default": false,
           "title": "Virtual",

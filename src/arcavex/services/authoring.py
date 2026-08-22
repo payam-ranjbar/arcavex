@@ -93,6 +93,8 @@ class AuthoredLayer:
 
     id: str
     kind: str
+    #: Authored text for a text node; None for every other kind.
+    text: str | None
     parent_id: str | None
     authored_index: int
     z: int
@@ -726,6 +728,7 @@ def _authored_layer(
     return AuthoredLayer(
         id=node_id,
         kind=_str_or_none(node_raw.get("type")) or "?",
+        text=_str_or_none(node_raw.get("text")),
         parent_id=parent_id,
         authored_index=authored_index,
         z=z,

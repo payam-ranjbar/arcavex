@@ -1,0 +1,87 @@
+/* Editable inspector fields: dense, aligned, and quiet until focused. */
+
+.inspector__section {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+
+.inspector__section + .inspector__section {
+  border-top: 1px solid var(--arcavex-border);
+}
+
+.inspector__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.field--inline {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.field__label {
+  color: var(--arcavex-text-muted);
+  font-size: var(--text-sm);
+}
+
+.field__suffix {
+  color: var(--arcavex-text-subtle);
+}
+
+.field__control {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--arcavex-border);
+  border-radius: var(--radius-1);
+  background: var(--arcavex-surface);
+  color: var(--arcavex-text);
+  font: inherit;
+}
+
+.field__control:disabled {
+  opacity: 0.6;
+}
+
+.field__reason {
+  margin: 0;
+  color: var(--arcavex-text-muted);
+  font-size: var(--text-sm);
+}
+
+.inspector__hint {
+  margin: 0;
+  color: var(--arcavex-text-muted);
+  font-size: var(--text-sm);
+}
+
+.inspector__effects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.inspector__effect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.inspector__effect-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.inspector__effect-move {
+  padding: 0 var(--space-2);
+}

@@ -1384,6 +1384,9 @@ class LayerNodeReport(BaseModel):
     loop_var: str | None = None
     key: str | None = None
     display_name: str
+    #: The authored text of a text node, so an editor can show and diff what it will replace.
+    #: Absent for every other kind, and for a rendered instance whose text came from data.
+    text: str | None = None
     visible: bool = True
     locked: bool = False
     color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")

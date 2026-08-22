@@ -1,6 +1,6 @@
 ﻿/** The application root: a way in before a project is open, the bench once one is. */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { ActivityPanel } from "../features/activity/index.ts";
 import { CanvasViewport } from "../features/canvas/index.ts";
@@ -21,7 +21,13 @@ import {
 } from "../features/projects/index.ts";
 import { AppearanceSettings, RuntimeSettings } from "../features/settings/index.ts";
 import { VariantBar } from "../features/variants/index.ts";
-import { InspectorPanel, Workbench } from "../features/workspace/index.ts";
+import {
+  CommandBus,
+  InspectorPanel,
+  Workbench,
+  type EditorCommand,
+} from "../features/workspace/index.ts";
+import type { AutomationMode } from "../gateway/index.ts";
 import { useGateway } from "./providers.tsx";
 import { createRegistry, type ContributionRegistry } from "./contributions.ts";
 import { useQuery } from "@tanstack/react-query";
@@ -47,10 +53,35 @@ export function App(): ReactNode {
   const render = useRequestRender();
 
   const [selection, setSelection] = useState<Selection>(NO_SELECTION);
+  const [busy, setBusy] = useState(false);
+
+  // Rebuilt whenever the snapshot changes, so its getters close over the revision the workbench
+  // is currently showing. Subscribers re-attach through the effect below.
+  const current = snapshot.data;
+  const commands = useMemo(
+    () =>
+      new CommandBus({
+        gateway,
+        projectPath: () => current?.canonical_path ?? null,
+        baseRevision: () => current?.project_revision ?? null,
+        target: () => ({
+          format: current?.default_target?.format ?? null,
+          locale: current?.default_target?.locale ?? null,
+        }),
+        actor: { id: "desktop", display_name: "Arcavex Desktop" },
+      }),
+    [gateway, current],
+  );
+
+  useEffect(() => commands.subscribe((state) => setBusy(state.busy)), [commands]);
 
   const capabilities = engine.data?.handshake?.capabilities ?? [];
   const selectedLayer = useSelectedBounds(tree.data, selection.authoredId);
-  const registry = useContributions(selection, setSelection, () => render.mutate());
+  const registry = useContributions(selection, setSelection, () => render.mutate(), {
+    automation: settings.data?.automation ?? "unrestricted",
+    busy,
+    onSubmit: (edits) => void commands.submit(edits),
+  });
 
   if (engine.isPending) {
     return (
@@ -129,10 +160,18 @@ function useSelectedBounds(
  * The shell imports none of these; it only knows the registry, which is what makes adding a
  * Phase 2 panel a matter of registering it rather than editing the workbench.
  */
+/** What the inspector needs to turn measurements into editable fields. */
+interface EditingContext {
+  readonly automation: AutomationMode;
+  readonly busy: boolean;
+  readonly onSubmit: (commands: ReadonlyArray<EditorCommand>) => void;
+}
+
 function useContributions(
   selection: Selection,
   setSelection: (selection: Selection) => void,
   requestRender: () => void,
+  editing: EditingContext,
 ): ContributionRegistry {
   const tree = useLayerTree("rendered");
 
@@ -176,7 +215,16 @@ function useContributions(
       title: "Properties",
       region: "inspector",
       order: 10,
-      render: () => <InspectorPanel tree={tree.data} selectedAuthoredId={selection.authoredId} />,
+      render: () => (
+        <InspectorPanel
+          tree={tree.data}
+          selectedAuthoredId={selection.authoredId}
+          automation={editing.automation}
+          treeMode="rendered"
+          busy={editing.busy}
+          onSubmit={editing.onSubmit}
+        />
+      ),
     });
     registry.addPanel({
       id: "diagnostics",
@@ -215,5 +263,5 @@ function useContributions(
       render: () => <AppearanceSettings />,
     });
     return registry;
-  }, [selection, setSelection, requestRender, tree.data]);
+  }, [selection, setSelection, requestRender, tree.data, editing]);
 }
