@@ -57,3 +57,51 @@
   min-width: 4ch;
   text-align: end;
 }
+
+/* Selection chrome. Sized in CSS pixels so handles stay grabbable at any zoom. */
+
+.overlay__selection,
+.overlay__marquee {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid var(--arcavex-accent);
+}
+
+.overlay__marquee {
+  background: color-mix(in srgb, var(--arcavex-accent) 12%, transparent);
+  border-style: dashed;
+}
+
+.overlay__handle,
+.overlay__rotate {
+  position: absolute;
+  padding: 0;
+  border: 1px solid var(--arcavex-accent);
+  background: var(--arcavex-elevated);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.overlay__rotate {
+  border-radius: 50%;
+}
+
+.overlay__handle[data-handle="nw"],
+.overlay__handle[data-handle="se"] {
+  cursor: nwse-resize;
+}
+
+.overlay__handle[data-handle="ne"],
+.overlay__handle[data-handle="sw"] {
+  cursor: nesw-resize;
+}
+
+.overlay__handle[data-handle="n"],
+.overlay__handle[data-handle="s"] {
+  cursor: ns-resize;
+}
+
+.overlay__handle[data-handle="e"],
+.overlay__handle[data-handle="w"] {
+  cursor: ew-resize;
+}

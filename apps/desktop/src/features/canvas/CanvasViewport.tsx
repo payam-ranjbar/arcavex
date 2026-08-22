@@ -17,7 +17,18 @@ import {
 } from "react";
 
 import type { HitCandidate } from "../../contracts/index.ts";
+import type { EditorCommand } from "../workspace/index.ts";
 import { useHitTest, useRenderStatus } from "../projects/index.ts";
+import { pointerToCanvas } from "./coordinates.ts";
+import {
+  IDLE,
+  reduce,
+  selectionRect,
+  type HandleName,
+  type InteractionState,
+} from "./interactionMachine.ts";
+import { SelectionOverlay } from "./SelectionOverlay.tsx";
+import { canvasGuides } from "./snapping.ts";
 import {
   canvasPointFromClient,
   fitViewport,
@@ -45,14 +56,59 @@ export interface CanvasViewportProps {
   readonly canvas: Size;
   readonly selectionBounds: RectPt | null;
   readonly onHit: (candidate: HitCandidate | null) => void;
+  /** Authored ids currently selected, so a drag knows what it is moving. */
+  readonly selectedLayerIds?: ReadonlyArray<string>;
+  /** Absent leaves the canvas read-only, exactly as Phase 1 behaved. */
+  readonly onSubmit?: (commands: ReadonlyArray<EditorCommand>) => void;
+  /** False for a locked selection or a read-only project: selectable, not draggable. */
+  readonly editable?: boolean;
 }
 
-export function CanvasViewport({ canvas, selectionBounds, onHit }: CanvasViewportProps): ReactNode {
+export function CanvasViewport({
+  canvas,
+  selectionBounds,
+  onHit,
+  selectedLayerIds = [],
+  onSubmit,
+  editable = true,
+}: CanvasViewportProps): ReactNode {
   const render = useRenderStatus();
   const hitTest = useHitTest();
   const surface = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ scale: 1, panXCss: 0, panYCss: 0 });
   const dragging = useRef<{ x: number; y: number } | null>(null);
+  const [interaction, setInteraction] = useState<InteractionState>(IDLE);
+
+  const startBox = selectionBounds
+    ? {
+        x: selectionBounds[0],
+        y: selectionBounds[1],
+        w: selectionBounds[2],
+        h: selectionBounds[3],
+      }
+    : null;
+
+  /** Feed the machine and submit whatever a completed gesture produced. */
+  const dispatch = useCallback(
+    (event: Parameters<typeof reduce>[1]): void => {
+      setInteraction((current) => {
+        const next = reduce(current, event);
+        if (next.pending && onSubmit) onSubmit(next.pending);
+        return next.pending ? { ...next, pending: null } : next;
+      });
+    },
+    [onSubmit],
+  );
+
+  // Escape cancels a gesture in flight; the layer snaps back to the engine's bounds because the
+  // local delta was never authoritative in the first place.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") dispatch({ type: "cancel" });
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dispatch]);
 
   const fit = useCallback(() => {
     const element = surface.current;
@@ -78,26 +134,92 @@ export function CanvasViewport({ canvas, selectionBounds, onHit }: CanvasViewpor
     );
   }
 
+  function canvasPoint(event: { clientX: number; clientY: number }) {
+    const element = surface.current;
+    if (!element) return null;
+    return pointerToCanvas(event, element.getBoundingClientRect(), viewport);
+  }
+
   function onPointerDown(event: PointerEvent<HTMLDivElement>): void {
-    // Middle button and space-free drag pans; a plain click asks the engine what is there.
+    // Middle button pans; a primary press inside the selection begins a manipulation.
     if (event.button === 1) {
       dragging.current = { x: event.clientX, y: event.clientY };
       event.currentTarget.setPointerCapture(event.pointerId);
+      return;
     }
+    if (event.button !== 0 || !onSubmit) return;
+    const point = canvasPoint(event);
+    if (!point) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dispatch({
+      type: "pointer-down",
+      pointPt: point,
+      target:
+        selectedLayerIds.length > 0 && insideBox(point, startBox)
+          ? { kind: "layer", layerIds: selectedLayerIds }
+          : { kind: "canvas" },
+      additive: event.shiftKey,
+      selectionBounds: startBox,
+      editable,
+      guides: canvasGuides(canvas),
+    });
   }
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>): void {
     const origin = dragging.current;
-    if (!origin) return;
-    setViewport((current) => pan(current, event.clientX - origin.x, event.clientY - origin.y));
-    dragging.current = { x: event.clientX, y: event.clientY };
+    if (origin) {
+      setViewport((current) => pan(current, event.clientX - origin.x, event.clientY - origin.y));
+      dragging.current = { x: event.clientX, y: event.clientY };
+      return;
+    }
+    const point = canvasPoint(event);
+    if (point) dispatch({ type: "pointer-move", pointPt: point, bypassSnap: event.altKey });
   }
 
   function onPointerUp(event: PointerEvent<HTMLDivElement>): void {
     if (dragging.current) {
       dragging.current = null;
       event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
     }
+    const point = canvasPoint(event);
+    if (point) dispatch({ type: "pointer-up", pointPt: point });
+  }
+
+  function onLostPointerCapture(): void {
+    dispatch({ type: "capture-lost" });
+  }
+
+  function beginHandle(handle: HandleName, event: PointerEvent<HTMLElement>): void {
+    const point = canvasPoint(event);
+    if (!point || !onSubmit) return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dispatch({
+      type: "pointer-down",
+      pointPt: point,
+      target: { kind: "handle", handle, layerIds: selectedLayerIds },
+      additive: false,
+      selectionBounds: startBox,
+      editable,
+      guides: canvasGuides(canvas),
+    });
+  }
+
+  function beginRotate(event: PointerEvent<HTMLElement>): void {
+    const point = canvasPoint(event);
+    if (!point || !onSubmit) return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dispatch({
+      type: "pointer-down",
+      pointPt: point,
+      target: { kind: "rotate", layerIds: selectedLayerIds },
+      additive: false,
+      selectionBounds: startBox,
+      editable,
+      guides: canvasGuides(canvas),
+    });
   }
 
   async function onClick(event: MouseEvent<HTMLDivElement>): Promise<void> {
@@ -128,6 +250,7 @@ export function CanvasViewport({ canvas, selectionBounds, onHit }: CanvasViewpor
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onLostPointerCapture={onLostPointerCapture}
         onClick={(event) => void onClick(event)}
       >
         {output ? (
@@ -149,7 +272,16 @@ export function CanvasViewport({ canvas, selectionBounds, onHit }: CanvasViewpor
           </p>
         )}
 
-        {selection ? (
+        {onSubmit ? (
+          <SelectionOverlay
+            box={selectionRect(interaction) ?? startBox}
+            viewport={viewport}
+            marquee={interaction.mode === "marquee" ? selectionRect(interaction) : null}
+            editable={editable}
+            onHandlePointerDown={beginHandle}
+            onRotatePointerDown={beginRotate}
+          />
+        ) : selection ? (
           <svg className="canvas__overlay" aria-hidden="true">
             <rect
               x={selection.left}
@@ -184,5 +316,16 @@ export function CanvasViewport({ canvas, selectionBounds, onHit }: CanvasViewpor
         <span className="proof-strip__zoom">{Math.round(viewport.scale * 100)}%</span>
       </div>
     </>
+  );
+}
+
+/** Whether a canvas point falls inside the current selection box. */
+function insideBox(
+  point: { readonly x: number; readonly y: number },
+  box: { readonly x: number; readonly y: number; readonly w: number; readonly h: number } | null,
+): boolean {
+  if (!box) return false;
+  return (
+    point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h
   );
 }

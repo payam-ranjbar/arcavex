@@ -120,6 +120,9 @@ export function App(): ReactNode {
         <CanvasViewport
           canvas={canvas}
           selectionBounds={selectedLayer}
+          selectedLayerIds={selection.authoredId === null ? [] : [selection.authoredId]}
+          editable={(settings.data?.automation ?? "unrestricted") !== "read_only"}
+          onSubmit={(edits) => void commands.submit(edits)}
           onHit={(candidate) =>
             setSelection(
               candidate === null
