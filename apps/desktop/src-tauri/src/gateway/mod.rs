@@ -505,21 +505,11 @@ impl<L: EngineLauncher> GatewayState<L> {
     /// from labelling the engine's write an external edit, and an accepted render-affecting
     /// change re-renders the active target exactly like any other change.
     pub fn after_own_edit(self: &Arc<Self>, report: &Value) {
-        let changed: Vec<String> = report
-            .get("changed")
-            .and_then(Value::as_array)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter_map(|entry| entry.get("path").and_then(Value::as_str))
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let changed = files_changed_by(report);
         for path in &changed {
             self.announce_own_write(path);
         }
-        if report.get("ok").and_then(Value::as_bool) == Some(true) && !changed.is_empty() {
+        if edit_changed_the_project(report) {
             self.refresh_open_snapshot();
             self.request_render();
         }
@@ -771,6 +761,31 @@ pub async fn set_ui_metadata(
         .await
 }
 
+/// The project files a transaction reports having replaced.
+fn files_changed_by(report: &Value) -> Vec<String> {
+    report
+        .get("changed")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.get("path").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether an edit actually moved the project, and so whether the picture is now out of date.
+///
+/// A refused edit — a conflict, a policy refusal, a dead sidecar — wrote nothing, so re-rendering
+/// after one would discard a perfectly current proof and show a spinner for no reason. An accepted
+/// transaction that changed no file (a no-op reorder, an approval queued for review) is the same
+/// case.
+fn edit_changed_the_project(report: &Value) -> bool {
+    report.get("ok").and_then(Value::as_bool) == Some(true) && !files_changed_by(report).is_empty()
+}
+
 #[tauri::command]
 pub async fn editor_apply(
     state: tauri::State<'_, SharedState>,
@@ -903,4 +918,40 @@ pub fn update_settings(
     patch: Value,
 ) -> Result<DesktopSettings, String> {
     state.apply_settings_patch(patch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn an_accepted_edit_that_wrote_files_makes_the_picture_stale() {
+        let report =
+            json!({"ok": true, "changed": [{"path": "template.yaml", "change": "modified"}]});
+
+        assert!(edit_changed_the_project(&report));
+        assert_eq!(files_changed_by(&report), vec!["template.yaml".to_owned()]);
+    }
+
+    #[test]
+    fn a_refused_edit_leaves_the_last_good_picture_alone() {
+        // A conflict wrote nothing at all, so what is on screen is still exactly right.
+        let conflicted = json!({
+            "ok": false,
+            "conflict": {"changed": [{"path": "data/event.yaml", "change": "modified"}]}
+        });
+
+        assert!(!edit_changed_the_project(&conflicted));
+        assert!(files_changed_by(&conflicted).is_empty());
+    }
+
+    #[test]
+    fn an_edit_that_changed_no_file_does_not_trigger_a_render() {
+        // Queued for review, or a reorder that moved a layer onto itself: accepted, but a no-op.
+        assert!(!edit_changed_the_project(
+            &json!({"ok": true, "changed": []})
+        ));
+        assert!(!edit_changed_the_project(&json!({"ok": true})));
+    }
 }
