@@ -40,6 +40,7 @@ from arcavex.kernel.editor import (
     COMMAND_KINDS,
     Actor,
     ChangedPath,
+    ConflictDetail,
     HistoryReport,
     SemanticTransaction,
     TransactionReport,
@@ -232,6 +233,10 @@ class EditorService:
                 project_revision=fresh.project_revision,
                 render_revision=fresh.render_revision,
                 conflict=conflict,
+                # Also as a diagnostic: a conflict used to arrive with an empty diagnostics list,
+                # so a client rendering that list -- which is how every other refusal here
+                # arrives -- showed nothing and the edit looked like it had silently done nothing.
+                diagnostics=[_conflict_diagnostic(conflict)],
             )
 
         if gate_policy:
@@ -529,6 +534,20 @@ def _is_inside(candidate: Path, root: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _conflict_diagnostic(conflict: ConflictDetail) -> Diagnostic:
+    """State a revision conflict in the same shape as every other refusal on this surface."""
+    moved = ", ".join(f"{changed.path} ({changed.change})" for changed in conflict.changed)
+    detail = f" Changed since: {moved}." if moved else ""
+    return diagnostic(
+        "ARC-EDT-012",
+        "The project moved under this edit, so nothing was changed."
+        f"{detail}",
+        hint=(
+            "Re-read the project, compose the edit against the current revision, and re-submit."
+        ),
+    )
 
 
 def _malformed_message(error: ValidationError) -> str:

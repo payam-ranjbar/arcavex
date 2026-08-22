@@ -548,3 +548,34 @@ def test_display_names_still_work_on_a_project_with_an_outside_template(
     )
 
     assert report.ok, [d.model_dump() for d in report.diagnostics]
+
+
+# ------------------------------------------------------------- refusals a client can read
+
+
+def test_a_conflict_also_carries_a_coded_diagnostic(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """A conflict must be legible to a client that reads diagnostics, not only to one that
+    knows to look at the `conflict` field.
+
+    Every other refusal on this surface arrives as a coded, located diagnostic, and clients are
+    built to render that list. A conflict arrived with `diagnostics: []`, so a client following
+    the convention reported nothing at all -- the edit simply appeared to do nothing.
+    """
+    base = _revision(tmp_path, project)
+    first = service.apply(
+        _transaction(project, base, [{"kind": "set_text", "layer_id": "title", "text": "First"}])
+    )
+    assert first.ok
+
+    stale = service.apply(
+        _transaction(project, base, [{"kind": "set_text", "layer_id": "title", "text": "Second"}])
+    )
+
+    assert stale.ok is False
+    assert stale.conflict is not None
+    codes = [d.code for d in stale.diagnostics]
+    assert "ARC-EDT-012" in codes, codes
+    detail = " ".join(d.message for d in stale.diagnostics)
+    assert "template.yaml" in detail, detail
