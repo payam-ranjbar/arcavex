@@ -995,6 +995,39 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Remove the named file under .arcavex/history to clear the warning.",
         ),
         _e(
+            "ARC-EDT-004",
+            "Structural edit target is invalid",
+            "A structural edit named a node or parent that does not exist, addressed a node "
+            "whose id is duplicated, tried to give children to a non-group node, grouped layers "
+            "that are not siblings, or chose a group id that already exists. Nothing was "
+            "changed.",
+            "Inspect the layer tree for current ids and structure, then retry the edit.",
+        ),
+        _e(
+            "ARC-EDT-005",
+            "Structural edit would corrupt the tree",
+            "The edit would delete or reparent the root node, or move a node into its own "
+            "descendant and create a cycle. These operations are never valid; nothing was "
+            "changed.",
+            "Choose a target outside the subtree being moved, and leave the root in place.",
+        ),
+        _e(
+            "ARC-EDT-006",
+            "Layer is locked",
+            "The addressed layer, or one of its ancestors, is locked in the project's editor "
+            "metadata. Locks are enforced at the engine boundary so an AI client cannot bypass "
+            "a lock the desktop shows.",
+            "Unlock the layer in the Layers panel, or edit an unlocked layer.",
+        ),
+        _e(
+            "ARC-EDT-007",
+            "Sibling anchors depend on this layer",
+            "Deleting the addressed layer would orphan constraint expressions on sibling "
+            "layers that anchor to it. The dependents are named in the message; nothing was "
+            "changed.",
+            "Delete the dependent layers too, or re-anchor them to another sibling first.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",
