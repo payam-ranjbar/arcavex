@@ -153,6 +153,53 @@ fn serve_render(
 /// # Panics
 ///
 /// Panics when Tauri cannot create the window, which is unrecoverable at startup.
+/// Write a record of a panic before the process dies.
+///
+/// This build aborts on panic and a Windows release build has no console, so a panic anywhere --
+/// including one on a background render task -- takes the window away with no dialog, no message,
+/// and nothing in the application's own diagnostics. From the outside it is indistinguishable
+/// from the machine turning off. The only trace is an "Exception code: 0xc0000409" line in the
+/// Windows event log, which names no function and no reason.
+///
+/// A designer testing this application lost four sessions that way before the event log explained
+/// anything at all. So the last thing the process does is say what happened, where.
+fn record_panics(directory: &Path) {
+    let crash_log = directory.join("crash.log");
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let record = format!(
+            "
+=== Arcavex Desktop {} panicked ===
+location: {}
+message: {}
+{backtrace}
+",
+            env!("CARGO_PKG_VERSION"),
+            info.location()
+                .map_or_else(|| "unknown".to_owned(), ToString::to_string),
+            info.payload()
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "(no message)".to_owned()),
+        );
+        if let Some(parent) = crash_log.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&crash_log)
+        {
+            use std::io::Write;
+            let _ = file.write_all(record.as_bytes());
+        }
+        eprintln!("{record}");
+        previous(info);
+    }));
+}
+
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
 
@@ -172,6 +219,7 @@ pub fn run() {
                 .path()
                 .app_config_dir()
                 .unwrap_or_else(|_| PathBuf::from("."));
+            record_panics(&directory);
             let state: SharedState = Arc::new(build_state(&directory));
             state.attach(app.handle().clone());
             app.manage(state);
