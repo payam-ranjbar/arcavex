@@ -134,3 +134,26 @@ def test_every_new_tool_is_registered_with_the_server() -> None:
 
     for method in ("template_new", "template_publish"):
         assert method in registered, f"{method} exists but is not exposed"
+
+
+def test_a_pinned_template_can_be_detached_over_mcp(
+    isolated_tools: ArcavexTools, tmp_path: Path
+) -> None:
+    """The refusal for an outside template names detach, so detach has to be reachable from here.
+
+    Pointing an assistant at a command it cannot run is the same as refusing with no way out.
+    """
+    isolated_tools.template_new(target=str(tmp_path / "seed"), name="seed")
+    created = isolated_tools.project_create(
+        target=str(tmp_path / "post"), template=str(tmp_path / "seed"), formats=["square"]
+    )
+    assert created.ok, [d.model_dump() for d in created.diagnostics]
+
+    detached = isolated_tools.template_detach(project=str(tmp_path / "post"))
+
+    assert detached.ok, [d.model_dump() for d in detached.diagnostics]
+    # The point of detaching is that the template now lives inside the project, which is the one
+    # condition semantic editing requires.
+    copied = Path(detached.path or "")
+    assert copied.is_dir() and (copied / "template.yaml").is_file()
+    assert copied.resolve().is_relative_to((tmp_path / "post").resolve())

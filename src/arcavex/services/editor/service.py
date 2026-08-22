@@ -370,15 +370,28 @@ class EditorService:
         template_dir, _ref, is_library = self._projects.resolve_template(loaded)
 
         touches_template = any(c.kind != "set_display_name" for c in transaction.commands)
-        if touches_template and is_library:
+        # A template the project does not contain cannot be edited here, whether it is a
+        # published library version or a path pointing outside the project directory. Both are
+        # shared, and this editor writes only inside the project it was handed -- so the write
+        # would land on a new template.yaml *inside* the project, silently creating a second
+        # template the project does not use. Left unchecked the staged validation failed first,
+        # with "File not found" naming a path inside .arcavex/staging that nobody wrote.
+        outside_project = touches_template and not _is_inside(template_dir, root)
+        if touches_template and (is_library or outside_project):
+            shared = (
+                "This project pins a shared library template"
+                if is_library
+                else f"This project's template lives outside the project ({template_dir})"
+            )
             raise DiagnosticError(
                 diagnostic(
                     "ARC-EDT-008",
-                    "This project pins a shared library template, which semantic editing "
-                    "cannot change in place: the edit would alter every project that pins it.",
+                    f"{shared}, which semantic editing cannot change in place: the edit would "
+                    "alter every project that pins it.",
                     hint=(
-                        "Clone the template into the project ('arcavex project clone') to get "
-                        "an editable project-local template.yaml."
+                        "Copy the template into the project first — 'arcavex template detach' "
+                        "(or the arcavex_template_detach tool) — which gives the project its own "
+                        "editable template.yaml."
                     ),
                 )
             )
@@ -507,6 +520,15 @@ class EditorService:
 
 
 # ------------------------------------------------------------------------------------ dispatch
+
+
+def _is_inside(candidate: Path, root: Path) -> bool:
+    """True when ``candidate`` is the project directory or lives under it."""
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _malformed_message(error: ValidationError) -> str:

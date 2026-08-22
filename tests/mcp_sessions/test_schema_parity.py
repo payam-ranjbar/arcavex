@@ -117,7 +117,7 @@ def test_catalog_lists_every_declared_tool() -> None:
     """The built server exposes exactly the declared tool catalog (names)."""
     catalog = _catalog()
     assert set(catalog) == {name for name, _ in _TOOL_METHODS}
-    assert len(catalog) == len(_TOOL_METHODS) == 45
+    assert len(catalog) == len(_TOOL_METHODS) == 46
 
 
 def test_output_schemas_match_facade_models() -> None:

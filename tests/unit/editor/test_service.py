@@ -477,3 +477,74 @@ def test_a_partly_formed_transaction_names_only_what_is_still_wrong(
     assert "commands" in second_detail
     # The answer gets shorter as the caller gets closer, rather than longer.
     assert len(second_detail) < len(first_detail)
+
+
+# ------------------------------------------------------- templates outside the project
+
+
+def _project_pinning_an_outside_template(tmp_path: Path) -> Path:
+    """The shape `project new --template <path>` produces: the template lives elsewhere."""
+    outside = tmp_path / "authored"
+    outside.mkdir()
+    (outside / "template.yaml").write_text(_TEMPLATE, encoding="utf-8")
+
+    project = tmp_path / "pinned"
+    (project / "data").mkdir(parents=True)
+    (project / "project.yaml").write_text(
+        "name: pinned\ntemplate: ../authored\nlocales: []\n"
+        "formats:\n  - square\ndata: data/data.yaml\n",
+        encoding="utf-8",
+    )
+    (project / "data" / "data.yaml").write_text("{}\n", encoding="utf-8")
+    return project
+
+
+def test_a_template_outside_the_project_is_refused_with_the_way_out(
+    service: EditorService, tmp_path: Path
+) -> None:
+    """Editing must not fail with a path the user never typed.
+
+    `project new --template <path>` pins the template where it lives, outside the project. The
+    editor stages an overlay inside the project and validates it there, so the relative pin
+    resolved into the staging directory and the edit died with "File not found: ...\authored" --
+    a path naming neither the project nor anything the person wrote. Worse, the write itself
+    would have landed on a template.yaml *inside* the project, silently making a second template
+    the project does not use.
+
+    An external template is refused for the same reason a library one is: it is shared, and this
+    editor only writes inside the project it was given. The refusal has to say so and name the
+    command that fixes it.
+    """
+    project = _project_pinning_an_outside_template(tmp_path)
+
+    report = service.apply(
+        _transaction(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_text", "layer_id": "title", "text": "x"}],
+        )
+    )
+
+    assert report.ok is False
+    codes = [d.code for d in report.diagnostics]
+    assert "ARC-EDT-008" in codes, codes
+    detail = " ".join(f"{d.message} {d.hint or ''}" for d in report.diagnostics)
+    assert "detach" in detail.lower(), detail
+    assert "File not found" not in detail
+
+
+def test_display_names_still_work_on_a_project_with_an_outside_template(
+    service: EditorService, tmp_path: Path
+) -> None:
+    """Renaming writes project.ui.yaml, which is the project's own file, so it stays allowed."""
+    project = _project_pinning_an_outside_template(tmp_path)
+
+    report = service.apply(
+        _transaction(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_display_name", "layer_id": "title", "display_name": "Headline"}],
+        )
+    )
+
+    assert report.ok, [d.model_dump() for d in report.diagnostics]

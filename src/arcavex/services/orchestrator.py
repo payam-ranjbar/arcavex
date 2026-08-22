@@ -117,6 +117,7 @@ def _no_project_formats(project: Project) -> Diagnostic:
 
 
 @dataclass
+
 class _Rendered:
     """One rendered target staged for a run: its file, target, hashes, and provenance."""
 
@@ -1157,23 +1158,48 @@ class Orchestrator:
         )
 
     def detach_template(self, start: Path | None, project: Path | None) -> DetachReport:
+        """Give the project its own copy of whatever template it currently pins.
+
+        A pin is shared whether it names a library version or a directory somewhere else on
+        disk, and both make semantic editing impossible: the editor writes only inside the
+        project it was given. Detach used to cover the library case alone and told a path pin
+        it was "already a local path" -- which a pin like ``../authored`` plainly is not, and
+        which left the one shape ``project new --template <path>`` produces with no way out.
+        """
         proj = self._projects.resolve(start, project)
         ref = proj.manifest.template
-        if not is_library_ref(ref):
+        library = is_library_ref(ref)
+        source = (
+            self._library.resolve(ref).path if library else (proj.root / ref).resolve()
+        )
+        if not library and _is_within(source, proj.root):
             return DetachReport(
                 ok=False,
                 template=ref,
                 diagnostics=[
                     diagnostic(
                         "ARC-PRJ-006",
-                        "Project template is already a local path; nothing to detach",
+                        "Project template already lives inside the project; nothing to detach",
                         file=str(proj.project_file),
-                        hint="Detach applies only to a library 'name@version' pin.",
+                        hint="Detach copies a shared template in; this one is already local.",
                     )
                 ],
             )
-        resolved = self._library.resolve(ref)
-        dest = proj.root / "templates" / resolved.name
+        if not library and not source.exists():
+            return DetachReport(
+                ok=False,
+                template=ref,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-PRJ-006",
+                        f"The pinned template does not exist: {source}",
+                        file=str(proj.project_file),
+                        hint="Fix the 'template:' pin in project.yaml, then detach.",
+                    )
+                ],
+            )
+        name = self._library.resolve(ref).name if library else source.name
+        dest = proj.root / "templates" / name
         if dest.exists():
             return DetachReport(
                 ok=False,
@@ -1187,8 +1213,8 @@ class Orchestrator:
                     )
                 ],
             )
-        shutil.copytree(resolved.path, dest)
-        rel = f"templates/{resolved.name}"
+        shutil.copytree(source, dest)
+        rel = f"templates/{name}"
         updated = proj.manifest.model_copy(update={"template": rel})
         self._projects.save(Project(root=proj.root, manifest=updated))
         return DetachReport(
@@ -1628,3 +1654,12 @@ def _expand_project_globs(globs: list[str]) -> list[Path]:
             if path.is_dir() and (path / "project.yaml").is_file():
                 found[str(path.resolve())] = path
     return [found[k] for k in sorted(found)]
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    """True when ``candidate`` is inside ``root`` (or is it)."""
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True

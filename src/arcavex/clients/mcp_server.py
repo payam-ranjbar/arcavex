@@ -33,6 +33,7 @@ from arcavex.kernel.api import (
     AutomationMode,
     CheckResult,
     DataReport,
+    DetachReport,
     DiagnosticHelp,
     DiffReport,
     EffectListReport,
@@ -134,6 +135,10 @@ class ArcavexTools:
     ) -> PublishReport:
         """Publish a template directory into the library as an immutable version."""
         return self._facade.publish_template(Path(template), name, version, set_default)
+
+    def template_detach(self, project: str | None = None) -> DetachReport:
+        """Copy the project's pinned template into the project so it can be edited in place."""
+        return self._facade.detach_template(project=_opt_path(project))
 
     def template_validate(
         self,
@@ -516,6 +521,7 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_template_inspect", "template_inspect"),
     ("arcavex_template_new", "template_new"),
     ("arcavex_template_publish", "template_publish"),
+    ("arcavex_template_detach", "template_detach"),
     ("arcavex_template_validate", "template_validate"),
     ("arcavex_template_patch", "template_patch"),
     ("arcavex_project_create", "project_create"),
