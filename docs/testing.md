@@ -20,6 +20,10 @@ and the CI matrix (spec §8.5).
 | File safety | Path traversal, malformed asset, atomic/interrupted writes | `tests/unit/test_file_safety.py` |
 | CLI DX | Tested command transcripts, JSON output, exit codes | `tests/e2e/` |
 | Agent dogfood | Scripted MCP sessions | `tests/mcp_sessions/` |
+| Semantic editing | Command execution, revision guard, rollback, on-disk history | `tests/unit/editor/` |
+| Multi-process editing | Real concurrent processes over one project: locks, conflicts, no corruption | `tests/e2e/test_editor_races.py`, `test_editor_cli.py`, `test_editor_external_collaboration.py` |
+| Desktop workbench | Component, accessibility, and browser end-to-end | `apps/desktop/src/**/*.test.tsx`, `apps/desktop/e2e/` |
+| Packaged desktop | Installed build renders, restarts its engine, edits, and undoes to the original bytes | `scripts/verify_desktop_bundle.ps1` |
 
 ## Determinism: byte-identical across formats
 
