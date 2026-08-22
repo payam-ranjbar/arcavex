@@ -305,4 +305,5 @@ def test_every_tool_the_desktop_calls_exists_in_the_engine(tmp_path: Path) -> No
 
     called = _tool_names_the_desktop_calls()
     assert called, "no call_tool sites found; the parser needs updating, not the engine"
-    assert called <= registered, f"the desktop calls tools this engine does not have: {sorted(called - registered)}"
+    missing = sorted(called - registered)
+    assert not missing, f"the desktop calls tools this engine does not have: {missing}"
