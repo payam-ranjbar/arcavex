@@ -212,6 +212,27 @@ try {
         Confirm-That 'installed engine scaffolds a project' ($created.ExitCode -eq 0) $created.StdErr
 
         if ($created.ExitCode -eq 0) {
+            # `project new` pins the template where it lives, which is the right default and also
+            # the one shape semantic editing refuses (ARC-EDT-008: editing a shared library
+            # template in place would change every project pinning it). The self-check edits, so
+            # give this project its own template.yaml -- the ordinary shape a person edits.
+            Copy-Item -Path (Join-Path (Split-Path -Parent $FixtureTemplate) '*') -Destination $project -Force
+            $projectFile = Join-Path $project 'project.yaml'
+            $projectYaml = Get-Content -LiteralPath $projectFile -Raw -Encoding UTF8
+            # The pin is a `template:` key whose value may sit on the following indented
+            # line, so drop the key and any continuation, then write the local one back.
+            $kept = @()
+            $inTemplate = $false
+            foreach ($line in ($projectYaml -split "`r?`n")) {
+                if ($line -match '^template:') { $inTemplate = $true; continue }
+                if ($inTemplate -and $line -match '^\s+\S') { continue }
+                $inTemplate = $false
+                $kept += $line
+            }
+            $projectYaml = (@('template: template.yaml') + $kept) -join "`n"
+            [System.IO.File]::WriteAllText($projectFile, $projectYaml, (New-Object System.Text.UTF8Encoding($false)))
+            Confirm-That 'the project carries its own editable template' (Test-Path -LiteralPath (Join-Path $project 'template.yaml'))
+
             $preview = Invoke-Engine -Exe $installedEngine -EngineArgs @('preview', '--project', $project, '--json') -WorkingDirectory $workDir
             Confirm-That 'installed engine renders a preview' ($preview.ExitCode -eq 0) $preview.StdErr
             if ($preview.ExitCode -eq 0) {

@@ -101,11 +101,21 @@ async fn apply_edit(state: &SharedState, project: &Path) -> Result<(), String> {
         .and_then(Value::as_str)
         .ok_or_else(|| "the snapshot carried no project revision".to_owned())?;
 
+    // The target matters: an edit is validated by compiling the project as it would look after
+    // the transaction, and a template declaring several formats cannot pick one on its own
+    // (ARC-TPL-021). The workbench sends the target it is showing; this sends the project's
+    // declared default, which is the same thing on a freshly opened project.
+    let target = snapshot
+        .get("default_target")
+        .cloned()
+        .unwrap_or_else(|| json!({ "format": null, "locale": null }));
+
     let transaction = json!({
         "command_id": SELF_CHECK_COMMAND_ID,
         "project_path": project.display().to_string(),
         "base_project_revision": revision,
         "actor": { "id": "self-check" },
+        "target": target,
         "commands": [{ "kind": "set_text", "layer_id": "title", "text": "Self-check edit" }],
     });
 
@@ -137,18 +147,20 @@ async fn undo_edit(
     }
 }
 
-/// A transaction report that says `ok`, or the diagnostics explaining why not.
+/// A transaction report that says `ok`, or everything the engine said about why not.
+///
+/// The whole value is reported when there is no `diagnostics` or `conflict` field, because that
+/// case means the engine answered with something other than a transaction report — an MCP error
+/// payload, say — and "no diagnostics" would then hide the only evidence there is.
 fn accepted(report: &Value, what: &str) -> Result<(), String> {
     if report.get("ok").and_then(Value::as_bool) == Some(true) {
         return Ok(());
     }
-    Err(format!(
-        "{what} was refused: {}",
-        report
-            .get("diagnostics")
-            .or_else(|| report.get("conflict"))
-            .map_or_else(|| "no diagnostics".to_owned(), ToString::to_string)
-    ))
+    let detail = report
+        .get("diagnostics")
+        .or_else(|| report.get("conflict"))
+        .map_or_else(|| report.to_string(), ToString::to_string);
+    Err(format!("{what} was refused: {detail}"))
 }
 
 /// Run every check against a state built exactly the way the workbench builds it.
