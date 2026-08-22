@@ -499,6 +499,50 @@ impl<L: EngineLauncher> GatewayState<L> {
             .map(PathBuf::from)
     }
 
+    /// After one of our own semantic edits: claim its writes and refresh the picture.
+    ///
+    /// The transaction report names every path it changed; announcing them keeps the watcher
+    /// from labelling the engine's write an external edit, and an accepted render-affecting
+    /// change re-renders the active target exactly like any other change.
+    pub fn after_own_edit(self: &Arc<Self>, report: &Value) {
+        let changed: Vec<String> = report
+            .get("changed")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|entry| entry.get("path").and_then(Value::as_str))
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        for path in &changed {
+            self.announce_own_write(path);
+        }
+        if report.get("ok").and_then(Value::as_bool) == Some(true) && !changed.is_empty() {
+            self.refresh_open_snapshot();
+            self.request_render();
+        }
+    }
+
+    /// Re-read the open project's snapshot so revisions the UI sees match the engine's.
+    fn refresh_open_snapshot(self: &Arc<Self>) {
+        let state = Arc::clone(self);
+        tokio::spawn(async move {
+            let Ok(project) = state.open_project_path() else { return };
+            let Ok(snapshot) = state
+                .call_tool("project_snapshot", json!({ "project": project }))
+                .await
+            else {
+                return;
+            };
+            if let Some(session) = state.open.lock().expect("open project").as_mut() {
+                session.snapshot = snapshot.clone();
+            }
+            state.emit(DesktopEventKind::Project { snapshot });
+        });
+    }
+
     /// Tell the watcher a write is ours, so the event it causes is not called an external edit.
     pub fn announce_own_write(&self, relative: &str) {
         if let Some(session) = self.open.lock().expect("open project").as_ref() {
@@ -722,6 +766,62 @@ pub async fn set_ui_metadata(
             "project_ui_metadata_set",
             json!({ "project": project, "metadata": metadata }),
         )
+        .await
+}
+
+#[tauri::command]
+pub async fn editor_apply(
+    state: tauri::State<'_, SharedState>,
+    transaction: Value,
+) -> Result<Value, String> {
+    let report = state
+        .call_tool("editor_apply", json!({ "transaction": transaction }))
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_apply_authorized(
+    state: tauri::State<'_, SharedState>,
+    command_id: String,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let report = state
+        .call_tool(
+            "editor_apply_authorized",
+            json!({ "project": project, "command_id": command_id }),
+        )
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_undo(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let report = state
+        .call_tool("editor_undo", json!({ "project": project }))
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_redo(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let report = state
+        .call_tool("editor_redo", json!({ "project": project }))
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_history(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool("editor_history", json!({ "project": project }))
         .await
 }
 

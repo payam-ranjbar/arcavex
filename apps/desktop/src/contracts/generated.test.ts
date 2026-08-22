@@ -397,6 +397,51 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
     },
     {
       "path": [
+        "diagnostics",
+        0,
+        "code"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "message"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "severity"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-enum"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "source",
+        "column"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "source",
+        "line"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
         "entries",
         0
       ],
@@ -2984,6 +3029,51 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
     {
       "path": [
         "contract_version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "code"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "message"
+      ],
+      "operation": "delete"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "severity"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-enum"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "source",
+        "column"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "diagnostics",
+        0,
+        "source",
+        "line"
       ],
       "operation": "set",
       "value": "__arcavex_unexpected__-number"

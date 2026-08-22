@@ -3,6 +3,7 @@
 import type {
   CheckResult,
   EngineHandshakeReport,
+  HistoryReport,
   HitTestReport,
   LayerTreeReport,
   ProjectPolicyReport,
@@ -10,6 +11,8 @@ import type {
   ProjectUIMetadataReport,
   ProposalActionReport,
   ProposalListReport,
+  SemanticTransaction,
+  TransactionReport,
 } from "../contracts/index.ts";
 
 /** The event envelope version this frontend understands; the core refuses to emit any other. */
@@ -149,6 +152,18 @@ export interface ArcavexGateway {
   proposals(): Promise<ProposalListReport>;
   approveProposal(commandId: string): Promise<ProposalActionReport>;
   rejectProposal(commandId: string, reason: string): Promise<ProposalActionReport>;
+
+  /**
+   * Execute one semantic transaction.
+   *
+   * A refusal is a resolved report carrying a conflict or diagnostics, not a rejection: the
+   * engine answering "no, and here is why" is a normal outcome the workbench renders.
+   */
+  editorApply(transaction: SemanticTransaction): Promise<TransactionReport>;
+  editorApplyAuthorized(commandId: string): Promise<TransactionReport>;
+  editorUndo(): Promise<TransactionReport>;
+  editorRedo(): Promise<TransactionReport>;
+  editorHistory(): Promise<HistoryReport>;
 
   activity(): Promise<ReadonlyArray<ActivityEntry>>;
   settings(): Promise<DesktopSettings>;

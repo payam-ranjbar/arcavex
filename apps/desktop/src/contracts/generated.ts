@@ -88,7 +88,7 @@ export type CheckResult = { readonly diagnostics?: ReadonlyArray<Diagnostic>; re
 
 export type EngineHandshakeReport = { readonly accepted_ir_versions: ReadonlyArray<string>; readonly capabilities: ReadonlyArray<string>; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly doctor: DoctorReport; readonly extension_sdk_version: string; readonly identity: EngineIdentity; readonly mcp_contract_version: string; readonly ok: boolean; readonly paths: EnginePaths; readonly produced_ir_version: string; readonly response_version?: number; };
 
-export type HistoryReport = { readonly branched_by_external_edit?: boolean; readonly can_redo?: boolean; readonly can_undo?: boolean; readonly canonical_path?: string | null; readonly contract_version?: number; readonly diagnostics?: ReadonlyArray<unknown>; readonly entries?: ReadonlyArray<HistoryEntry>; readonly ok: boolean; readonly response_version?: number; };
+export type HistoryReport = { readonly branched_by_external_edit?: boolean; readonly can_redo?: boolean; readonly can_undo?: boolean; readonly canonical_path?: string | null; readonly contract_version?: number; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly entries?: ReadonlyArray<HistoryEntry>; readonly ok: boolean; readonly response_version?: number; };
 
 export type HitTestReport = { readonly candidates?: ReadonlyArray<HitCandidate>; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly format?: string | null; readonly locale?: string | null; readonly ok: boolean; readonly point_pt?: readonly [number, number]; readonly point_px?: readonly [number, number] | null; readonly response_version?: number; };
 
@@ -106,7 +106,7 @@ export type ProposalActionReport = { readonly canonical_path?: string | null; re
 
 export type ProposalListReport = { readonly canonical_path?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly ok: boolean; readonly proposals?: ReadonlyArray<ProjectProposal>; readonly response_version?: number; };
 
-export type TransactionReport = { readonly canonical_path?: string | null; readonly changed?: ReadonlyArray<ChangedPath>; readonly changed_layer_ids?: ReadonlyArray<string>; readonly command_id?: string | null; readonly conflict?: ConflictDetail | null; readonly contract_version?: number; readonly diagnostics?: ReadonlyArray<unknown>; readonly inverse?: SemanticTransaction | null; readonly ok: boolean; readonly project_revision?: string | null; readonly queued_command_id?: string | null; readonly render_revision?: string | null; readonly response_version?: number; };
+export type TransactionReport = { readonly canonical_path?: string | null; readonly changed?: ReadonlyArray<ChangedPath>; readonly changed_layer_ids?: ReadonlyArray<string>; readonly command_id?: string | null; readonly conflict?: ConflictDetail | null; readonly contract_version?: number; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly inverse?: SemanticTransaction | null; readonly ok: boolean; readonly project_revision?: string | null; readonly queued_command_id?: string | null; readonly render_revision?: string | null; readonly response_version?: number; };
 
 export type DesktopContractName = "CheckResult" | "EngineHandshakeReport" | "HistoryReport" | "HitTestReport" | "LayerTreeReport" | "PreviewProjectReport" | "ProjectPolicyReport" | "ProjectSnapshotReport" | "ProjectUIMetadataReport" | "ProposalActionReport" | "ProposalListReport" | "SemanticTransaction" | "TransactionReport";
 export type DesktopContractGuard = (value: unknown) => boolean;
@@ -624,6 +624,58 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "title": "Actor",
         "type": "object"
       },
+      "Diagnostic": {
+        "description": "A single structured diagnostic.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hint"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "default": "error",
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SourceLocation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "Diagnostic",
+        "type": "object"
+      },
       "HistoryEntry": {
         "additionalProperties": false,
         "description": "One applied transaction, as history shows it.",
@@ -666,6 +718,61 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         ],
         "title": "HistoryEntry",
         "type": "object"
+      },
+      "SourceLocation": {
+        "description": "A location in an authored source file.",
+        "properties": {
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Column"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File"
+          },
+          "keypath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Keypath"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Line"
+          }
+        },
+        "title": "SourceLocation",
+        "type": "object"
       }
     },
     "description": "The undo/redo state of one project.",
@@ -703,7 +810,9 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "type": "integer"
       },
       "diagnostics": {
-        "items": {},
+        "items": {
+          "$ref": "#/$defs/Diagnostic"
+        },
         "title": "Diagnostics",
         "type": "array"
       },
@@ -4193,6 +4302,58 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "title": "DeleteCommand",
         "type": "object"
       },
+      "Diagnostic": {
+        "description": "A single structured diagnostic.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hint"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "default": "error",
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SourceLocation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "Diagnostic",
+        "type": "object"
+      },
       "DuplicateCommand": {
         "additionalProperties": false,
         "description": "Copy a node and its subtree, giving every copy a fresh stable id.",
@@ -4699,6 +4860,61 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "title": "SetVisibilityCommand",
         "type": "object"
       },
+      "SourceLocation": {
+        "description": "A location in an authored source file.",
+        "properties": {
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Column"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File"
+          },
+          "keypath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Keypath"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Line"
+          }
+        },
+        "title": "SourceLocation",
+        "type": "object"
+      },
       "SpliceCommand": {
         "additionalProperties": false,
         "description": "Engine-authored restoration: replace a slice of a parent's child list with raw entries.\n\nThe inverse of ``delete`` must re-insert the exact authored subtree, and the inverse of\n``group`` must put the original siblings back where the group stood — neither is expressible\nin the semantic vocabulary above, because both restore *content*, not intent. The engine\nemits this kind in inverses and accepts it back on undo; clients normally never compose one.",
@@ -4836,7 +5052,9 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "type": "integer"
       },
       "diagnostics": {
-        "items": {},
+        "items": {
+          "$ref": "#/$defs/Diagnostic"
+        },
         "title": "Diagnostics",
         "type": "array"
       },

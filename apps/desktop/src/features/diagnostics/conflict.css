@@ -1,0 +1,75 @@
+/* The conflict surface: an interruption, so it reads as a sheet rather than a toast. */
+
+.conflict {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 520px;
+  padding: var(--space-5);
+  border: 1px solid var(--arcavex-border);
+  border-radius: var(--radius-2);
+  background: var(--arcavex-elevated);
+  box-shadow: var(--shadow-2);
+}
+
+.conflict__title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.conflict__body {
+  display: grid;
+  gap: var(--space-3);
+  color: var(--arcavex-text-muted);
+}
+
+.conflict__body p {
+  margin: 0;
+}
+
+.conflict__files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.conflict__files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+}
+
+.conflict__files li + li {
+  border-top: 1px solid var(--arcavex-border);
+}
+
+.conflict__path {
+  color: var(--arcavex-text);
+}
+
+.conflict__change {
+  color: var(--arcavex-text-muted);
+  font-size: var(--text-sm);
+}
+
+.conflict__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.conflict__action {
+  padding: var(--space-2) var(--space-4);
+}
+
+.conflict__action--primary {
+  border-color: var(--arcavex-accent);
+  color: var(--arcavex-accent);
+}
+
+.conflict__action--quiet {
+  color: var(--arcavex-text-muted);
+}

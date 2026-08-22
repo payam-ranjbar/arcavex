@@ -33,6 +33,8 @@ from pydantic import (
     field_validator,
 )
 
+from arcavex.kernel.diagnostics import Diagnostic
+
 #: Bumped when an existing command or report shape changes meaning, so a desktop built against an
 #: older engine can refuse rather than misinterpret.
 EDITOR_CONTRACT_VERSION = 1
@@ -355,7 +357,7 @@ class TransactionReport(BaseModel):
     conflict: ConflictDetail | None = None
     #: Present when a review-mode policy queued the command instead of executing it.
     queued_command_id: UUID4 | None = None
-    diagnostics: list[Any] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
 class HistoryEntry(BaseModel):
@@ -393,7 +395,7 @@ class HistoryReport(BaseModel):
     #: True when an edit from outside this history ended the redo line. Replaying across someone
     #: else's work would overwrite it, so redo stops rather than guessing.
     branched_by_external_edit: bool = False
-    diagnostics: list[Any] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
 class EditorProtocol(Protocol):

@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 
 import type {
   CheckResult,
+  HistoryReport,
   HitTestReport,
   LayerTreeReport,
   ProjectPolicyReport,
@@ -12,6 +13,8 @@ import type {
   ProjectUIMetadataReport,
   ProposalActionReport,
   ProposalListReport,
+  SemanticTransaction,
+  TransactionReport,
 } from "../contracts/index.ts";
 import {
   DESKTOP_EVENT_VERSION,
@@ -75,6 +78,26 @@ export class TauriArcavexGateway implements ArcavexGateway {
 
   hitTest(xPt: number, yPt: number): Promise<HitTestReport> {
     return invoke("hit_test", { xPt, yPt });
+  }
+
+  editorApply(transaction: SemanticTransaction): Promise<TransactionReport> {
+    return invoke("editor_apply", { transaction });
+  }
+
+  editorApplyAuthorized(commandId: string): Promise<TransactionReport> {
+    return invoke("editor_apply_authorized", { commandId });
+  }
+
+  editorUndo(): Promise<TransactionReport> {
+    return invoke("editor_undo");
+  }
+
+  editorRedo(): Promise<TransactionReport> {
+    return invoke("editor_redo");
+  }
+
+  editorHistory(): Promise<HistoryReport> {
+    return invoke("editor_history");
   }
 
   requestRender(): Promise<RenderStatus> {

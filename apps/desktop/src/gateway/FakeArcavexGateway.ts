@@ -4,6 +4,7 @@ import {
   desktopContractFixtures,
   type CheckResult,
   type DesktopContractName,
+  type HistoryReport,
   type HitTestReport,
   type LayerTreeReport,
   type ProjectPolicyReport,
@@ -11,6 +12,8 @@ import {
   type ProjectUIMetadataReport,
   type ProposalActionReport,
   type ProposalListReport,
+  type SemanticTransaction,
+  type TransactionReport,
 } from "../contracts/index.ts";
 import {
   DESKTOP_EVENT_VERSION,
@@ -45,6 +48,9 @@ export interface FakeGatewayScript {
   readonly uiMetadata?: ProjectUIMetadataReport;
   readonly policy?: ProjectPolicyReport;
   readonly proposals?: ProposalListReport;
+  /** Report returned by every editorApply; defaults to the accepted fixture. */
+  readonly transaction?: TransactionReport;
+  readonly history?: HistoryReport;
   readonly settings?: Partial<DesktopSettings>;
   readonly renderStatus?: RenderStatus;
   readonly activity?: ReadonlyArray<ActivityEntry>;
@@ -249,6 +255,43 @@ export class FakeArcavexGateway implements ArcavexGateway {
   setPolicy(policy: AutomationPolicyValue): Promise<ProjectPolicyReport> {
     const current = this.script.policy ?? fixture<ProjectPolicyReport>("ProjectPolicyReport");
     return this.record("setPolicy", { ...current, policy }, policy);
+  }
+
+  editorApply(transaction: SemanticTransaction): Promise<TransactionReport> {
+    return this.record(
+      "editorApply",
+      this.script.transaction ?? fixture<TransactionReport>("TransactionReport"),
+      transaction,
+    );
+  }
+
+  editorApplyAuthorized(commandId: string): Promise<TransactionReport> {
+    return this.record(
+      "editorApplyAuthorized",
+      this.script.transaction ?? fixture<TransactionReport>("TransactionReport"),
+      commandId,
+    );
+  }
+
+  editorUndo(): Promise<TransactionReport> {
+    return this.record(
+      "editorUndo",
+      this.script.transaction ?? fixture<TransactionReport>("TransactionReport"),
+    );
+  }
+
+  editorRedo(): Promise<TransactionReport> {
+    return this.record(
+      "editorRedo",
+      this.script.transaction ?? fixture<TransactionReport>("TransactionReport"),
+    );
+  }
+
+  editorHistory(): Promise<HistoryReport> {
+    return this.record(
+      "editorHistory",
+      this.script.history ?? fixture<HistoryReport>("HistoryReport"),
+    );
   }
 
   proposals(): Promise<ProposalListReport> {
