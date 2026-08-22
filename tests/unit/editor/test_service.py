@@ -427,3 +427,53 @@ def test_set_display_name_edits_ui_metadata_not_the_template(
     projects = _projects(tmp_path)
     metadata = projects.load_ui_metadata(projects.load(project))
     assert metadata.layers["title"].display_name == "Headline"
+
+
+# ------------------------------------------------------------------ malformed transactions
+
+
+def test_a_malformed_transaction_names_every_field_it_is_missing(
+    service: EditorService,
+) -> None:
+    """A refusal has to teach the caller the shape, or a client cannot converge on it.
+
+    An AI client reaches this tool with no schema in front of it: the MCP catalog carries the
+    tool's name, not the transaction's field names. Answering "5 validation error(s)" with a
+    hint of "command_id" gives it a number and a bare token, and adding a correct field makes
+    the count go *up* — a gradient pointing away from success. Every missing field has to be
+    named, with what is wrong with it, in one answer.
+    """
+    report = service.apply({})
+
+    assert report.ok is False
+    detail = " ".join(
+        f"{d.message} {d.hint or ''}" for d in report.diagnostics if d.code == "ARC-EDT-010"
+    )
+    for field in ("command_id", "project_path", "base_project_revision", "commands"):
+        assert field in detail, f"the refusal never mentions {field!r}: {detail}"
+    assert "required" in detail.lower()
+
+
+def test_a_partly_formed_transaction_names_only_what_is_still_wrong(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """Progress must be visible: fixing a field removes it from the answer."""
+    first = service.apply({"command_id": str(uuid.uuid4())})
+    second = service.apply(
+        {
+            "command_id": str(uuid.uuid4()),
+            "project_path": str(project.resolve()),
+            "base_project_revision": _revision(tmp_path, project),
+        }
+    )
+
+    # The message alone: the hint is a constant description of the shape, so it names every
+    # field by design and cannot show progress.
+    first_detail = " ".join(d.message for d in first.diagnostics)
+    second_detail = " ".join(d.message for d in second.diagnostics)
+
+    assert "command_id" not in second_detail
+    assert "project_path" not in second_detail
+    assert "commands" in second_detail
+    # The answer gets shorter as the caller gets closer, rather than longer.
+    assert len(second_detail) < len(first_detail)

@@ -37,6 +37,7 @@ from pydantic import ValidationError
 from arcavex.kernel.api import LayerUIMetadata
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic
 from arcavex.kernel.editor import (
+    COMMAND_KINDS,
     Actor,
     ChangedPath,
     HistoryReport,
@@ -102,12 +103,7 @@ class EditorService:
             return TransactionReport(
                 ok=False,
                 diagnostics=[
-                    diagnostic(
-                        "ARC-EDT-010",
-                        f"Invalid editor transaction: {error.error_count()} validation "
-                        "error(s); nothing was executed.",
-                        hint=str(error).splitlines()[1][:200] if str(error) else None,
-                    )
+                    diagnostic("ARC-EDT-010", _malformed_message(error), hint=_malformed_hint())
                 ],
             )
         return self._apply_transaction(transaction, gate_policy=True, record_history=True)
@@ -511,6 +507,43 @@ class EditorService:
 
 
 # ------------------------------------------------------------------------------------ dispatch
+
+
+def _malformed_message(error: ValidationError) -> str:
+    """Name every problem with a submitted transaction, in one answer.
+
+    A caller composing a transaction has no schema in front of it: the MCP tool catalog carries
+    the tool's name, not the field names of the payload. A count of validation errors is
+    therefore unusable — worse than unusable, because adding a correct field uncovers nested
+    errors and pushes the count *up*, which reads as moving away from success.
+
+    So each problem is reported as ``field: what is wrong``, and nothing else is needed to fix it.
+    """
+    problems: list[str] = []
+    for detail in error.errors():
+        location = ".".join(str(part) for part in detail.get("loc", ())) or "(payload)"
+        problems.append(f"{location}: {detail.get('msg', 'is invalid')}")
+
+    # Nested command errors repeat per union member; the same field said twice helps nobody.
+    unique: list[str] = []
+    for problem in problems:
+        if problem not in unique:
+            unique.append(problem)
+
+    listed = "; ".join(unique[:12])
+    if len(unique) > 12:
+        listed += f"; and {len(unique) - 12} more"
+    return f"Invalid editor transaction; nothing was executed. {listed}"
+
+
+def _malformed_hint() -> str:
+    """The shape of a transaction, so a caller can compose one without guessing."""
+    return (
+        "A transaction is {command_id: <uuid>, project_path: <absolute path>, "
+        "base_project_revision: <revision from project_snapshot>, actor: {id: <string>}, "
+        "target: {format: <name>, locale: <name or null>}, commands: [{kind: <command>, ...}]}. "
+        f"Command kinds: {', '.join(sorted(COMMAND_KINDS))}."
+    )
 
 
 def _dispatch(
