@@ -88,6 +88,7 @@ def file_lock(
     lock_path: Path,
     *,
     timeout: float = 30.0,
+    stale_after: float | None = None,
     poll: float = 0.05,
     validate: Callable[[], None] | None = None,
 ) -> Iterator[None]:
@@ -95,9 +96,15 @@ def file_lock(
 
     Used to serialize library template publication and index updates (§8.3) so two processes
     never write the same version directory or clobber an index. The lock is a plain file whose
-    exclusive creation is the atomic primitive; it is removed on release. A stale lock older
-    than ``timeout`` is reclaimed so a crashed writer cannot wedge the library forever.
+    exclusive creation is the atomic primitive; it is removed on release. A stale lock older than
+    ``stale_after`` is reclaimed so a crashed writer cannot wedge the project forever.
+
+    ``timeout`` is how long *this* caller waits; ``stale_after`` is how old a lock must be before
+    it is presumed abandoned. They default to the same value for callers that pass neither, but
+    they are not the same question: a caller that wants to give up quickly would otherwise also
+    declare a perfectly healthy lock abandoned and steal it, which is worse than waiting.
     """
+    abandoned_after = timeout if stale_after is None else stale_after
     if validate is not None:
         validate()
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,7 +122,7 @@ def file_lock(
         except OSError as exc:
             if exc.errno != errno.EEXIST:
                 raise
-            if _reclaim_if_stale(lock_path, timeout, validate):
+            if _reclaim_if_stale(lock_path, abandoned_after, validate):
                 continue
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"could not acquire lock {lock_path} within {timeout}s") from exc
@@ -135,17 +142,17 @@ def file_lock(
 
 def _reclaim_if_stale(
     lock_path: Path,
-    timeout: float,
+    stale_after: float,
     validate: Callable[[], None] | None = None,
 ) -> bool:
-    """Remove a lock file older than ``timeout`` seconds; return whether it was reclaimed."""
+    """Remove a lock file older than ``stale_after`` seconds; return whether it was reclaimed."""
     try:
         if validate is not None:
             validate()
         age = time.time() - lock_path.stat().st_mtime
     except FileNotFoundError:
         return True  # vanished — try to acquire again
-    if age > timeout:
+    if age > stale_after:
         try:
             if validate is not None:
                 validate()

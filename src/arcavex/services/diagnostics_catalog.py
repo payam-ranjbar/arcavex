@@ -969,6 +969,32 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Reinstall from a wheel built with the skill included, or run from a source checkout.",
         ),
         _e(
+            "ARC-EDT-001",
+            "Project is locked by another writer",
+            "A semantic edit could not acquire the project mutation lock: another Arcavex "
+            "process — the desktop, an MCP client, or a CLI command — is writing to this "
+            "project and did not release the lock within the wait. Nothing was changed.",
+            "Wait for the other process to finish and retry. If nothing is running, remove the "
+            "stale .arcavex/project.lock file.",
+        ),
+        _e(
+            "ARC-EDT-002",
+            "Transaction write failed and was rolled back",
+            "Atomically replacing a project file failed partway through a transaction — disk "
+            "full, a permissions error, or the file held open by another program. Every file "
+            "the transaction had already replaced was restored from its backup, so the project "
+            "matches its state before the edit.",
+            "Check disk space and file permissions, close programs holding project files open, "
+            "then retry the edit.",
+        ),
+        _e(
+            "ARC-EDT-003",
+            "Unreadable history record skipped",
+            "A JSON record under .arcavex/history cannot be decoded or validated. The record is "
+            "skipped; undo/redo of the remaining entries still works.",
+            "Remove the named file under .arcavex/history to clear the warning.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",

@@ -14,8 +14,16 @@ _LOCK_STATE = threading.local()
 
 
 @contextmanager
-def project_mutation_lock(root: Path) -> Iterator[None]:
-    """Hold the one re-entrant cross-process lock for project-revision mutations."""
+def project_mutation_lock(
+    root: Path, *, timeout: float = 30.0, stale_after: float | None = None
+) -> Iterator[None]:
+    """Hold the one re-entrant cross-process lock for project-revision mutations.
+
+    Raises:
+        TimeoutError: when another process holds the lock for longer than ``timeout``. Callers
+            that face a user translate this into a coded diagnostic; see
+            :func:`arcavex.services.editor.locking.editor_lock`.
+    """
     canonical_root = root.resolve()
     working = canonical_root / ".arcavex"
     ensure_project_path_safe(canonical_root, working)
@@ -32,7 +40,7 @@ def project_mutation_lock(root: Path) -> Iterator[None]:
         ensure_project_path_safe(canonical_root, working)
         ensure_project_path_safe(canonical_root, lock_path)
 
-    with file_lock(lock_path, validate=validate):
+    with file_lock(lock_path, timeout=timeout, stale_after=stale_after, validate=validate):
         validate()
         _LOCK_STATE.paths = {*held, lock_path}
         try:
