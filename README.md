@@ -72,6 +72,21 @@ passed and `preview_data` exists, Arcavex infers the value and reports it (human
 **New here?** [Install](docs/install.md) → [Quick start](docs/quick-start.md) (a 10-minute path
 from a first render to exports, locales, and provenance) → [Tutorials](docs/tutorials/).
 
+## Arcavex Desktop
+
+The Windows desktop application is the same engine with a window on it: it runs a pinned, frozen
+copy of the engine as a sidecar and talks to it over MCP, so what the window renders is what
+`arcavex render` renders. It shows the layer tree the engine reports, the measurements the engine
+computed, and the proof it produced — no second layout implementation.
+
+It also **edits**, and it edits the project's source files rather than a document model of its own.
+A gesture becomes one semantic transaction; the engine rewrites `template.yaml` preserving
+comments and key order, or refuses and writes nothing at all. Because those files are shared with
+the CLI and with an assistant working over MCP, edits carry the revision they were composed
+against, undo history belongs to the project rather than to the window, and a collision is
+reported as a conflict naming the files that moved. [Desktop editing](docs/desktop/editor.md)
+covers the model, the refusals, and what cannot be edited in place.
+
 ## Documentation
 
 Everything below is reachable within two clicks from this index.
@@ -90,6 +105,7 @@ Everything below is reachable within two clicks from this index.
 | [Performance](docs/performance.md) | Measured actuals vs the spec §8.2 targets. |
 | [Testing](docs/testing.md) | The test layers and the per-platform golden strategy. |
 | [Packaged install](docs/packaged-install.md) | The clean-venv wheel transcript (byte-identical proof). |
+| [Desktop editing](docs/desktop/editor.md) | How Arcavex Desktop edits source files: transactions, refusals, conflicts, shared undo. |
 | [Contributing](docs/contributing.md) | Dev setup, make targets, golden/ADR process. |
 | [ADRs](docs/adr/README.md) · [Backlog](docs/backlog.md) · [Changelog](CHANGELOG.md) | Decisions, deferred work, release notes. |
 

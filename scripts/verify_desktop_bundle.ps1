@@ -13,8 +13,8 @@
          checkout -- the failure mode where an executable inside the repository silently borrows
          the developer's fonts and style packs.
       3. The installed application, run headlessly with --self-check, resolves that engine,
-         completes the MCP handshake, opens a project, renders, restarts the engine, and renders
-         again.
+         completes the MCP handshake, opens a project, renders, restarts the engine, renders
+         again, applies a real semantic edit, and undoes it back to the original bytes.
       4. A real launch keeps a window open, which is the part --self-check cannot cover.
       5. The updater artifact is signed by the private key matching the public key compiled into
          the application.
@@ -252,6 +252,13 @@ try {
             ($reportedEngine -ieq [System.IO.Path]::GetFullPath($installedEngine)) `
             "reported $reportedEngine"
         Confirm-That 'self-check reports the pinned engine version' ($report.engine_version -eq $lock.engine_version)
+
+        # Naming the editing steps explicitly: iterating whatever steps the report happens to
+        # contain would pass a build that quietly stopped running them.
+        $stepNames = @($report.steps | ForEach-Object { $_.name })
+        foreach ($required in @('apply an edit', 'undo restores the file')) {
+            Confirm-That "self-check exercises '$required'" ($stepNames -contains $required) ($stepNames -join ', ')
+        }
     }
     else {
         Confirm-That 'self-check writes a report' $false $reportPath

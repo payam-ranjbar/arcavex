@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use serde_json::{json, Value};
 
 use crate::gateway::SharedState;
 use crate::rendering::RenderState;
@@ -27,6 +28,10 @@ const RENDER_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// How often the render state is sampled while waiting.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+/// A fixed command id: the check runs against a project it just created, so nothing collides and
+/// a stable id makes a failed run's history readable.
+const SELF_CHECK_COMMAND_ID: &str = "5c5e1f00-0000-4000-8000-000000005c1f";
 
 #[derive(Debug, Serialize)]
 pub struct SelfCheckStep {
@@ -88,6 +93,64 @@ async fn wait_for_render(state: &SharedState) -> Result<(), String> {
     }
 }
 
+/// Rename the root layer through a real semantic transaction and confirm the engine accepted it.
+async fn apply_edit(state: &SharedState, project: &Path) -> Result<(), String> {
+    let snapshot = state.project_snapshot_value()?;
+    let revision = snapshot
+        .get("project_revision")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "the snapshot carried no project revision".to_owned())?;
+
+    let transaction = json!({
+        "command_id": SELF_CHECK_COMMAND_ID,
+        "project_path": project.display().to_string(),
+        "base_project_revision": revision,
+        "actor": { "id": "self-check" },
+        "commands": [{ "kind": "set_text", "layer_id": "title", "text": "Self-check edit" }],
+    });
+
+    let report = state
+        .call_tool("editor_apply", json!({ "transaction": transaction }))
+        .await?;
+    accepted(&report, "editor_apply")
+}
+
+/// Undo it, and require the file on disk to be exactly what it was before the edit.
+async fn undo_edit(
+    state: &SharedState,
+    template: &Path,
+    before: Option<&[u8]>,
+) -> Result<(), String> {
+    let project = state.open_project_path()?;
+    let report = state
+        .call_tool("editor_undo", json!({ "project": project }))
+        .await?;
+    accepted(&report, "editor_undo")?;
+
+    match (before, std::fs::read(template)) {
+        (Some(original), Ok(current)) if current == original => Ok(()),
+        (Some(_), Ok(_)) => {
+            Err("undo left template.yaml different from before the edit".to_owned())
+        }
+        (_, Err(error)) => Err(format!("template.yaml could not be read back: {error}")),
+        (None, _) => Err("template.yaml could not be read before the edit".to_owned()),
+    }
+}
+
+/// A transaction report that says `ok`, or the diagnostics explaining why not.
+fn accepted(report: &Value, what: &str) -> Result<(), String> {
+    if report.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+    Err(format!(
+        "{what} was refused: {}",
+        report
+            .get("diagnostics")
+            .or_else(|| report.get("conflict"))
+            .map_or_else(|| "no diagnostics".to_owned(), ToString::to_string)
+    ))
+}
+
 /// Run every check against a state built exactly the way the workbench builds it.
 pub async fn self_check(project: Option<&Path>, settings_directory: &Path) -> SelfCheckReport {
     let state: SharedState = Arc::new(crate::build_state(settings_directory));
@@ -145,6 +208,21 @@ pub async fn self_check(project: Option<&Path>, settings_directory: &Path) -> Se
             started,
             wait_for_render(&state).await,
         );
+
+        // Editing is the Phase 2 promise, and it is the part a packaged build can break in ways
+        // no unit test sees: the sidecar writes files under an installed layout, with whatever
+        // permissions the installer left behind. Applying a real transaction and then undoing it
+        // proves the whole round trip — and that it leaves the project byte-for-byte as found.
+        let template = project.join("template.yaml");
+        let before = std::fs::read(&template).ok();
+
+        let started = Instant::now();
+        let applied = apply_edit(&state, project).await;
+        ok &= recorder.record("apply an edit", started, applied);
+
+        let started = Instant::now();
+        let restored = undo_edit(&state, &template, before.as_deref()).await;
+        ok &= recorder.record("undo restores the file", started, restored);
     }
 
     state.shutdown();

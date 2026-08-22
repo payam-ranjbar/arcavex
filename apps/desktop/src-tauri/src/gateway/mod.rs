@@ -529,7 +529,9 @@ impl<L: EngineLauncher> GatewayState<L> {
     fn refresh_open_snapshot(self: &Arc<Self>) {
         let state = Arc::clone(self);
         tokio::spawn(async move {
-            let Ok(project) = state.open_project_path() else { return };
+            let Ok(project) = state.open_project_path() else {
+                return;
+            };
             let Ok(snapshot) = state
                 .call_tool("project_snapshot", json!({ "project": project }))
                 .await

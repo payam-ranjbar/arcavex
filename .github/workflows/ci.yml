@@ -75,11 +75,30 @@ jobs:
       - name: Type-check (mypy --strict on kernel)
         run: uv run mypy src/arcavex/kernel --strict
 
+      # The editor writes to project sources, so it is held to the kernel's standard even though
+      # it lives in the service layer: a wrong type here rewrites someone's files.
+      #
+      # Pinned to 3.12 rather than the project's 3.11 floor because this package reaches NumPy
+      # transitively and NumPy's stubs use `type` statements, which mypy will not parse at 3.11.
+      # The kernel check above still runs at the floor, so nothing there is unguarded.
+      - name: Type-check (mypy --strict on the editor service)
+        run: uv run mypy src/arcavex/services/editor --strict --python-version 3.12
+
       - name: Architecture contracts (import-linter)
         run: uv run lint-imports
 
       - name: Tests (excluding platform goldens)
         run: uv run pytest tests -q --ignore=tests/golden
+
+      # Called out separately from the suite above: these spawn real processes over one project,
+      # and they are the only gate on "an edit never corrupts a source file". A collection error
+      # would otherwise disappear into a green run.
+      - name: Multi-process editor guarantees
+        run: >
+          uv run pytest -q
+          tests/e2e/test_editor_races.py
+          tests/e2e/test_editor_cli.py
+          tests/e2e/test_editor_external_collaboration.py
 
       # Golden images are per-platform (dssim <= 0.003). A platform whose golden set is not yet
       # committed uploads its renders as an artifact for review rather than failing the build; a

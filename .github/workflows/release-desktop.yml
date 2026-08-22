@@ -92,6 +92,15 @@ jobs:
       - name: Sidecar contract tests
         run: uv run pytest tests/e2e/test_engine_sidecar.py -q
 
+      # A release ships the editor, so the guarantees that keep an edit from corrupting a source
+      # file are gates here too, against the same pinned engine the installer will carry.
+      - name: Multi-process editor guarantees
+        run: >
+          uv run pytest -q
+          tests/e2e/test_editor_races.py
+          tests/e2e/test_editor_cli.py
+          tests/e2e/test_editor_external_collaboration.py
+
       # Authenticode is a separate concern from the updater signature. Without a certificate the
       # installer still works, but Windows SmartScreen warns on first run, so the release is
       # marked as a prerelease rather than presented as ready for nontechnical distribution.
