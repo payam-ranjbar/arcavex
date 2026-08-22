@@ -1,27 +1,53 @@
-/** The authoritative hierarchy, shown the way a layers panel is read: topmost first. */
+/**
+ * The authoritative hierarchy, shown the way a layers panel is read: topmost first — and, once
+ * editing is wired, the place structure is changed.
+ *
+ * Two decisions keep this honest. Visual order is inverted from authored order, and that
+ * conversion lives entirely in `dropTarget.ts` rather than being re-derived per interaction. And
+ * structural editing is disabled in Rendered mode for rows a `repeat`/`if` construct produced,
+ * because one visible instance does not map to one authored definition — editing it would change
+ * every instance without saying so.
+ */
 
 import { useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import type { LayerTreeMode } from "../../gateway/index.ts";
+import type { EditorCommand } from "../workspace/index.ts";
 import { useLayerTree } from "../projects/index.ts";
-import { allExpandableKeys, flattenLayerTree, moveSelection, type LayerRow } from "./layerTree.ts";
+import { LayerActions } from "./LayerActions.tsx";
+import { LayerRow } from "./LayerRow.tsx";
+import { REJECTION_MESSAGE, resolveDrop, type DropPosition } from "./dropTarget.ts";
+import {
+  allExpandableKeys,
+  flattenLayerTree,
+  moveSelection,
+  type LayerRow as Row,
+} from "./layerTree.ts";
 
 import "./layers.css";
 
 export interface LayersPanelProps {
   readonly selectedKey: string | null;
-  readonly onSelect: (row: LayerRow | null) => void;
+  readonly onSelect: (row: Row | null) => void;
+  /** Absent leaves the panel read-only, exactly as Phase 1 behaved. */
+  readonly onSubmit?: (commands: ReadonlyArray<EditorCommand>) => void;
+  /** False for a read-only project. */
+  readonly editable?: boolean;
 }
 
-const KIND_LABEL: Record<LayerRow["kind"], string> = {
-  layer: "Layer",
-  mask: "Mask",
-  effect: "Effect",
-};
-
-export function LayersPanel({ selectedKey, onSelect }: LayersPanelProps): ReactNode {
+export function LayersPanel({
+  selectedKey,
+  onSelect,
+  onSubmit,
+  editable = true,
+}: LayersPanelProps): ReactNode {
   const [mode, setMode] = useState<LayerTreeMode>("rendered");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [dragged, setDragged] = useState<Row | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ key: string; position: DropPosition } | null>(
+    null,
+  );
+  const [announcement, setAnnouncement] = useState("");
   const tree = useLayerTree(mode);
 
   // Everything is open by default: a layer panel that starts collapsed hides the work.
@@ -37,6 +63,19 @@ export function LayersPanel({ selectedKey, onSelect }: LayersPanelProps): ReactN
     [tree.data, expanded],
   );
 
+  const selectedRow = rows.find((row) => row.key === selectedKey) ?? null;
+  // A rendered instance of a construct has no single authored definition to restructure.
+  const structural =
+    onSubmit !== undefined &&
+    editable &&
+    (mode === "authored" || (selectedRow?.origin ?? "static") === "static");
+  const structuralReason =
+    onSubmit === undefined || !editable
+      ? null
+      : structural
+        ? null
+        : "Switch to Definition mode to restructure repeated or conditional layers.";
+
   function toggle(key: string): void {
     setCollapsed((current) => {
       const next = new Set(current);
@@ -46,12 +85,31 @@ export function LayersPanel({ selectedKey, onSelect }: LayersPanelProps): ReactN
     });
   }
 
+  function submit(commands: ReadonlyArray<EditorCommand>, summary: string): void {
+    onSubmit?.(commands);
+    setAnnouncement(summary);
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLUListElement>): void {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
     const nextKey = moveSelection(rows, selectedKey, event.key === "ArrowDown" ? 1 : -1);
     const next = rows.find((row) => row.key === nextKey);
     onSelect(next ?? null);
+  }
+
+  function completeDrop(row: Row, position: DropPosition): void {
+    setDropTarget(null);
+    const source = dragged;
+    setDragged(null);
+    if (!source || !structural) return;
+
+    const result = resolveDrop({ rows, dragged: source, target: { row, position } });
+    if (!result.ok) {
+      setAnnouncement(REJECTION_MESSAGE[result.reason]);
+      return;
+    }
+    submit([result.command], `Moved ${source.displayName}.`);
   }
 
   if (tree.isError) {
@@ -73,6 +131,15 @@ export function LayersPanel({ selectedKey, onSelect }: LayersPanelProps): ReactN
         ))}
       </div>
 
+      {onSubmit ? (
+        <LayerActions
+          selection={selectedRow ? [selectedRow] : []}
+          disabled={!structural}
+          disabledReason={structuralReason}
+          onSubmit={(commands) => submit(commands, "Applied a layer change.")}
+        />
+      ) : null}
+
       <ul
         className="layers__rows"
         role="tree"
@@ -81,53 +148,54 @@ export function LayersPanel({ selectedKey, onSelect }: LayersPanelProps): ReactN
         onKeyDown={onKeyDown}
       >
         {rows.map((row) => (
-          <li
+          <LayerRow
             key={row.key}
-            role="treeitem"
-            aria-level={row.depth + 1}
-            aria-selected={row.key === selectedKey}
-            {...(row.expandable ? { "aria-expanded": expanded.has(row.key) } : {})}
-            className="layers__row"
-            data-kind={row.kind}
-            data-locked={row.locked}
-            data-hidden={!row.visible}
-            style={{ paddingInlineStart: `calc(var(--space-2) + ${row.depth} * var(--space-3))` }}
-          >
-            {row.expandable ? (
-              <button
-                type="button"
-                className="layers__twisty"
-                aria-label={`${expanded.has(row.key) ? "Collapse" : "Expand"} ${row.displayName}`}
-                onClick={() => toggle(row.key)}
-              >
-                {expanded.has(row.key) ? "▾" : "▸"}
-              </button>
-            ) : (
-              <span className="layers__twisty" aria-hidden="true" />
-            )}
-
-            <button type="button" className="layers__label" onClick={() => onSelect(row)}>
-              {row.color ? (
-                <span
-                  className="layers__swatch"
-                  style={{ background: row.color }}
-                  aria-hidden="true"
-                />
-              ) : null}
-              <span className="layers__name">{row.displayName}</span>
-              <span className="layers__kind measure">{KIND_LABEL[row.kind]}</span>
-            </button>
-
-            {row.origin === "static" ? null : (
-              <span className="layers__origin measure" title={`Produced by ${row.origin}`}>
-                {row.origin}
-              </span>
-            )}
-            {row.locked ? <span className="layers__flag">Locked</span> : null}
-            {row.visible ? null : <span className="layers__flag">Hidden</span>}
-          </li>
+            row={row}
+            selected={row.key === selectedKey}
+            expanded={expanded.has(row.key)}
+            editable={structural}
+            dropPosition={dropTarget?.key === row.key ? dropTarget.position : null}
+            onSelect={(selected) => onSelect(selected)}
+            onToggleExpand={toggle}
+            onToggleVisibility={(target) =>
+              submit(
+                [
+                  {
+                    kind: "set_visibility",
+                    layer_id: target.authoredId,
+                    visible: !target.visible,
+                  },
+                ],
+                `${target.visible ? "Hid" : "Showed"} ${target.displayName}.`,
+              )
+            }
+            onRename={(target, name) =>
+              submit(
+                [
+                  {
+                    kind: "set_display_name",
+                    layer_id: target.authoredId,
+                    display_name: name.trim() === "" ? null : name,
+                  },
+                ],
+                `Renamed ${target.displayName}.`,
+              )
+            }
+            onDragStart={setDragged}
+            onDragOver={(target, position) => setDropTarget({ key: target.key, position })}
+            onDrop={completeDrop}
+            onDragEnd={() => {
+              setDragged(null);
+              setDropTarget(null);
+            }}
+          />
         ))}
       </ul>
+
+      {/* Structural changes are invisible to a screen reader unless they are announced. */}
+      <p className="layers__status" role="status" aria-live="polite">
+        {announcement}
+      </p>
     </div>
   );
 }

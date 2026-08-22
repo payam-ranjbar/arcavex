@@ -101,3 +101,66 @@
   text-transform: uppercase;
   color: var(--arcavex-text-secondary);
 }
+
+/* Editing affordances: drop indicators, per-row visibility, rename, and the action bar. */
+
+.layers__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--arcavex-border);
+}
+
+.layers__actions button {
+  padding: var(--space-1) var(--space-2);
+}
+
+.layers__reason {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--arcavex-text-muted);
+  font-size: var(--text-sm);
+}
+
+.layers__row[data-drop="above"] {
+  box-shadow: inset 0 2px 0 0 var(--arcavex-accent);
+}
+
+.layers__row[data-drop="below"] {
+  box-shadow: inset 0 -2px 0 0 var(--arcavex-accent);
+}
+
+.layers__row[data-drop="inside"] {
+  outline: 1px solid var(--arcavex-accent);
+  outline-offset: -1px;
+}
+
+.layers__visibility {
+  margin-inline-start: auto;
+  padding: 0 var(--space-1);
+  color: var(--arcavex-text-muted);
+}
+
+.layers__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--arcavex-accent);
+  border-radius: var(--radius-1);
+  background: var(--arcavex-surface);
+  color: var(--arcavex-text);
+  font: inherit;
+}
+
+/* Announcements are for assistive technology, not the eye. */
+.layers__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

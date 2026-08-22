@@ -206,6 +206,8 @@ function useContributions(
       render: () => (
         <LayersPanel
           selectedKey={selection.key}
+          editable={editing.automation !== "read_only"}
+          onSubmit={editing.onSubmit}
           onSelect={(row) =>
             setSelection(row === null ? NO_SELECTION : { key: row.key, authoredId: row.authoredId })
           }

@@ -240,3 +240,126 @@ describe("LayersPanel", () => {
     expect(await screen.findByRole("note")).toHaveTextContent("could not read");
   });
 });
+
+describe("LayersPanel editing", () => {
+  const submitted: Array<ReadonlyArray<unknown>> = [];
+
+  function renderEditable(selectedKey: string | null = "front", options: object = {}) {
+    submitted.length = 0;
+    return renderApp(
+      <LayersPanel
+        selectedKey={selectedKey}
+        onSelect={() => {}}
+        onSubmit={(commands) => submitted.push(commands)}
+        {...options}
+      />,
+      { script: { layerTree: NESTED } },
+    );
+  }
+
+  it("toggles a layer's visibility from its row", async () => {
+    renderEditable();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Hide Foreground" }));
+
+    expect(submitted[0]).toEqual([{ kind: "set_visibility", layer_id: "front", visible: false }]);
+  });
+
+  it("renames a layer on double-click and commits on Enter", async () => {
+    renderEditable();
+
+    await userEvent.dblClick(await screen.findByRole("button", { name: /^Foreground/u }));
+    const field = screen.getByRole("textbox", { name: "Rename Foreground" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Hero{Enter}");
+
+    expect(submitted[0]).toEqual([
+      { kind: "set_display_name", layer_id: "front", display_name: "Hero" },
+    ]);
+  });
+
+  it("abandons a rename on Escape", async () => {
+    renderEditable();
+
+    await userEvent.dblClick(await screen.findByRole("button", { name: /^Foreground/u }));
+    const field = screen.getByRole("textbox", { name: "Rename Foreground" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Discarded{Escape}");
+
+    expect(submitted).toHaveLength(0);
+  });
+
+  it("deletes and duplicates the selected layer", async () => {
+    renderEditable();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Duplicate" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(submitted[0]).toEqual([{ kind: "duplicate", layer_id: "front" }]);
+    expect(submitted[1]).toEqual([{ kind: "delete", layer_ids: ["front"] }]);
+  });
+
+  it("needs two layers before it will group", async () => {
+    renderEditable();
+
+    expect(await screen.findByRole("button", { name: "Group" })).toBeDisabled();
+  });
+
+  it("announces a structural change for assistive technology", async () => {
+    renderEditable();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Hide Foreground" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Hid Foreground.");
+  });
+
+  it("refuses structural editing of a construct instance and says why", async () => {
+    const repeated = tree(
+      layer({
+        id: "root",
+        kind: "group",
+        display_name: "Root",
+        paint_index: 0,
+        children: [
+          layer({
+            id: "card",
+            display_name: "Card",
+            origin: "repeat",
+            instance_id: "card#0",
+            paint_index: 1,
+          }),
+        ],
+      }),
+    );
+    renderApp(
+      <LayersPanel
+        selectedKey="card"
+        onSelect={() => {}}
+        onSubmit={(commands) => submitted.push(commands)}
+      />,
+      { script: { layerTree: repeated } },
+    );
+
+    // Wait for the tree itself: the action bar renders immediately, so asserting on it first
+    // would pass before the rows — and the selection they carry — have arrived.
+    await screen.findByRole("button", { name: /^Card/u });
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.getByText(/Definition mode/i)).toBeInTheDocument();
+  });
+
+  it("stays read-only when no submit handler is wired", async () => {
+    renderApp(<LayersPanel selectedKey="front" onSelect={() => {}} />, {
+      script: { layerTree: NESTED },
+    });
+
+    await screen.findByRole("button", { name: /Foreground/u });
+    expect(screen.queryByRole("group", { name: "Layer actions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide Foreground" })).not.toBeInTheDocument();
+  });
+
+  it("disables editing for a read-only project", async () => {
+    renderEditable("front", { editable: false });
+
+    expect(await screen.findByRole("button", { name: "Delete" })).toBeDisabled();
+  });
+});
