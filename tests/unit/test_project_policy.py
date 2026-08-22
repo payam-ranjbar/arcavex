@@ -460,8 +460,12 @@ def test_policy_and_ui_writes_share_the_project_mutation_lock(tmp_path: Path) ->
             with pytest.raises(FutureTimeoutError):
                 ui_future.result(timeout=0.2)
 
-        policy = policy_future.result(timeout=2)
-        saved_metadata = ui_future.result(timeout=2)
+        # Generous on purpose: this deadline is not part of the contract under test — the
+        # 0.2s "still blocked" checks above are. A loaded machine (the full suite renders
+        # goldens and spawns editor race processes) can push two snapshot-hashing writers past
+        # a tight window and turn a passing lock into a flaky test.
+        policy = policy_future.result(timeout=30)
+        saved_metadata = ui_future.result(timeout=30)
 
     assert policy.ok and policy.policy.mode == "review"
     assert saved_metadata == metadata

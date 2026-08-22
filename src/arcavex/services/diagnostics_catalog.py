@@ -526,6 +526,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Pass finite numeric x_pt and y_pt values in canvas points.",
         ),
         _e(
+            "ARC-IR-016",
+            "Invalid transform scale",
+            "A transform scale component is zero, negative, or not a finite number. A zero "
+            "scale collapses the node to nothing while it stays selectable, and a negative one "
+            "mirrors — a distinct operation this vocabulary does not express.",
+            "Use a positive number, or [sx, sy] with both components positive.",
+        ),
+        _e(
             "ARC-IR-020",
             "Duplicate node id",
             "Two nodes share the same id, which must be unique across the template.",
@@ -794,12 +802,6 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Masks not supported yet",
             "Mask declarations are not available in this build.",
             "Remove the 'mask'; masks arrive in Phase 2.",
-        ),
-        _e(
-            "ARC-RND-901",
-            "Rotation/scale not supported yet",
-            "Rotation and scale transforms are not available in this build.",
-            "Use only translation transforms for now.",
         ),
         _e(
             "ARC-FX-900",

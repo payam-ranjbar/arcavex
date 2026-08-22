@@ -487,7 +487,9 @@ class LayoutNode(BaseModel):
     effects: tuple[EffectSpec, ...] = ()
     overflow: OverflowState = OverflowState()
     rotate_deg: float = 0.0
-    rotate_origin: tuple[float, float] | None = None  # absolute pt centre of rotation
+    rotate_origin: tuple[float, float] | None = None  # absolute pt pivot for rotation and scale
+    translate: tuple[float, float] = (0.0, 0.0)
+    scale: tuple[float, float] = (1.0, 1.0)
     opacity: float = 1.0
     visible: bool = True
     clip: bool = False

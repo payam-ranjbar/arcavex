@@ -170,3 +170,71 @@ def test_bilingual_square_golden(facade, locale):  # noqa: ANN001,ANN201
         assert result.ok, [d.model_dump() for d in result.diagnostics]
         array = load_png(out)
     compare_to_golden(f"bilingual-square-{locale}", array)
+
+
+def test_editor_transforms_golden(facade, tmp_path):  # noqa: ANN001,ANN201
+    """Golden for the Phase 2 transform contract: translate, scale, rotate, and all three.
+
+    Four identical squares, each under one transform, over a grid of hairline rules that make a
+    one-pixel drift visible. This is the regression net for the composition order — if solver
+    and backend ever disagree again, the squares detach from their painted positions.
+    """
+    template = tmp_path / "transforms.yaml"
+    template.write_text(
+        "formats: {square: {canvas: {width: 256px, height: 256px, dpi: 96}}}\n"
+        "root:\n"
+        "  id: root\n"
+        "  type: group\n"
+        "  children:\n"
+        "    - id: bg\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#f4f2ec'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: fill, h: fill}}\n"
+        "    - id: rule-h\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#c9c4b8'}\n"
+        "      constraints: {anchor: {top: parent.top+128px, left: parent.left}, "
+        "size: {w: fill, h: 1px}}\n"
+        "    - id: rule-v\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#c9c4b8'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left+128px}, "
+        "size: {w: 1px, h: fill}}\n"
+        "    - id: translated\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#e0356b'}\n"
+        "      transform: {translate: [24, 12]}\n"
+        "      constraints: {anchor: {top: parent.top+24px, left: parent.left+24px}, "
+        "size: {w: 56px, h: 56px}}\n"
+        "    - id: scaled\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#2b6cb0'}\n"
+        "      transform: {scale: [1.5, 0.75]}\n"
+        "      constraints: {anchor: {top: parent.top+24px, left: parent.left+152px}, "
+        "size: {w: 56px, h: 56px}}\n"
+        "    - id: rotated\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#2f855a'}\n"
+        "      transform: {rotate: 30}\n"
+        "      constraints: {anchor: {top: parent.top+152px, left: parent.left+24px}, "
+        "size: {w: 56px, h: 56px}}\n"
+        "    - id: combined\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#b7791f'}\n"
+        "      transform: {translate: [-10, 6], rotate: 20, scale: 1.25, origin: top_left}\n"
+        "      constraints: {anchor: {top: parent.top+152px, left: parent.left+152px}, "
+        "size: {w: 56px, h: 56px}}\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "transforms.png"
+    result = facade.render_file(template, format_name="square", output=out)
+    assert result.ok, [d.model_dump() for d in result.diagnostics]
+    compare_to_golden("editor-transforms", load_png(out))

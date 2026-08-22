@@ -110,9 +110,14 @@ class AnchorLayoutSolver(LayoutSolver):
         warnings: list[Diagnostic],
         parent_transform: Matrix3,
     ) -> LayoutNode:
-        rotate_deg = node.transform.rotate_deg
-        origin = self._origin_abs(node, bounds) if rotate_deg else None
-        local_transform = self._transform(rotate_deg, origin)
+        transform = node.transform
+        rotate_deg = transform.rotate_deg
+        # A pivot is needed by rotation and by scale; translation is pivot-free.
+        needs_pivot = bool(rotate_deg) or transform.scale != (1.0, 1.0)
+        origin = self._origin_abs(node, bounds) if needs_pivot else None
+        local_transform = self._transform(
+            transform.translate, rotate_deg, transform.scale, origin
+        )
         absolute_transform = local_transform.then(parent_transform)
 
         content, overflow = self._resolve_content(node, bounds, inherited_dir, measure, warnings)
@@ -154,6 +159,8 @@ class AnchorLayoutSolver(LayoutSolver):
             overflow=overflow,
             rotate_deg=rotate_deg,
             rotate_origin=origin,
+            translate=transform.translate,
+            scale=transform.scale,
             opacity=node.style.opacity,
             visible=node.visible,
             clip=clip,
@@ -191,11 +198,20 @@ class AnchorLayoutSolver(LayoutSolver):
         return out
 
     def _aabb_for(self, node: CompiledNode, rect: Rect) -> Rect:
-        """Return the axis-aligned bounding box a sibling sees: the paint AABB when rotated."""
-        deg = node.transform.rotate_deg
-        if not deg:
+        """Return the axis-aligned bounding box a sibling sees: the post-transform paint AABB.
+
+        Spec §4.2 generalizes naturally from rotation to the full local transform: a sibling
+        pinned to a translated, scaled, or rotated node sees where it actually paints.
+        """
+        transform = node.transform
+        if transform.is_identity:
             return rect
-        return self._paint_bounds(rect, deg, self._origin_abs(node, rect))
+        needs_pivot = bool(transform.rotate_deg) or transform.scale != (1.0, 1.0)
+        origin = self._origin_abs(node, rect) if needs_pivot else None
+        matrix = self._transform(
+            transform.translate, transform.rotate_deg, transform.scale, origin
+        )
+        return self._transform_bounds(rect, matrix)
 
     def _topo_order(
         self, group: CompiledGroup, by_id: dict[str, CompiledNode]
@@ -812,17 +828,40 @@ class AnchorLayoutSolver(LayoutSolver):
             return bounds.center_x, bounds.center_y
         return bounds.x + bounds.w * origin[0], bounds.y + bounds.h * origin[1]
 
-    def _transform(self, deg: float, origin: tuple[float, float] | None) -> Matrix3:
-        if not deg or origin is None:
-            return Matrix3.identity()
-        rad = math.radians(deg)
-        cos, sin = math.cos(rad), math.sin(rad)
-        ox, oy = origin
-        return Matrix3(
-            a=cos, b=sin, c=-sin, d=cos,
-            e=ox - ox * cos + oy * sin,
-            f=oy - ox * sin - oy * cos,
-        )
+    def _transform(
+        self,
+        translate: tuple[float, float],
+        deg: float,
+        scale: tuple[float, float],
+        origin: tuple[float, float] | None,
+    ) -> Matrix3:
+        """Compose the node's local transform in the one documented order.
+
+        ``local = translate ∘ rotate ∘ scale`` — scale first about the pivot, then rotation
+        about the same pivot, then the offset. The backend concatenates canvas operations in
+        exactly this order, so reported geometry and painted pixels cannot disagree.
+        """
+        matrix = Matrix3.identity()
+        if origin is not None and scale != (1.0, 1.0):
+            sx, sy = scale
+            ox, oy = origin
+            matrix = matrix.then(
+                Matrix3(a=sx, b=0.0, c=0.0, d=sy, e=ox - ox * sx, f=oy - oy * sy)
+            )
+        if deg and origin is not None:
+            rad = math.radians(deg)
+            cos, sin = math.cos(rad), math.sin(rad)
+            ox, oy = origin
+            matrix = matrix.then(
+                Matrix3(
+                    a=cos, b=sin, c=-sin, d=cos,
+                    e=ox - ox * cos + oy * sin,
+                    f=oy - ox * sin - oy * cos,
+                )
+            )
+        if translate != (0.0, 0.0):
+            matrix = matrix.then(Matrix3.translation(translate[0], translate[1]))
+        return matrix
 
     def _effect_expansion(self, effects: tuple[EffectSpec, ...]) -> Insets:
         """Sum every effect's declared outward growth per side (spec §4.4).
@@ -842,13 +881,6 @@ class AnchorLayoutSolver(LayoutSolver):
             bottom += insets.bottom
             left += insets.left
         return Insets(top=top, right=right, bottom=bottom, left=left)
-
-    def _paint_bounds(
-        self, bounds: Rect, deg: float, origin: tuple[float, float] | None
-    ) -> Rect:
-        if not deg or origin is None:
-            return bounds
-        return self._transform_bounds(bounds, self._transform(deg, origin))
 
     def _transform_bounds(self, bounds: Rect, matrix: Matrix3) -> Rect:
         corners = [

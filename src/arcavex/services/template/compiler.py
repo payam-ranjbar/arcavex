@@ -224,7 +224,7 @@ _NODE_FIELD_ALIASES: dict[str, str] = {
     "rotation": "Rotate with 'transform: {rotate: <degrees>}'.",
     "rotate": "Rotate with 'transform: {rotate: <degrees>}'.",
     "angle": "Rotate with 'transform: {rotate: <degrees>}'.",
-    "scale": "Scaling lives in 'transform: {scale: ...}', and is not supported in this build.",
+    "scale": "Scaling lives in 'transform: {scale: ...}' — a number or [sx, sy].",
     "translate": "Translate with 'transform: {translate: [dx, dy]}'.",
     # Misc habits from other systems.
     "z_index": "Order siblings with 'z:'.",
@@ -2587,16 +2587,20 @@ class Compiler:
             )
         else:
             scale_pair = (1.0, 1.0)
-        if scale_pair != (1.0, 1.0):
-            # Rotation is supported (Phase 2); scaling still is not.
+        import math as _math
+
+        if any(not _math.isfinite(component) or component <= 0.0 for component in scale_pair):
+            # A zero scale collapses the node to nothing while it stays selectable, and a
+            # negative one mirrors — a distinct operation this vocabulary does not express.
             raise DiagnosticError(
                 diagnostic(
-                    "ARC-RND-901",
-                    f"Scale transforms are not supported yet on {node_id!r}",
+                    "ARC-IR-016",
+                    f"Invalid transform scale {scale!r} on {node_id!r}: each component must be "
+                    "a finite number greater than zero",
                     file=str(template),
                     keypath=f"{keypath}.transform.scale",
                     line=line_of(raw, "transform"),
-                    hint="Only translation and rotation are supported.",
+                    hint="Use a positive number, or [sx, sy] with both components positive.",
                 )
             )
         origin = self._parse_origin(t, template, keypath, t_line)
@@ -2608,7 +2612,7 @@ class Compiler:
             )
         else:
             tr = (0.0, 0.0)
-        return Transform(translate=tr, rotate_deg=rotate, origin=origin)
+        return Transform(translate=tr, rotate_deg=rotate, scale=scale_pair, origin=origin)
 
     def _parse_origin(
         self, t: dict[str, Any], template: Path, keypath: str, line: int | None
