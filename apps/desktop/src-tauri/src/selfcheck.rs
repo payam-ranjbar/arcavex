@@ -120,9 +120,12 @@ async fn apply_edit(state: &SharedState, project: &Path) -> Result<(), String> {
     });
 
     let report = state
-        .call_tool("editor_apply", json!({ "transaction": transaction }))
+        .call_tool(
+            "arcavex_editor_apply",
+            json!({ "transaction": transaction }),
+        )
         .await?;
-    accepted(&report, "editor_apply")
+    accepted(&report, "arcavex_editor_apply")
 }
 
 /// Undo it, and require the file on disk to be exactly what it was before the edit.
@@ -133,9 +136,9 @@ async fn undo_edit(
 ) -> Result<(), String> {
     let project = state.open_project_path()?;
     let report = state
-        .call_tool("editor_undo", json!({ "project": project }))
+        .call_tool("arcavex_editor_undo", json!({ "project": project }))
         .await?;
-    accepted(&report, "editor_undo")?;
+    accepted(&report, "arcavex_editor_undo")?;
 
     match (before, std::fs::read(template)) {
         (Some(original), Ok(current)) if current == original => Ok(()),

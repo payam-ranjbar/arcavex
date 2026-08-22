@@ -271,3 +271,38 @@ def test_sidecar_does_not_rewrite_the_project_it_opens(tmp_path: Path) -> None:
         if path.is_file()
     }
     assert before == after
+
+
+def _tool_names_the_desktop_calls() -> set[str]:
+    """Every tool name the Rust gateway asks the engine for, read from the source.
+
+    Parsing the caller is deliberate. A hand-maintained list would drift the moment someone adds
+    a command, which is exactly the drift this test exists to catch.
+    """
+    import re
+
+    gateway = _REPO_ROOT / "apps" / "desktop" / "src-tauri" / "src"
+    names: set[str] = set()
+    for source in gateway.rglob("*.rs"):
+        text = source.read_text(encoding="utf-8")
+        names.update(re.findall(r'call_tool\(\s*"([a-z0-9_]+)"', text))
+        # Some call sites pass the name on its own line as the first argument.
+        names.update(re.findall(r'\.call_tool\(\s*\n\s*"([a-z0-9_]+)"', text))
+    return names
+
+
+def test_every_tool_the_desktop_calls_exists_in_the_engine(tmp_path: Path) -> None:
+    """The desktop can only call tools this engine registers, under the engine's own names.
+
+    This is the seam where a rename is invisible until someone runs the packaged app: the Rust
+    gateway sends a tool name as a string, the frontend tests run against a fake, and a name the
+    engine never registered comes back as an error payload rather than a compile failure. The
+    editing commands shipped broken for exactly that reason.
+    """
+    with _McpSession(tmp_path / "home") as session:
+        session.initialize(_lock()["mcp_contract_version"])
+        registered = {tool["name"] for tool in session.request("tools/list")["result"]["tools"]}
+
+    called = _tool_names_the_desktop_calls()
+    assert called, "no call_tool sites found; the parser needs updating, not the engine"
+    assert called <= registered, f"the desktop calls tools this engine does not have: {sorted(called - registered)}"

@@ -792,7 +792,10 @@ pub async fn editor_apply(
     transaction: Value,
 ) -> Result<Value, String> {
     let report = state
-        .call_tool("editor_apply", json!({ "transaction": transaction }))
+        .call_tool(
+            "arcavex_editor_apply",
+            json!({ "transaction": transaction }),
+        )
         .await?;
     state.after_own_edit(&report);
     Ok(report)
@@ -806,7 +809,7 @@ pub async fn editor_apply_authorized(
     let project = state.open_project_path()?;
     let report = state
         .call_tool(
-            "editor_apply_authorized",
+            "arcavex_editor_apply_authorized",
             json!({ "project": project, "command_id": command_id }),
         )
         .await?;
@@ -818,7 +821,7 @@ pub async fn editor_apply_authorized(
 pub async fn editor_undo(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
     let project = state.open_project_path()?;
     let report = state
-        .call_tool("editor_undo", json!({ "project": project }))
+        .call_tool("arcavex_editor_undo", json!({ "project": project }))
         .await?;
     state.after_own_edit(&report);
     Ok(report)
@@ -828,7 +831,7 @@ pub async fn editor_undo(state: tauri::State<'_, SharedState>) -> Result<Value, 
 pub async fn editor_redo(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
     let project = state.open_project_path()?;
     let report = state
-        .call_tool("editor_redo", json!({ "project": project }))
+        .call_tool("arcavex_editor_redo", json!({ "project": project }))
         .await?;
     state.after_own_edit(&report);
     Ok(report)
@@ -838,7 +841,7 @@ pub async fn editor_redo(state: tauri::State<'_, SharedState>) -> Result<Value, 
 pub async fn editor_history(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
     let project = state.open_project_path()?;
     state
-        .call_tool("editor_history", json!({ "project": project }))
+        .call_tool("arcavex_editor_history", json!({ "project": project }))
         .await
 }
 
