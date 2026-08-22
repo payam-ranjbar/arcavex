@@ -9,3 +9,4 @@ export {
   EMPTY_HISTORY,
   type HistoryState,
 } from "./history.ts";
+export { EditHistoryPanel, type EditHistoryPanelProps } from "./EditHistoryPanel.tsx";

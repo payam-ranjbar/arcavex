@@ -15,8 +15,14 @@ import { FakeArcavexGateway, TauriArcavexGateway, type ArcavexGateway } from "./
  * internals exist.
  */
 function createGateway(): ArcavexGateway {
-  const insideTauri = "__TAURI_INTERNALS__" in window;
-  return insideTauri ? new TauriArcavexGateway() : new FakeArcavexGateway();
+  if ("__TAURI_INTERNALS__" in window) return new TauriArcavexGateway();
+
+  // Outside Tauri the fake is the whole backend, so publishing it costs nothing and lets a
+  // browser end-to-end test assert the transactions a gesture actually submitted rather than
+  // inferring them from pixels. The packaged build never reaches this line.
+  const fake = new FakeArcavexGateway();
+  (window as unknown as { arcavexFake?: FakeArcavexGateway }).arcavexFake = fake;
+  return fake;
 }
 
 const container = document.getElementById("root");

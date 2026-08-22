@@ -33,6 +33,16 @@ export interface LayersPanelProps {
   readonly onSubmit?: (commands: ReadonlyArray<EditorCommand>) => void;
   /** False for a read-only project. */
   readonly editable?: boolean;
+  /**
+   * The tree mode, when the workbench owns it.
+   *
+   * Rendered and Definition are not a panel-local preference: the inspector refuses to edit a
+   * repeated instance and tells the user to switch *this* control, so the two have to be looking
+   * at the same mode or that instruction cannot be followed. Left absent, the panel keeps its
+   * own mode, which is what a standalone render wants.
+   */
+  readonly mode?: LayerTreeMode;
+  readonly onModeChange?: (mode: LayerTreeMode) => void;
 }
 
 export function LayersPanel({
@@ -40,8 +50,15 @@ export function LayersPanel({
   onSelect,
   onSubmit,
   editable = true,
+  mode: controlledMode,
+  onModeChange,
 }: LayersPanelProps): ReactNode {
-  const [mode, setMode] = useState<LayerTreeMode>("rendered");
+  const [ownMode, setOwnMode] = useState<LayerTreeMode>("rendered");
+  const mode = controlledMode ?? ownMode;
+  const setMode = (next: LayerTreeMode): void => {
+    setOwnMode(next);
+    onModeChange?.(next);
+  };
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [dragged, setDragged] = useState<Row | null>(null);
   const [dropTarget, setDropTarget] = useState<{ key: string; position: DropPosition } | null>(

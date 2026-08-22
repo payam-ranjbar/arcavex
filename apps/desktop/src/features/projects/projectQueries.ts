@@ -20,6 +20,7 @@ import type {
   RenderStatus,
 } from "../../gateway/index.ts";
 import type {
+  HistoryReport,
   HitTestReport,
   LayerTreeReport,
   ProjectPolicyReport,
@@ -39,6 +40,7 @@ export const projectKeys = {
   policy: ["project-policy"] as const,
   uiMetadata: ["project-ui-metadata"] as const,
   proposals: ["proposals"] as const,
+  history: ["editor-history"] as const,
 };
 
 /**
@@ -62,6 +64,9 @@ export function useDesktopEvents(): void {
             void queryClient.invalidateQueries({ queryKey: projectKeys.snapshot });
             void queryClient.invalidateQueries({ queryKey: ["layer-tree"] });
             void queryClient.invalidateQueries({ queryKey: projectKeys.proposals });
+            // Undo availability belongs to the project's revision, so any project event can
+            // change it — including one this window did not cause.
+            void queryClient.invalidateQueries({ queryKey: projectKeys.history });
             break;
           case "render":
             queryClient.setQueryData(projectKeys.render, event.render);
@@ -110,6 +115,16 @@ export function useRenderStatus(): UseQueryResult<RenderStatus> {
 export function useActivity(): UseQueryResult<ReadonlyArray<ActivityEntry>> {
   const gateway = useGateway();
   return useQuery({ queryKey: projectKeys.activity, queryFn: () => gateway.activity() });
+}
+
+export function useEditorHistory(): UseQueryResult<HistoryReport> {
+  const gateway = useGateway();
+  // No project open means no history; that is a state, not a failure worth retrying.
+  return useQuery({
+    queryKey: projectKeys.history,
+    queryFn: () => gateway.editorHistory(),
+    retry: false,
+  });
 }
 
 export function useSettings(): UseQueryResult<DesktopSettings> {

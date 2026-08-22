@@ -80,4 +80,21 @@ describe("App", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("2024-11-05");
   });
+
+  it("lets the Definition mode the Layers panel offers actually reach the inspector", async () => {
+    // The fixture's layers are instances of a repeated definition, so every inspector field is
+    // disabled until the tree is switched to Definition — and the disabled field says exactly
+    // that. If the two panels do not share the mode, that instruction cannot be followed and
+    // the product tells the user to do something impossible.
+    renderApp(<App />, { gateway: new FakeArcavexGateway() });
+
+    await userEvent.click(await screen.findByRole("button", { name: /^Title/ }));
+    expect(await screen.findByRole("textbox", { name: "Content" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Definition" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Content" })).toBeEnabled();
+    });
+  });
 });

@@ -12,6 +12,7 @@ import {
   ProposalsPanel,
   useBrowseForProject,
   useDesktopEvents,
+  useEditorHistory,
   useLayerTree,
   useOpenProject,
   useProjectSnapshot,
@@ -23,11 +24,14 @@ import { AppearanceSettings, RuntimeSettings } from "../features/settings/index.
 import { VariantBar } from "../features/variants/index.ts";
 import {
   CommandBus,
+  EditHistoryPanel,
+  historyState,
   InspectorPanel,
   Workbench,
   type EditorCommand,
 } from "../features/workspace/index.ts";
-import type { AutomationMode } from "../gateway/index.ts";
+import type { TransactionReport } from "../contracts/index.ts";
+import type { AutomationMode, LayerTreeMode } from "../gateway/index.ts";
 import { useGateway } from "./providers.tsx";
 import { createRegistry, type ContributionRegistry } from "./contributions.ts";
 import { useQuery } from "@tanstack/react-query";
@@ -47,13 +51,15 @@ export function App(): ReactNode {
   const engine = useQuery({ queryKey: ["engine-state"], queryFn: () => gateway.engineState() });
   const settings = useSettings();
   const snapshot = useProjectSnapshot();
-  const tree = useLayerTree("rendered");
+  const [treeMode, setTreeMode] = useState<LayerTreeMode>("rendered");
+  const tree = useLayerTree(treeMode);
   const open = useOpenProject();
   const browse = useBrowseForProject();
   const render = useRequestRender();
 
   const [selection, setSelection] = useState<Selection>(NO_SELECTION);
   const [busy, setBusy] = useState(false);
+  const [lastReport, setLastReport] = useState<TransactionReport | null>(null);
 
   // Rebuilt whenever the snapshot changes, so its getters close over the revision the workbench
   // is currently showing. Subscribers re-attach through the effect below.
@@ -73,15 +79,32 @@ export function App(): ReactNode {
     [gateway, current],
   );
 
-  useEffect(() => commands.subscribe((state) => setBusy(state.busy)), [commands]);
+  useEffect(
+    () =>
+      commands.subscribe((state) => {
+        setBusy(state.busy);
+        setLastReport(state.lastReport);
+      }),
+    [commands],
+  );
 
   const capabilities = engine.data?.handshake?.capabilities ?? [];
   const selectedLayer = useSelectedBounds(tree.data, selection.authoredId);
-  const registry = useContributions(selection, setSelection, () => render.mutate(), {
-    automation: settings.data?.automation ?? "unrestricted",
-    busy,
-    onSubmit: (edits) => void commands.submit(edits),
-  });
+  const registry = useContributions(
+    selection,
+    setSelection,
+    () => render.mutate(),
+    treeMode,
+    setTreeMode,
+    {
+      automation: settings.data?.automation ?? "unrestricted",
+      busy,
+      onSubmit: (edits) => void commands.submit(edits),
+      lastReport,
+      onUndo: () => void commands.undo(),
+      onRedo: () => void commands.redo(),
+    },
+  );
 
   if (engine.isPending) {
     return (
@@ -168,15 +191,21 @@ interface EditingContext {
   readonly automation: AutomationMode;
   readonly busy: boolean;
   readonly onSubmit: (commands: ReadonlyArray<EditorCommand>) => void;
+  readonly lastReport: TransactionReport | null;
+  readonly onUndo: () => void;
+  readonly onRedo: () => void;
 }
 
 function useContributions(
   selection: Selection,
   setSelection: (selection: Selection) => void,
   requestRender: () => void,
+  treeMode: LayerTreeMode,
+  setTreeMode: (mode: LayerTreeMode) => void,
   editing: EditingContext,
 ): ContributionRegistry {
-  const tree = useLayerTree("rendered");
+  const tree = useLayerTree(treeMode);
+  const history = useEditorHistory();
 
   return useMemo(() => {
     const registry = createRegistry();
@@ -206,6 +235,8 @@ function useContributions(
       render: () => (
         <LayersPanel
           selectedKey={selection.key}
+          mode={treeMode}
+          onModeChange={setTreeMode}
           editable={editing.automation !== "read_only"}
           onSubmit={editing.onSubmit}
           onSelect={(row) =>
@@ -225,7 +256,7 @@ function useContributions(
           tree={tree.data}
           selectedAuthoredId={selection.authoredId}
           automation={editing.automation}
-          treeMode="rendered"
+          treeMode={treeMode}
           busy={editing.busy}
           onSubmit={editing.onSubmit}
         />
@@ -254,6 +285,21 @@ function useContributions(
     });
 
     registry.addPanel({
+      id: "edits",
+      title: "Edits",
+      region: "activity",
+      order: 5,
+      render: () => (
+        <EditHistoryPanel
+          history={historyState(history.data ?? null)}
+          busy={editing.busy}
+          lastReport={editing.lastReport}
+          onUndo={editing.onUndo}
+          onRedo={editing.onRedo}
+        />
+      ),
+    });
+    registry.addPanel({
       id: "activity",
       title: "Activity",
       region: "activity",
@@ -268,5 +314,14 @@ function useContributions(
       render: () => <AppearanceSettings />,
     });
     return registry;
-  }, [selection, setSelection, requestRender, tree.data, editing]);
+  }, [
+    selection,
+    setSelection,
+    requestRender,
+    treeMode,
+    setTreeMode,
+    tree.data,
+    history.data,
+    editing,
+  ]);
 }

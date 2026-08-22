@@ -236,3 +236,45 @@
 .proof-strip[data-state="failed"] .proof-strip__state::before {
   background: var(--arcavex-danger);
 }
+
+/* ------------------------------------------------------------------ edit history and outcomes */
+
+.edits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.edits__controls {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.edits__note {
+  color: var(--arcavex-text-secondary);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* A refused edit is the one thing in this panel a person must not miss. */
+.edits__outcome {
+  border-inline-start: 3px solid var(--arcavex-danger);
+  padding-inline-start: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.edits__outcome p,
+.edits__outcome ul {
+  margin: 0;
+}
+
+.edits__outcome ul {
+  padding-inline-start: var(--space-3);
+}
+
+.edits__code {
+  font-family: var(--arcavex-font-mono, monospace);
+  color: var(--arcavex-text-secondary);
+}
