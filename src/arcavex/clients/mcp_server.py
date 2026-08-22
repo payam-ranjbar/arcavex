@@ -56,10 +56,12 @@ from arcavex.kernel.api import (
     ProjectUIMetadataReport,
     ProposalActionReport,
     ProposalListReport,
+    PublishReport,
     RenderResult,
     RerunReport,
     RunListReport,
     RunReport,
+    ScaffoldResult,
     StyleInspectReport,
     StyleListReport,
     TemplateInspectReport,
@@ -79,7 +81,16 @@ _INSTRUCTIONS = (
     "arcavex_data_set / arcavex_data_import, then arcavex_project_render for a recorded run "
     "(discoverable via arcavex_run_list). Discover vocabulary with arcavex_style_list / "
     "arcavex_effects_list / arcavex_font_list (the only font families a template may name). "
-    "Use arcavex_diagnostic_explain <code> for any code you do not know."
+    "Use arcavex_diagnostic_explain <code> for any code you do not know. "
+    "Starting from nothing: arcavex_template_new scaffolds a minimal renderable template "
+    "(arcavex_template_publish puts one in the library so arcavex_project_create can pin it by "
+    "name). To change an existing design semantically rather than by patching source, use the "
+    "editor tools — arcavex_editor_apply (with arcavex_editor_undo / _redo / _history) — which "
+    "take a whole transaction, check the project revision, and write atomically; submit an empty "
+    "transaction to have the engine state the exact shape it wants. "
+    "READ THE GUIDE FIRST: the resource skill://arcavex-design-studio/SKILL.md is the design "
+    "skill shipped with this engine, and its references/ documents cover the authoring loop, "
+    "art direction, multi-format and locale work, and verification."
 )
 
 
@@ -113,6 +124,16 @@ class ArcavexTools:
     def template_inspect(self, template: str) -> TemplateInspectReport:
         """Report a template's contract: variables, formats, locales, node ids, functions, data."""
         return self._facade.inspect_template(Path(template))
+
+    def template_new(self, target: str, name: str | None = None) -> ScaffoldResult:
+        """Scaffold a minimal renderable template directory to start a new design from."""
+        return self._facade.scaffold_template(name or Path(target).name, Path(target))
+
+    def template_publish(
+        self, template: str, name: str, version: str, set_default: bool = True
+    ) -> PublishReport:
+        """Publish a template directory into the library as an immutable version."""
+        return self._facade.publish_template(Path(template), name, version, set_default)
 
     def template_validate(
         self,
@@ -493,6 +514,8 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("engine_handshake", "engine_handshake"),
     ("arcavex_template_list", "template_list"),
     ("arcavex_template_inspect", "template_inspect"),
+    ("arcavex_template_new", "template_new"),
+    ("arcavex_template_publish", "template_publish"),
     ("arcavex_template_validate", "template_validate"),
     ("arcavex_template_patch", "template_patch"),
     ("arcavex_project_create", "project_create"),
@@ -549,7 +572,50 @@ def build_mcp_server(facade: Facade | None = None) -> FastMCP:
         method = getattr(tools, method_name)
         structured = None if method_name != "render_preview" else False
         server.tool(name=tool_name, structured_output=structured)(method)
+    _register_skill_resources(server, tools._facade)
     return server
+
+
+def _register_skill_resources(server: FastMCP, facade: Facade) -> None:
+    """Serve the bundled design skill so a client can learn this engine from this engine.
+
+    ``arcavex skill install`` copies the skill into Claude Code's or Codex's own skill directory,
+    which helps those hosts and only when a person runs the command. Every other client — the ones
+    this server exists for — had no way to discover that the document exists, so an assistant's
+    only route to the template grammar was to provoke validation errors until they enumerated it.
+
+    The files are read at call time rather than at build time: the skill is documentation, and a
+    server should not hold a stale copy of it in memory for the life of the process.
+    """
+    from mcp.server.fastmcp.resources import FunctionResource
+    from pydantic import AnyUrl
+
+    # Asked through the facade rather than the skill service: a client may only speak to the
+    # engine's public API, and "where does your skill live" is a fair question to ask it.
+    listed = facade.list_skill_targets()
+    if not listed.source:  # pragma: no cover - a build without the bundled skill
+        return
+    root = Path(listed.source)
+    if not (root / "SKILL.md").is_file():  # pragma: no cover - defensive
+        return
+    skill_name = listed.skill or root.name
+
+    documents = [root / "SKILL.md", *sorted((root / "references").glob("*.md"))]
+    for document in documents:
+        relative = document.relative_to(root).as_posix()
+        server.add_resource(
+            FunctionResource(
+                uri=AnyUrl(f"skill://{skill_name}/{relative}"),
+                name=relative,
+                description=(
+                    "The Arcavex design skill: how to drive this engine as a designer."
+                    if relative == "SKILL.md"
+                    else f"Arcavex design skill reference: {document.stem}."
+                ),
+                mime_type="text/markdown",
+                fn=lambda path=document: path.read_text(encoding="utf-8"),
+            )
+        )
 
 
 def tool_catalog(server: FastMCP) -> list[dict[str, Any]]:

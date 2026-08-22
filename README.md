@@ -320,6 +320,7 @@ transport is stdio only (no network).
 
 Wire it into an MCP client (e.g. Claude Desktop) as a stdio server running `arcavex mcp serve`.
 The catalog (25 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_validate`/`_patch`,
+`arcavex_template_new`/`_publish` (scaffold a template from nothing, then put it in the library),
 `arcavex_project_create`/`_list`/`_status`/`_clone`/`_render`, `arcavex_render_record`,
 `arcavex_data_set`/`_import`, `arcavex_asset_add`/`_annotate`,
 `arcavex_style_list`/`_inspect`/`arcavex_effects_list`/`arcavex_font_list`,
@@ -328,6 +329,11 @@ The catalog (25 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_val
 `arcavex_diagnostic_explain`. Every tool delegates to a facade method that is also reachable from
 the CLI/Python API, so MCP adds no exclusive capability (a linted boundary, spec §12.18). The
 parity model is in [architecture.md](docs/architecture.md#mcp-parity).
+
+The server also **serves its own manual**: the bundled design skill and its references are MCP
+resources under `skill://arcavex-design-studio/`, so an assistant can learn the template grammar
+and the authoring loop from the engine it is connected to rather than reconstructing them from
+validation errors.
 
 The intended authoring loop (also the server's advertised `instructions`):
 
