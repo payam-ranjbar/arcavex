@@ -176,3 +176,26 @@ def test_records_hold_full_transactions_for_replay(store: HistoryStore) -> None:
 
 def _summaries(entries: list[Any]) -> list[str]:
     return [entry.summary for entry in entries]
+
+
+def test_a_write_outside_the_editor_leaves_the_history_findable(store: HistoryStore) -> None:
+    """Editing a project's source another way branches the history; it does not delete it.
+
+    `template_patch` and `data_set` write source files without going through the editor, which
+    moves the project to a revision the chain has never seen. Undo then refuses, and an agent
+    reported it as "ten entries of undo history destroyed with no warning".
+
+    Nothing is destroyed: the records are still on disk, and `branched_by_external_edit` says
+    exactly why the chain no longer applies. Pinned here so a future change cannot quietly turn
+    a branch into a deletion.
+    """
+    _record(store, "a" * 64, "b" * 64, summary="set_text")
+
+    # A patch lands out of band: the project sits at a revision the chain never produced.
+    state = store.state(current_revision="c" * 64)
+
+    assert state.entries, "the recorded entry is still on disk"
+    assert state.branched_by_external_edit is True
+    assert state.can_undo is False
+    # And the same store still reports the entry as undoable once the project is back on chain.
+    assert store.state(current_revision="b" * 64).can_undo is True
