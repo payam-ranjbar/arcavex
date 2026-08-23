@@ -2725,6 +2725,7 @@ class Compiler:
         keypath: str,
         id_suffix: str,
     ) -> Constraints:
+        node_type = str(raw.get("type") or "")
         c = raw.get("constraints")
         if not isinstance(c, dict):
             # No constraints at all: fill the parent, anchored top-left. This is the
@@ -2756,16 +2757,19 @@ class Compiler:
                     file=str(template),
                     keypath=f"{keypath}.constraints.size",
                     line=size_line,
-                    hint="Add 'size: {w: ..., h: ...}' (each of fixed/%/fill/fit_content/aspect).",
+                    hint=(
+                        "Add 'size: {w: ..., h: ...}' — each of "
+                        f"{_size_options_for(node_type)}."
+                    ),
                 )
             )
         width = self._parse_size_axis(
             size.get("w"), context, canvas.dpi, template, node_id, keypath, "w", size_line,
-            required=True,
+            required=True, node_type=node_type,
         )
         height = self._parse_size_axis(
             size.get("h"), context, canvas.dpi, template, node_id, keypath, "h", size_line,
-            required=True,
+            required=True, node_type=node_type,
         )
         return Constraints(anchors=anchors, width=width, height=height)
 
@@ -2814,6 +2818,7 @@ class Compiler:
         line: int | None,
         *,
         required: bool,
+        node_type: str = "",
     ) -> SizeSpec:
         """Parse one axis size: a scalar (fixed/%/fill/fit_content) or a mapping with aspect/
         min/max. Expressions inside scalar strings are evaluated first (§12.5)."""
@@ -2826,8 +2831,7 @@ class Compiler:
                         file=str(template),
                         keypath=f"{keypath}.constraints.size.{axis}",
                         line=line,
-                        hint="Give this axis fixed (e.g. 100px), a %, 'fill', 'fit_content', "
-                        "or {aspect: 'W:H'}.",
+                        hint=f"Give this axis {_size_options_for(node_type)}.",
                     )
                 )
             return SizeSpec(mode="fill")
@@ -3780,3 +3784,14 @@ def _direction_differs(source: Any, loc_settings: dict[str, Any], locale: str) -
     if isinstance(settings, dict) and settings.get("direction"):
         authored_direction = str(settings["direction"]).lower()
     return requested != authored_direction
+
+def _size_options_for(node_type: str) -> str:
+    """The size values this node kind accepts, for a hint that does not contradict the next one.
+
+    `fit_content` is text-only (ARC-LAY-020), and offering it to every node sent an author round
+    a loop: the missing-size error suggested it, and using it produced "Only text nodes support
+    fit_content" from the very next check.
+    """
+    if node_type == "text":
+        return "fixed (e.g. 100px), a %, 'fill', 'fit_content', or {aspect: 'W:H'}"
+    return "fixed (e.g. 100px), a %, 'fill', or {aspect: 'W:H'} (fit_content is text-only)"

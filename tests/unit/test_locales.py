@@ -340,3 +340,62 @@ def test_paint_on_a_shape_is_exactly_what_it_looks_like(tmp_path: Path) -> None:
     result = Compiler().compile(template, None, "square", None, None)
 
     assert not [d for d in result.diagnostics if d.code == "ARC-TPL-104"]
+
+
+def test_the_size_hint_does_not_offer_text_only_sizing_to_a_group(tmp_path: Path) -> None:
+    """Two hints must not send an author round a loop.
+
+    The missing-size error suggested `fit_content` for any node, and using it produced "Only
+    text nodes support fit_content" from the very next check. A designer following both built a
+    spreadsheet of hand-computed heights instead.
+    """
+    template = tmp_path / "t.yaml"
+    template.write_text(
+        "version: 0.1.0\n"
+        "formats: {square: {canvas: {width: 200px, height: 200px, dpi: 72}}}\n"
+        "preview_data: {}\n"
+        "root:\n"
+        "  type: group\n"
+        "  id: root\n"
+        "  children:\n"
+        "    - id: stack\n"
+        "      type: group\n"
+        "      constraints:\n"
+        "        anchor: {top: parent.top, left: parent.left}\n"
+        "        size: {w: fill}\n"
+        "      children: []\n",
+        encoding="utf-8",
+    )
+
+    result = Compiler().compile(template, None, "square", None, None)
+
+    missing = [d for d in result.diagnostics if d.code == "ARC-LAY-032"]
+    assert missing, [d.code for d in result.diagnostics]
+    assert "fit_content is text-only" in (missing[0].hint or "")
+
+
+def test_a_text_node_is_still_told_about_fit_content(tmp_path: Path) -> None:
+    template = tmp_path / "t.yaml"
+    template.write_text(
+        "version: 0.1.0\n"
+        "formats: {square: {canvas: {width: 200px, height: 200px, dpi: 72}}}\n"
+        "preview_data: {}\n"
+        "root:\n"
+        "  type: group\n"
+        "  id: root\n"
+        "  children:\n"
+        "    - id: line\n"
+        "      type: text\n"
+        '      text: "hi"\n'
+        "      style: {font: Inter, font_size: 20px, color: black}\n"
+        "      constraints:\n"
+        "        anchor: {top: parent.top, left: parent.left}\n"
+        "        size: {w: fill}\n",
+        encoding="utf-8",
+    )
+
+    result = Compiler().compile(template, None, "square", None, None)
+
+    missing = [d for d in result.diagnostics if d.code == "ARC-LAY-032"]
+    assert missing
+    assert "'fit_content'" in (missing[0].hint or "")

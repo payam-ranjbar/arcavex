@@ -1418,12 +1418,22 @@ def rerun(
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
 ) -> None:
-    """Reproduce a recorded run into a new run directory (byte-identical on match)."""
+    """Reproduce a recorded run into a new run directory (byte-identical on match).
+
+    Takes the run directory, or the bare run id that ``list-runs`` prints — the two are the same
+    string only because the id happens to name the directory under ``outputs/``, which nothing
+    says out loud. Passing what the listing showed used to fail with "no run manifest".
+    """
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
-    report: RerunReport = facade.rerun(run_dir)
+    resolved = run_dir
+    if not (run_dir / "manifest.json").is_file():
+        candidate = Path.cwd() / "outputs" / run_dir.name
+        if (candidate / "manifest.json").is_file():
+            resolved = candidate
+    report: RerunReport = facade.rerun(resolved)
     if json_out:
         _emit_json(report)
     elif not quiet:

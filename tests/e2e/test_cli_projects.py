@@ -154,3 +154,23 @@ def test_a_project_falls_back_to_preview_data_when_the_template_ships_none(
     )
 
     assert "Preview" in (project / "data" / "post.yaml").read_text(encoding="utf-8")
+
+
+def test_rerun_accepts_the_run_id_that_list_runs_prints(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Listing runs and rerunning one should not need a fact the listing never mentions.
+
+    `list-runs` prints `run_id`; `rerun` took a directory. They are the same string only because
+    the id happens to name the directory under outputs/, which nothing says — so passing what
+    was just printed failed with "No run manifest at …".
+    """
+    rendered = runner.invoke(app, ["render", "--project", str(project_dir), "--json"])
+    assert rendered.exit_code == 0, rendered.output
+    run_id = json.loads(rendered.stdout)["run_id"]
+
+    monkeypatch.chdir(project_dir)
+    reran = runner.invoke(app, ["rerun", run_id, "--json"])
+
+    assert reran.exit_code == 0, reran.output
+    assert json.loads(reran.stdout)["ok"] is True
