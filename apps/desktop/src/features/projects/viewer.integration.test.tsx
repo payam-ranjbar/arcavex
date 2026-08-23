@@ -41,6 +41,24 @@ describe("the project viewer", () => {
     });
   });
 
+  it("closing the project actually leaves it, not just tells the engine", async () => {
+    // `close_project` reached the engine and cleared its session, but nothing invalidated the
+    // cached snapshot, so the workbench carried on showing the project it had just closed.
+    // From the chair, the button did nothing at all.
+    const gateway = new FakeArcavexGateway();
+    renderApp(<App />, { gateway });
+    await screen.findByTestId("workbench");
+
+    await userEvent.click(screen.getByRole("button", { name: "Close project" }));
+
+    await waitFor(() => {
+      expect(gateway.calls.map((call) => call.method)).toContain("closeProject");
+    });
+    expect(
+      await screen.findByRole("button", { name: "Choose a project folder" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the project's own revisions rather than one merged number", async () => {
     renderApp(<App />);
 

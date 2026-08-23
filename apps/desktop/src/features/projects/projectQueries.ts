@@ -164,6 +164,24 @@ export function useOpenProject() {
   });
 }
 
+/** Close the open project and forget everything cached about it.
+ *
+ * The engine dropped the session as soon as it was asked; the window kept showing the project
+ * because nothing invalidated the snapshot, so the button read as doing nothing at all.
+ */
+export function useCloseProject() {
+  const gateway = useGateway();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => gateway.closeProject(),
+    // Reset rather than invalidated: invalidating refetches, and a refetch that fails because
+    // no project is open leaves the last successful snapshot in place, so the workbench went on
+    // showing the project it had just closed. Resetting clears every observer's data first,
+    // which is what "there is no project now" actually means.
+    onSuccess: () => queryClient.resetQueries(),
+  });
+}
+
 /** Open whatever the folder chooser returns; a cancelled dialog opens nothing. */
 export function useBrowseForProject() {
   const gateway = useGateway();

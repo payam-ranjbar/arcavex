@@ -182,6 +182,9 @@ export class FakeArcavexGateway implements ArcavexGateway {
     return this.record("chooseProjectDirectory", chosen);
   }
 
+  /** True once the project has been closed, so a snapshot refuses as the core's would. */
+  private closed = false;
+
   openProject(path: string): Promise<ProjectSnapshotReport> {
     this.openPath = path;
     this.settingsState = {
@@ -191,15 +194,23 @@ export class FakeArcavexGateway implements ArcavexGateway {
         ...this.settingsState.recentProjects.filter((entry) => entry !== path),
       ],
     };
+    this.closed = false;
     return this.record("openProject", this.snapshotValue(), path);
   }
 
   closeProject(): Promise<void> {
     this.openPath = null;
+    this.closed = true;
     return this.record("closeProject", undefined);
   }
 
   projectSnapshot(): Promise<ProjectSnapshotReport> {
+    // No project open is an error from the core, not an empty report — and the fake has to say
+    // so, or a test can never see what the window does after the project is closed.
+    if (this.closed) {
+      this.calls.push({ method: "projectSnapshot" });
+      return Promise.reject(new Error("no project is open"));
+    }
     return this.record("projectSnapshot", this.snapshotValue());
   }
 

@@ -2,12 +2,11 @@
 
 import type { ReactNode } from "react";
 
-import { useGateway } from "../../app/providers.tsx";
-import { useProjectSnapshot } from "./projectQueries.ts";
+import { useCloseProject, useProjectSnapshot } from "./projectQueries.ts";
 
 export function OpenProject(): ReactNode {
-  const gateway = useGateway();
   const snapshot = useProjectSnapshot();
+  const close = useCloseProject();
 
   if (!snapshot.data) {
     return <p role="note">No project is open.</p>;
@@ -32,7 +31,7 @@ export function OpenProject(): ReactNode {
         </dd>
       </dl>
 
-      <button type="button" onClick={() => void gateway.closeProject()}>
+      <button type="button" onClick={() => close.mutate()} disabled={close.isPending}>
         Close project
       </button>
     </div>
