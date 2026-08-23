@@ -554,6 +554,7 @@
             "keypath": "layers.title",
             "line": 42
           },
+          "style": null,
           "text": null,
           "virtual": false,
           "visible": true,
@@ -582,6 +583,7 @@
       "parent_id": null,
       "rotate_deg": 0.0,
       "source": null,
+      "style": null,
       "text": null,
       "virtual": false,
       "visible": true,

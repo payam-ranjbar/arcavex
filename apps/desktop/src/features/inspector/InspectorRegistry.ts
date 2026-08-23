@@ -83,6 +83,7 @@ export interface InspectorSection {
  */
 export const INSPECTOR_SECTIONS: ReadonlyArray<InspectorSection> = [
   { id: "text", title: "Text", kinds: ["text"] },
+  { id: "style", title: "Type", kinds: ["text", "shape"] },
   { id: "transform", title: "Transform", kinds: [] },
   { id: "appearance", title: "Appearance", kinds: [] },
   { id: "effects", title: "Effects", kinds: [] },

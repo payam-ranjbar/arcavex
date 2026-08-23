@@ -95,6 +95,9 @@ class AuthoredLayer:
     kind: str
     #: Authored text for a text node; None for every other kind.
     text: str | None
+    #: The node's authored ``style`` mapping, so an editor can show what it is about to change
+    #: rather than writing blind. Plain values only; absent when the node declares no style.
+    style: dict[str, Any] | None
     parent_id: str | None
     authored_index: int
     z: int
@@ -729,6 +732,7 @@ def _authored_layer(
         id=node_id,
         kind=_str_or_none(node_raw.get("type")) or "?",
         text=_str_or_none(node_raw.get("text")),
+        style=_plain_mapping(node_raw.get("style")),
         parent_id=parent_id,
         authored_index=authored_index,
         z=z,
@@ -816,3 +820,24 @@ def raise_if_missing(template: Path) -> None:
                 hint="Check the path on the command line.",
             )
         )
+
+
+def _plain_mapping(value: Any) -> dict[str, Any] | None:
+    """A YAML mapping as plain Python, or None when the node declares none."""
+    if not isinstance(value, dict) or not value:
+        return None
+    plain: dict[str, Any] = {}
+    for key, item in value.items():
+        plain[str(key)] = (
+            _plain_mapping(item) if isinstance(item, dict) else _plain_scalar(item)
+        )
+    return plain
+
+
+def _plain_scalar(value: Any) -> Any:
+    """Unwrap a ruamel scalar to the JSON-safe value underneath it."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [_plain_scalar(item) for item in value]
+    return str(value)

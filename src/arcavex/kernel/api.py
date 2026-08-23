@@ -1387,6 +1387,10 @@ class LayerNodeReport(BaseModel):
     #: The authored text of a text node, so an editor can show and diff what it will replace.
     #: Absent for every other kind, and for a rendered instance whose text came from data.
     text: str | None = None
+    #: The node's authored ``style`` mapping — font, size, weight, colour, alignment, fill, and
+    #: the rest of the vocabulary. Reported so an editor can show a value before changing it;
+    #: without it a properties panel can only offer geometry, which is what it did.
+    style: dict[str, Any] | None = None
     visible: bool = True
     locked: bool = False
     color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")

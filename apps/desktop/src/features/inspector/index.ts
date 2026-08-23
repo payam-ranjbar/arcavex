@@ -12,3 +12,4 @@ export { TextInspector, type InspectorSectionProps } from "./TextInspector.tsx";
 export { TransformInspector } from "./TransformInspector.tsx";
 export { AppearanceInspector } from "./AppearanceInspector.tsx";
 export { EffectsInspector } from "./EffectsInspector.tsx";
+export { StyleInspector } from "./StyleInspector.tsx";

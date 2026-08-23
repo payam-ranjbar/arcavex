@@ -15,6 +15,7 @@ import { seriousViolations } from "../../shared/test/axe.ts";
 import { AppearanceInspector } from "./AppearanceInspector.tsx";
 import { EffectsInspector } from "./EffectsInspector.tsx";
 import { editability, sectionsFor } from "./InspectorRegistry.ts";
+import { StyleInspector } from "./StyleInspector.tsx";
 import { TextInspector } from "./TextInspector.tsx";
 import { TransformInspector } from "./TransformInspector.tsx";
 
@@ -403,5 +404,77 @@ describe("EffectsInspector", () => {
     );
 
     expect(await seriousViolations(container)).toEqual([]);
+  });
+});
+
+describe("StyleInspector", () => {
+  function styled(overrides: Partial<LayerNodeReport> = {}): LayerNodeReport {
+    return layer({
+      style: { font: "Archivo", font_size: "70px", font_weight: 400, color: "#FFFFFF" },
+      ...overrides,
+    });
+  }
+
+  it("changes the font family through set_property", async () => {
+    const onSubmit = vi.fn();
+    render(<StyleInspector layers={[styled()]} {...ENABLED} onSubmit={onSubmit} />);
+    const user = userEvent.setup();
+
+    const field = screen.getByLabelText("Font");
+    await user.clear(field);
+    await user.type(field, "Inter{Enter}");
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      { kind: "set_property", layer_id: "title", keypath: "style.font", value: "Inter" },
+    ]);
+  });
+
+  it("keeps the unit a size was authored with", async () => {
+    // Rewriting `70px` as a bare `70` would silently reinterpret the size, since the engine
+    // takes px and pt and a number alone means something else again.
+    const onSubmit = vi.fn();
+    render(<StyleInspector layers={[styled()]} {...ENABLED} onSubmit={onSubmit} />);
+    const user = userEvent.setup();
+
+    const field = screen.getByLabelText("Size");
+    await user.clear(field);
+    await user.type(field, "84{Enter}");
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      { kind: "set_property", layer_id: "title", keypath: "style.font_size", value: "84px" },
+    ]);
+  });
+
+  it("sets alignment from the reading-order buttons", async () => {
+    const onSubmit = vi.fn();
+    render(<StyleInspector layers={[styled()]} {...ENABLED} onSubmit={onSubmit} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "end" }));
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      { kind: "set_property", layer_id: "title", keypath: "style.align", value: "end" },
+    ]);
+  });
+
+  it("offers fill rather than colour for a shape", () => {
+    render(
+      <StyleInspector
+        layers={[styled({ kind: "shape", text: null })]}
+        {...ENABLED}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Fill")).toBeVisible();
+    expect(screen.queryByLabelText("Font")).toBeNull();
+  });
+
+  it("shows nothing for a layer kind that has no style", () => {
+    const { container } = render(
+      <StyleInspector layers={[styled({ kind: "group" })]} {...ENABLED} onSubmit={vi.fn()} />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

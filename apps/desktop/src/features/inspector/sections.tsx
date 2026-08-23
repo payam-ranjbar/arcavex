@@ -7,11 +7,13 @@ import "./inspector.css";
 import { AppearanceInspector } from "./AppearanceInspector.tsx";
 import { EffectsInspector } from "./EffectsInspector.tsx";
 import { sectionsFor } from "./InspectorRegistry.ts";
+import { StyleInspector } from "./StyleInspector.tsx";
 import { TextInspector, type InspectorSectionProps } from "./TextInspector.tsx";
 import { TransformInspector } from "./TransformInspector.tsx";
 
 const RENDERERS = {
   text: TextInspector,
+  style: StyleInspector,
   transform: TransformInspector,
   appearance: AppearanceInspector,
   effects: EffectsInspector,
