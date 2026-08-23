@@ -78,3 +78,20 @@ test("no control is wider than the panel holding it", async ({ page }) => {
 
   expect(overflowing).toEqual([]);
 });
+
+test("the canvas pans with the wheel and zooms with Ctrl held", async ({ page }) => {
+  // Panning was on the middle mouse button alone and nothing said so, so past Fit you were
+  // stuck looking at one slice of the poster — zoom was useless exactly when it was wanted.
+  const canvas = page.getByRole("application", { name: "Canvas" });
+  const readout = page.locator(".proof-strip__zoom");
+  const zoomBefore = await readout.textContent();
+
+  await canvas.hover();
+  await page.mouse.wheel(0, 300);
+  await expect(readout).toHaveText(zoomBefore ?? "");
+
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -300);
+  await page.keyboard.up("Control");
+  await expect(readout).not.toHaveText(zoomBefore ?? "");
+});

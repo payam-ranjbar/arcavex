@@ -439,7 +439,7 @@ describe("StyleInspector", () => {
     render(<StyleInspector layers={[styled()]} {...ENABLED} onSubmit={onSubmit} />);
     const user = userEvent.setup();
 
-    const field = screen.getByLabelText("Size");
+    const field = screen.getByLabelText("Size (px)");
     await user.clear(field);
     await user.type(field, "84{Enter}");
 
@@ -508,5 +508,60 @@ describe("TextInspector resolved text", () => {
     );
 
     expect(screen.queryByText(/Renders as/)).toBeNull();
+  });
+});
+
+describe("StyleInspector colour and units", () => {
+  it("takes a typed hex value, which is how designers work", async () => {
+    // The swatch alone is the browser's own picker: no hex field, three decimal RGB spinners,
+    // and no way to sample the palette already in the document.
+    const onSubmit = vi.fn();
+    render(
+      <StyleInspector
+        layers={[layer({ style: { color: "#FFFFFF" }, paragraph: {} })]}
+        {...ENABLED}
+        onSubmit={onSubmit}
+      />,
+    );
+    const user = userEvent.setup();
+
+    const hex = screen.getByLabelText("Hex");
+    await user.clear(hex);
+    await user.type(hex, "#1E4D3B{Enter}");
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      { kind: "set_property", layer_id: "title", keypath: "style.color", value: "#1E4D3B" },
+    ]);
+  });
+
+  it("ignores a hex value that is not one", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <StyleInspector
+        layers={[layer({ style: { color: "#FFFFFF" }, paragraph: {} })]}
+        {...ENABLED}
+        onSubmit={onSubmit}
+      />,
+    );
+    const user = userEvent.setup();
+
+    const hex = screen.getByLabelText("Hex");
+    await user.clear(hex);
+    await user.type(hex, "not a colour{Enter}");
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("names the unit a size is in, because the document mixes px and pt", () => {
+    render(
+      <StyleInspector
+        layers={[layer({ style: { font_size: "70px" }, paragraph: {} })]}
+        {...ENABLED}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    // "Size" beside "X (pt)" reads as points; typing 110 then silently meant 82.5pt.
+    expect(screen.getByLabelText("Size (px)")).toBeInTheDocument();
   });
 });

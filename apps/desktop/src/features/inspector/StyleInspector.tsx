@@ -55,6 +55,14 @@ function asBoolean(raw: unknown): boolean {
   return raw === true;
 }
 
+/** The unit a value carries, shown in its label: a bare "Size" field next to "X (pt)" reads as
+ * points, and typing 110 into a px document silently means 82.5pt. */
+function unitOf(value: FieldValue<string>): string {
+  if (value === MIXED) return "mixed";
+  const match = /[a-z%]+$/i.exec(value);
+  return match ? match[0] : "pt";
+}
+
 /** Keep the unit the value was authored with, so `70px` stays px when the number changes. */
 function withUnit(previous: unknown, next: number): string | number {
   const match = /[a-z%]+$/i.exec(asText(previous));
@@ -119,7 +127,7 @@ export function StyleInspector({
           />
           <NumberField
             id="inspector-style-size"
-            label="Size"
+            label={`Size (${unitOf(styleValue(text, "font_size", asText))})`}
             value={styleValue(text, "font_size", asNumber)}
             disabled={disabled}
             disabledReason={disabledReason}
@@ -137,7 +145,7 @@ export function StyleInspector({
           />
           <NumberField
             id="inspector-style-tracking"
-            label="Letter spacing"
+            label={`Letter spacing (${unitOf(styleValue(text, "letter_spacing", asText))})`}
             value={styleValue(text, "letter_spacing", asNumber)}
             disabled={disabled}
             disabledReason={disabledReason}
@@ -182,18 +190,34 @@ export function StyleInspector({
         </>
       ) : null}
 
-      <label className="inspector__field" htmlFor="inspector-style-color">
-        <span>{text.length > 0 ? "Colour" : "Fill"}</span>
-        <input
-          id="inspector-style-color"
-          type="color"
-          value={colour === MIXED || colour === "" ? "#000000" : colour}
+      {/* The swatch alone is the browser's own picker: no hex field, no document palette, and
+          three decimal RGB spinners. Designers work in hex and the poster's palette is already
+          in the file, so the field takes a typed value and the swatch stays for sampling. */}
+      <div className="inspector__colour">
+        <label className="inspector__field" htmlFor="inspector-style-color">
+          <span>{text.length > 0 ? "Colour" : "Fill"}</span>
+          <input
+            id="inspector-style-color"
+            type="color"
+            value={colour === MIXED || colour === "" ? "#000000" : colour}
+            disabled={disabled}
+            onChange={(event) =>
+              set(text.length > 0 ? "color" : "fill", event.currentTarget.value.toUpperCase())
+            }
+          />
+        </label>
+        <TextField
+          id="inspector-style-color-hex"
+          label="Hex"
+          value={colour}
           disabled={disabled}
-          onChange={(event) =>
-            set(text.length > 0 ? "color" : "fill", event.currentTarget.value.toUpperCase())
-          }
+          disabledReason={disabledReason}
+          onCommit={(next) => {
+            const hex = next.trim().replace(/^#?/, "#").toUpperCase();
+            if (/^#[0-9A-F]{6}$/.test(hex)) set(text.length > 0 ? "color" : "fill", hex);
+          }}
         />
-      </label>
+      </div>
 
       <NumberField
         id="inspector-style-opacity"

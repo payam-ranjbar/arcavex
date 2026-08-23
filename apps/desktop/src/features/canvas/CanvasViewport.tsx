@@ -132,16 +132,31 @@ export function CanvasViewport({
     setViewport((current) => zoomAt(current, factor, { x: rect.width / 2, y: rect.height / 2 }));
   }
 
+  /**
+   * Wheel pans, Ctrl (or Cmd) wheel zooms — the convention every drawing tool shares.
+   *
+   * The wheel used to zoom unconditionally and panning was on the middle button alone, which
+   * nothing announced. Past Fit you were looking at an arbitrary slice of the poster with no way
+   * to reach the rest, so zoom was useless exactly when it was needed — checking kerning.
+   */
   function onWheel(event: WheelEvent<HTMLDivElement>): void {
     const element = surface.current;
     if (!element) return;
-    const rect = element.getBoundingClientRect();
-    setViewport((current) =>
-      zoomAt(current, event.deltaY < 0 ? 1.1 : 1 / 1.1, {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      }),
-    );
+
+    if (event.ctrlKey || event.metaKey) {
+      const rect = element.getBoundingClientRect();
+      setViewport((current) =>
+        zoomAt(current, event.deltaY < 0 ? 1.1 : 1 / 1.1, {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        }),
+      );
+      return;
+    }
+
+    // Shift swaps the axis, which is how a wheel reaches sideways on a mouse that has one.
+    const [dx, dy] = event.shiftKey ? [-event.deltaY, 0] : [-event.deltaX, -event.deltaY];
+    setViewport((current) => pan(current, dx, dy));
   }
 
   function canvasPoint(event: { clientX: number; clientY: number }) {
