@@ -474,6 +474,29 @@ class Compiler:
                 pre_overlays, post_overlays = self._locale_data_overlays(
                     source, data, locale, loc_settings, inferred
                 )
+                # Applying a locale's direction to text written in another one is the quietest
+                # way to ship a wrong artifact: the picture looks normal and an English time
+                # range comes out reversed. Say it, rather than let it look deliberate.
+                if (
+                    locale is not None
+                    and not pre_overlays
+                    and not post_overlays
+                    and _direction_differs(source, loc_settings, locale)
+                ):
+                    diags.append(
+                        diagnostic(
+                            "ARC-TPL-102",
+                            f"Locale {locale!r} was applied but supplies no text of its own, so "
+                            "the existing copy is rendered under its direction and digit rules.",
+                            severity="warning",
+                            file=str(source.template_path),
+                            keypath=f"locales.{locale}",
+                            hint=(
+                                f"Add 'locales.{locale}.data', or a sibling "
+                                f"'<data>.{locale}.yaml', or render without --locale."
+                            ),
+                        )
+                    )
             else:
                 pre_overlays, post_overlays = [], []
             context = self._build_context(
@@ -3640,3 +3663,28 @@ def _parse_anchor_value(
     # expanded sibling id (e.g. 'title' -> 'title[ann]'); 'parent' is never suffixed.
     resolved_ref = "parent" if ref == "parent" else f"{ref}{id_suffix}"
     return AnchorEdge(ref=resolved_ref, edge=edge, offset_pt=offset_pt)  # type: ignore[arg-type]
+
+
+def _direction_differs(source: Any, loc_settings: dict[str, Any], locale: str) -> bool:
+    """True when this locale reads the other way from the template's own default.
+
+    Only that case is worth a warning: applying `en` rules to English copy is exactly what it
+    looks like, while applying `fa` rules to it silently reverses dates and time ranges.
+    """
+    requested = str(loc_settings.get("direction") or "ltr").lower()
+    declared = source.raw.get("locales") if hasattr(source, "raw") else None
+    if not isinstance(declared, dict) or not declared:
+        return False
+
+    # The first declared locale is the one the template was authored in, by convention, and its
+    # direction is therefore the direction the untranslated copy actually reads in. Rendering
+    # that copy under a locale that reads the other way is the case worth warning about;
+    # rendering it under its own direction is exactly what it looks like.
+    authored = next(iter(declared))
+    if authored == locale:
+        return False
+    settings = declared.get(authored)
+    authored_direction = "ltr"
+    if isinstance(settings, dict) and settings.get("direction"):
+        authored_direction = str(settings["direction"]).lower()
+    return requested != authored_direction

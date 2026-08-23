@@ -1071,6 +1071,16 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Re-read the project, compose the edit against the current revision, and re-submit.",
         ),
         _e(
+            "ARC-TPL-102",
+            "Locale rendered without content of its own",
+            "A locale whose text direction differs from the content was applied, but neither an "
+            "inline 'locales.<name>.data' nor a sibling '<data>.<locale>.yaml' supplied any text "
+            "for it. The direction and digit rules still apply, so untranslated copy is "
+            "bidi-reordered: an English time range renders reversed while looking entirely "
+            "normal.",
+            "Supply the locale's copy, or render without --locale to see the source direction.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",

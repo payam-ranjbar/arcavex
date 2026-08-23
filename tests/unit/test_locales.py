@@ -153,3 +153,76 @@ def test_four_layer_data_precedence(tmp_path: Path) -> None:
     result3 = Compiler().compile(template, None, "square", "fa", None)
     assert result3.document is not None, result3.diagnostics
     assert "۱۹" in result3.document.root.children[0].text
+
+
+# --------------------------------------------- rendering a locale with no locale content
+
+
+_RTL_ONLY_TPL = """\
+version: 0.1.0
+formats:
+  square: {canvas: {width: 200px, height: 200px, dpi: 72}}
+locales:
+  en: {direction: ltr}
+  fa: {direction: rtl, digits: fa}
+preview_data: {when: "6:00-8:30 PM"}
+root:
+  type: group
+  id: root
+  children:
+    - id: label
+      type: text
+      text: "{{ when }}"
+      style: {font: Inter, font_size: 20px, color: black}
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: fill, h: fit_content}}
+"""
+
+
+def test_a_locale_with_no_content_of_its_own_says_so(tmp_path: Path) -> None:
+    """Rendering `--locale fa` over English content is the quietest way to ship a wrong poster.
+
+    The locale's direction is applied to whatever text is there, so an English time range comes
+    out bidi-reordered as "PM 8:30-6:00" and a date as "SEP 2026 24". The picture looks entirely
+    normal -- correct fonts, no overflow, nothing to notice at thumbnail size -- and states the
+    wrong time. A tester rendered exactly this and read it as an engine bug.
+
+    Applying the locale is right; doing it silently is not. When neither an inline
+    `locales.<L>.data` nor a sibling `<base>.<locale>.yaml` supplied any content for a locale
+    whose direction differs from the source, the engine says so.
+    """
+    template = tmp_path / "t.yaml"
+    template.write_text(_RTL_ONLY_TPL, encoding="utf-8")
+
+    result = Compiler().compile(template, None, "square", "fa", None)
+
+    assert result.document is not None, result.diagnostics
+    warned = [d for d in result.diagnostics if d.code == "ARC-TPL-102"]
+    assert warned, [d.code for d in result.diagnostics]
+    assert warned[0].severity == "warning"
+    assert "fa" in warned[0].message
+
+
+def test_no_warning_when_the_locale_brings_its_own_content(tmp_path: Path) -> None:
+    """The template above but with inline locale data: nothing to warn about."""
+    template = tmp_path / "t.yaml"
+    template.write_text(
+        _RTL_ONLY_TPL.replace(
+            "  fa: {direction: rtl, digits: fa}",
+            '  fa: {direction: rtl, digits: fa, data: {when: "۱۸:۰۰ تا ۲۰:۳۰"}}',
+        ),
+        encoding="utf-8",
+    )
+
+    result = Compiler().compile(template, None, "square", "fa", None)
+
+    assert not [d for d in result.diagnostics if d.code == "ARC-TPL-102"]
+
+
+def test_no_warning_for_a_locale_that_reads_the_same_direction(tmp_path: Path) -> None:
+    """`--locale en` on English content is exactly what it looks like."""
+    template = tmp_path / "t.yaml"
+    template.write_text(_RTL_ONLY_TPL, encoding="utf-8")
+
+    result = Compiler().compile(template, None, "square", "en", None)
+
+    assert not [d for d in result.diagnostics if d.code == "ARC-TPL-102"]
