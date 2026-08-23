@@ -480,3 +480,30 @@ describe("StyleInspector", () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe("TextInspector resolved text", () => {
+  it("shows what a binding actually rendered as", () => {
+    render(
+      <TextInspector
+        layers={[layer({ text: "{{ title_line_1 }}", resolved_text: "BUILDING" })]}
+        {...ENABLED}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Renders as/)).toBeVisible();
+    expect(screen.getByText("BUILDING")).toBeVisible();
+  });
+
+  it("says nothing extra when the text is already literal", () => {
+    render(
+      <TextInspector
+        layers={[layer({ text: "Plain words", resolved_text: "Plain words" })]}
+        {...ENABLED}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/Renders as/)).toBeNull();
+  });
+});

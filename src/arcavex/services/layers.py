@@ -416,6 +416,7 @@ def _build_rendered_node(
         key=None if authored is None else authored.key,
         display_name=authored_id if ui is None or ui.display_name is None else ui.display_name,
         text=None if authored is None else authored.text,
+        resolved_text=getattr(compiled, "text", None),
         style=None if authored is None else authored.style,
         visible=visible,
         locked=locked,

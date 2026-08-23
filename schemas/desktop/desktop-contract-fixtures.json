@@ -548,6 +548,7 @@
           ],
           "paint_index": 1,
           "parent_id": "root",
+          "resolved_text": null,
           "rotate_deg": 1.5,
           "source": {
             "file": "template.yaml",
@@ -581,6 +582,7 @@
       "paint_bounds_px": null,
       "paint_index": 0,
       "parent_id": null,
+      "resolved_text": null,
       "rotate_deg": 0.0,
       "source": null,
       "style": null,

@@ -307,6 +307,7 @@ def test_layer_node_contract_separates_authored_and_rendered_identity() -> None:
         # A group has no authored text; text nodes report theirs so an editor can diff it.
         "text": None,
         # The authored style mapping, so a properties panel can show a value before changing it.
+        "resolved_text": None,
         "style": None,
         "visible": True,
         "locked": True,
@@ -1094,3 +1095,58 @@ def test_layer_tree_and_hit_test_open_project_read_only(tmp_path: Path) -> None:
     ).ok
 
     assert _project_state(project) == before
+
+
+def test_rendered_mode_reports_what_the_text_resolved_to(tmp_path: Path) -> None:
+    """Confirming a wording change should not require rendering a full-size image.
+
+    `layer_tree` in rendered mode returned the authored `{{ headline }}` for every text node,
+    so the only way to check what a change actually produced was to render a PNG and look at
+    it — the most common request in the product with the most expensive verification path.
+
+    The authored value stays put, because that is what an editor writes back; replacing it with
+    the resolved string is precisely how a data binding gets destroyed.
+    """
+    from arcavex.bootstrap import build_facade
+
+    template = tmp_path / "kit"
+    template.mkdir()
+    (template / "template.yaml").write_text(
+        "version: 0.1.0\n"
+        "formats: {square: {canvas: {width: 200px, height: 200px, dpi: 72}}}\n"
+        "variables: {headline: {type: string, required: true}}\n"
+        'preview_data: {headline: "Resolved words"}\n'
+        "root:\n"
+        "  type: group\n"
+        "  id: root\n"
+        "  children:\n"
+        "    - id: title\n"
+        "      type: text\n"
+        '      text: "{{ headline }}"\n'
+        "      style: {font: Inter, font_size: 20px, color: black}\n"
+        "      constraints:\n"
+        "        anchor: {top: parent.top, left: parent.left}\n"
+        "        size: {w: fill, h: fit_content}\n",
+        encoding="utf-8",
+    )
+
+    facade = build_facade()
+    project = tmp_path / "post"
+    created = facade.create_project(project, "post", str(template), formats=["square"])
+    assert created.ok, created.diagnostics
+
+    report = facade.layer_tree(project=project, mode="rendered", format_name="square")
+
+    def find(node: dict[str, object]) -> dict[str, object] | None:
+        if node.get("authored_id") == "title":
+            return node
+        for child in node.get("children") or []:  # type: ignore[union-attr]
+            found = find(child)  # type: ignore[arg-type]
+            if found:
+                return found
+        return None
+
+    node = find(report.model_dump(mode="json")["root"])
+    assert node is not None
+    assert node["text"] == "{{ headline }}", "the authored value must survive for editing"
+    assert node["resolved_text"] == "Resolved words"

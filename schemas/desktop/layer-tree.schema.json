@@ -440,6 +440,18 @@
           "default": null,
           "title": "Parent Id"
         },
+        "resolved_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Text"
+        },
         "rotate_deg": {
           "default": 0.0,
           "title": "Rotate Deg",

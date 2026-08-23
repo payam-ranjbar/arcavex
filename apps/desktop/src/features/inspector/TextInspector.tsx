@@ -38,6 +38,9 @@ export function TextInspector({
   // data.yaml and stops picking up locale overrides, so a translated render quietly reverts to
   // whatever was typed. Saying so costs a line; not saying it cost a tester their Farsi headline.
   const bindings = value === MIXED ? [] : bindingsIn(value);
+  // What this text actually became for the current format and locale. Without it the only way
+  // to check a wording change was to render a full-size image and look at it.
+  const resolved = textLayers.length === 1 ? (textLayers[0]?.resolved_text ?? null) : null;
 
   return (
     <section className="inspector__section" aria-labelledby="inspector-text">
@@ -66,6 +69,11 @@ export function TextInspector({
           This text comes from data ({bindings.map((name) => `{{ ${name} }}`).join(", ")}). Typing
           here replaces the binding with a literal, and the layer stops following data and locale
           overrides.
+        </p>
+      ) : null}
+      {resolved !== null && resolved !== "" && resolved !== value ? (
+        <p className="inspector__hint">
+          Renders as: <span className="measure">{resolved}</span>
         </p>
       ) : null}
       {value === MIXED ? (
