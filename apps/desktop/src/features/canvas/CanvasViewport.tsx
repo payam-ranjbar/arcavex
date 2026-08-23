@@ -122,6 +122,14 @@ export function CanvasViewport({
   const output = render.data?.lastGood ?? null;
   const state = render.data?.state ?? "idle";
 
+  /** Zoom a step from the centre, so the button and the wheel agree about what they anchor on. */
+  function zoomBy(factor: number): void {
+    const element = surface.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    setViewport((current) => zoomAt(current, factor, { x: rect.width / 2, y: rect.height / 2 }));
+  }
+
   function onWheel(event: WheelEvent<HTMLDivElement>): void {
     const element = surface.current;
     if (!element) return;
@@ -310,10 +318,30 @@ export function CanvasViewport({
         {output?.renderMs === null || output?.renderMs === undefined ? null : (
           <span>{output.renderMs} ms</span>
         )}
-        <button type="button" onClick={fit} className="proof-strip__fit">
-          Fit
-        </button>
-        <span className="proof-strip__zoom">{Math.round(viewport.scale * 100)}%</span>
+        <div className="proof-strip__zoomers" role="group" aria-label="Zoom">
+          <button type="button" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.25)}>
+            −
+          </button>
+          <span className="proof-strip__zoom">{Math.round(viewport.scale * 100)}%</span>
+          <button type="button" aria-label="Zoom in" onClick={() => zoomBy(1.25)}>
+            +
+          </button>
+          <button type="button" onClick={fit} className="proof-strip__fit">
+            Fit
+          </button>
+          <button type="button" onClick={() => zoomBy(1 / viewport.scale)} aria-label="Actual size">
+            100%
+          </button>
+        </div>
+        {output?.imageUrl ? (
+          <a
+            className="proof-strip__export"
+            href={output.imageUrl}
+            download={`${render.data?.key?.format ?? "proof"}.png`}
+          >
+            Save image
+          </a>
+        ) : null}
       </div>
     </>
   );

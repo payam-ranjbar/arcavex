@@ -105,3 +105,27 @@
 .overlay__handle[data-handle="w"] {
   cursor: ew-resize;
 }
+
+/* ---------------------------------------------------------------- zoom and export controls */
+
+.proof-strip__zoomers {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+}
+
+.proof-strip__zoomers button {
+  min-width: 2rem;
+}
+
+.proof-strip__export {
+  color: var(--arcavex-accent);
+  text-decoration: none;
+  padding-inline: var(--space-2);
+}
+
+.proof-strip__export:hover,
+.proof-strip__export:focus-visible {
+  text-decoration: underline;
+}
