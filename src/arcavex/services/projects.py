@@ -172,7 +172,8 @@ class ProjectService:
         A library reference is resolved and pinned to an exact ``name@version`` so a recorded
         render never drifts; a filesystem path is stored relative to the project. Formats and
         locales default to the template's own declarations, and a starter data file is written
-        from the template's ``preview_data`` so the project renders immediately.
+        from the template's own ``data.yaml`` when it ships one, or from ``preview_data`` when it
+        does not, so the project renders immediately either way.
         """
         target = Path(target)
         if target.exists() and any(target.iterdir()):
@@ -206,7 +207,15 @@ class ProjectService:
         (target / "overrides").mkdir(exist_ok=True)
         (target / "outputs").mkdir(exist_ok=True)
         (target / "data").mkdir(exist_ok=True)
-        starter = preview if isinstance(preview, dict) else {}
+        # A template's own data.yaml is real content; preview_data is a thumbnail of it. Seeding
+        # from preview when both exist handed the author abbreviated strings in place of the copy
+        # they had just written, with nothing said about the substitution.
+        shipped = template_dir / "data.yaml" if template_dir.is_dir() else None
+        if shipped is not None and shipped.is_file():
+            loaded = _plain(load_yaml(shipped))
+            starter = loaded if isinstance(loaded, dict) else {}
+        else:
+            starter = preview if isinstance(preview, dict) else {}
         _dump_yaml_atomic(target / f"data/{name}.yaml", starter)
         self._write_manifest(target, manifest)
         return Project(root=target, manifest=manifest)
