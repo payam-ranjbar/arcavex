@@ -200,6 +200,56 @@ message: {}
     }));
 }
 
+/// Put the window back when it collapses into something no one can use.
+///
+/// A tester lost four sessions to a window that vanished from the screen while both processes
+/// stayed alive and responsive: its rectangle had become 26x26 or empty. Nothing panicked, so
+/// there was no crash log, and because the process survived, relaunching the application
+/// silently attached to the dead instance — the only way out was Task Manager.
+///
+/// The configuration sets a minimum of 1024x640, so a *visible* window smaller than that is a
+/// state the application never asks for and cannot be a user's intent. That is the only case
+/// repaired here: a minimised or hidden window is left exactly as the person left it.
+fn watch_for_a_collapsed_window(app: tauri::AppHandle, directory: PathBuf) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            interval.tick().await;
+            let Some(window) = app.get_webview_window("main") else {
+                return;
+            };
+            let visible = window.is_visible().unwrap_or(false);
+            let minimised = window.is_minimized().unwrap_or(false);
+            if !visible || minimised {
+                continue;
+            }
+            let Ok(size) = window.outer_size() else {
+                continue;
+            };
+            if size.width >= 400 && size.height >= 300 {
+                continue;
+            }
+
+            let note = format!(
+                "window collapsed to {}x{} while visible; restoring to 1440x900
+",
+                size.width, size.height
+            );
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(directory.join("crash.log"))
+                .map(|mut file| {
+                    use std::io::Write;
+                    let _ = file.write_all(note.as_bytes());
+                });
+            let _ = window.set_size(tauri::LogicalSize::new(1440.0, 900.0));
+            let _ = window.center();
+            let _ = window.set_focus();
+        }
+    });
+}
+
 pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
 
@@ -223,6 +273,7 @@ pub fn run() {
             let state: SharedState = Arc::new(build_state(&directory));
             state.attach(app.handle().clone());
             app.manage(state);
+            watch_for_a_collapsed_window(app.handle().clone(), directory.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
