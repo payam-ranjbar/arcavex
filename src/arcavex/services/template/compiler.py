@@ -101,7 +101,7 @@ _VAR_PY_TYPES: dict[str, tuple[type, ...]] = {
 # Locale setting vocabularies validated for shape in Phase 1 (application is Phase 2, DX-5).
 _LOCALE_DIRECTIONS = {"ltr", "rtl"}
 _LOCALE_DIGITS = {"en", "fa", "latn", "arab"}
-_LOCALE_KEYS = {"direction", "digits", "fonts", "data", "patch"}
+_LOCALE_KEYS = {"direction", "digits", "fonts", "data", "patch", "formats"}
 
 # Known field whitelists per sub-block (CR-2). An unknown key here is a located error rather
 # than a silently ignored typo, matching how the compiler treats unknown keys elsewhere.
@@ -445,6 +445,7 @@ class Compiler:
             # (§4.1.5): style -> format patch -> locale patch. Applied to the node AST in place.
             self._apply_format_patch(source, resolved_format, root_raw)
             self._apply_locale_patch(source, locale, loc_settings, root_raw)
+            self._apply_locale_format_patch(source, locale, resolved_format, root_raw)
             if project_patch:
                 apply_patches(
                     root_raw, project_patch, "project",
@@ -604,6 +605,7 @@ class Compiler:
                 )
             self._apply_format_patch(source, resolved_format, root_raw)
             self._apply_locale_patch(source, locale, loc_settings, root_raw)
+            self._apply_locale_format_patch(source, locale, resolved_format, root_raw)
             # The last op touching a path is the one whose value survives; mark it effective.
             last_for_path: dict[str, int] = {}
             for i, rec in enumerate(self._patch_log.records):
@@ -1155,6 +1157,40 @@ class Compiler:
             apply_patches(
                 root_raw, patch, f"locale:{locale}", source.file_for("locales"),
                 f"locales.{locale}.patch", self._patch_log,
+                self._effective_source_map,
+            )
+
+    def _apply_locale_format_patch(
+        self,
+        source: TemplateSource,
+        locale: str | None,
+        format_name: str,
+        root_raw: dict[str, Any],
+    ) -> None:
+        """Apply ``locales.<locale>.formats.<format>.patch`` — the narrowest layer, applied last.
+
+        Without it "Farsi, on the poster" cannot be said at all. Patch order is format then
+        locale, so one `locales.fa.patch` setting a display size flattened the poster's 132px
+        down to the square's, because a locale patch necessarily spans every format. Scripts
+        differ in optical size and line-box ratio at every format, so a bilingual campaign hit
+        this immediately and worked around it by duplicating the node and gating both copies.
+        """
+        if locale is None:
+            return
+        locales = source.raw.get("locales")
+        settings = locales.get(locale) if isinstance(locales, dict) else None
+        if not isinstance(settings, dict):
+            return
+        per_format = settings.get("formats")
+        if not isinstance(per_format, dict):
+            return
+        spec = per_format.get(format_name)
+        patch = spec.get("patch") if isinstance(spec, dict) else None
+        if isinstance(patch, list) and patch:
+            apply_patches(
+                root_raw, patch, f"locale:{locale}+format:{format_name}",
+                source.file_for("locales"),
+                f"locales.{locale}.formats.{format_name}.patch", self._patch_log,
                 self._effective_source_map,
             )
 

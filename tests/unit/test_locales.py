@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from ruamel.yaml.comments import TaggedScalar
 from ruamel.yaml.tag import Tag
 
@@ -399,3 +400,141 @@ def test_a_text_node_is_still_told_about_fit_content(tmp_path: Path) -> None:
     missing = [d for d in result.diagnostics if d.code == "ARC-LAY-032"]
     assert missing
     assert "'fit_content'" in (missing[0].hint or "")
+
+
+_COMBO_TPL = """\
+version: 0.1.0
+formats:
+  poster:
+    canvas: {width: 400px, height: 600px, dpi: 72}
+    patch:
+      - set: "nodes.title.style.font_size"
+        value: 132px
+  square:
+    canvas: {width: 200px, height: 200px, dpi: 72}
+locales:
+  en: {direction: ltr}
+  fa:
+    direction: rtl
+    patch:
+      - set: "nodes.title.style.letter_spacing"
+        value: 0px
+    formats:
+      poster:
+        patch:
+          - set: "nodes.title.style.font_size"
+            value: 96px
+preview_data: {}
+root:
+  type: group
+  id: root
+  children:
+    - id: title
+      type: text
+      text: "hello"
+      style: {font: Inter, font_size: 40px, color: black, letter_spacing: 2px}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: fill, h: fit_content}
+"""
+
+
+def _title_size(tmp_path: Path, fmt: str, locale: str) -> float:
+    template = tmp_path / "t.yaml"
+    template.write_text(_COMBO_TPL, encoding="utf-8")
+    result = Compiler().compile(template, None, fmt, locale, None)
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+    return result.document.root.children[0].style.font_size_pt
+
+
+def test_a_locale_can_patch_one_format_without_touching_the_others(tmp_path: Path) -> None:
+    """"Farsi, on the poster" was not expressible, and every bilingual campaign needs it.
+
+    Patch order is format then locale, so a single `locales.fa.patch` overriding a size flattened
+    the poster's 132px display down to whatever the square wanted. Scripts differ in optical size
+    at every format, so the workaround was duplicating the node in the tree and gating both
+    copies on the locale.
+    """
+    assert _title_size(tmp_path, "poster", "en") == 132.0
+    assert _title_size(tmp_path, "square", "en") == 40.0
+
+    # Farsi on the poster takes the combined patch; Farsi on the square keeps the square's size.
+    assert _title_size(tmp_path, "poster", "fa") == 96.0
+    assert _title_size(tmp_path, "square", "fa") == 40.0
+
+
+def test_the_locale_patch_still_applies_to_every_format(tmp_path: Path) -> None:
+    """The plain locale patch is unchanged: it is the "all formats" layer."""
+    template = tmp_path / "t.yaml"
+    template.write_text(_COMBO_TPL, encoding="utf-8")
+
+    for fmt in ("poster", "square"):
+        result = Compiler().compile(template, None, fmt, "fa", None)
+        assert result.document is not None
+        assert result.document.root.children[0].style.letter_spacing_pt == 0.0
+
+
+# ---------------------------------------------------- patch paths that address list items
+
+
+def _patched(ops: list[dict[str, object]]) -> dict:
+    """Run patch ops against a small node tree and return it."""
+    from arcavex.services.template.overlays import PatchLog, apply_patches
+
+    root = {
+        "type": "group",
+        "id": "root",
+        "children": [
+            {
+                "id": "title",
+                "type": "text",
+                "text": "hello",
+                "effects": [
+                    {"name": "blur", "params": {"radius": "8px"}},
+                    {"name": "grain", "params": {"amount": 0.1}},
+                ],
+            }
+        ],
+    }
+    apply_patches(root, ops, "test", Path("t.yaml"), "test.patch", PatchLog())
+    return root["children"][0]
+
+
+def test_a_patch_can_address_one_item_in_a_list() -> None:
+    """Tuning one effect parameter should not mean replacing the whole effects list.
+
+    Patch paths walked mappings only, so `nodes.title.effects.0.params.radius` was rejected as
+    an "unknown patch path segment '0'". The workaround — rewriting the entire list per locale —
+    clobbered the per-format values that same list carried.
+    """
+    node = _patched([{"set": "nodes.title.effects.0.params.radius", "value": "2px"}])
+
+    assert node["effects"][0]["params"]["radius"] == "2px"
+    # The neighbour is untouched, which is the whole point of addressing one item.
+    assert node["effects"][1] == {"name": "grain", "params": {"amount": 0.1}}
+
+
+def test_a_list_item_can_be_removed_by_index() -> None:
+    node = _patched([{"remove": "nodes.title.effects.0"}])
+
+    assert [effect["name"] for effect in node["effects"]] == ["grain"]
+
+
+def test_an_index_past_the_end_is_refused_with_the_length() -> None:
+    from arcavex.kernel.diagnostics import DiagnosticError
+
+    with pytest.raises(DiagnosticError) as raised:
+        _patched([{"set": "nodes.title.effects.7.params.radius", "value": "2px"}])
+
+    message = " ".join(d.message for d in raised.value.diagnostics)
+    assert "out of range" in message and "2" in message
+
+
+def test_a_word_where_a_list_index_belongs_says_so() -> None:
+    from arcavex.kernel.diagnostics import DiagnosticError
+
+    with pytest.raises(DiagnosticError) as raised:
+        _patched([{"set": "nodes.title.effects.first.params.radius", "value": "2px"}])
+
+    message = " ".join(d.message for d in raised.value.diagnostics)
+    assert "must be an index" in message
