@@ -461,9 +461,16 @@ def test_channel_offset_splits_rgb_and_keeps_alpha() -> None:
     assert red_cols != blue_cols
 
 
-def test_list_effects_reports_schema(facade) -> None:  # noqa: ANN001
-    """DX-6: list_effects surfaces each effect's category and param schema for discovery."""
-    report = facade.list_effects()
+def test_list_effects_reports_schema(arcavex_home: Path) -> None:
+    """DX-6: list_effects surfaces each effect's category and param schema for discovery.
+
+    Builds its own facade under an isolated home rather than taking the module-scoped one: the
+    shared fixture is constructed before any test isolates the environment, so it loads whatever
+    extensions the developer has installed. This compared the built-in catalogue against that
+    and failed the moment an agent added one while testing.
+    """
+    assert arcavex_home.is_dir()
+    report = build_facade().list_effects()
     assert report.ok and report.response_version == 1
     by_name = {e.name: e for e in report.effects}
     assert set(by_name) == set(builtin_effects())

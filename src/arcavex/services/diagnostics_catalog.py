@@ -1081,6 +1081,25 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Supply the locale's copy, or render without --locale to see the source direction.",
         ),
         _e(
+            "ARC-TPL-103",
+            "Locale content shadowed by the project's data",
+            "A template supplies text for this locale through 'locales.<name>.data', and the "
+            "project's own data file sets the same keys. User data outranks template data, so "
+            "the locale's copy is not what renders — a right-to-left layout can come out holding "
+            "the other language's words, which validates and looks deliberate.",
+            "Remove the key from the project's data file, or move the locale's copy into a "
+            "sibling '<data>.<locale>.yaml', which is applied over the base data instead.",
+        ),
+        _e(
+            "ARC-TPL-104",
+            "Paint style on a node that does not paint",
+            "A group or another non-painting node declares fill, stroke, stroke_width, or "
+            "corner_radius. The fields are valid style vocabulary, so nothing rejected them, and "
+            "nothing draws them either — the node renders exactly as if they were absent.",
+            "Give the node a shape child carrying the paint, or move the style onto the shape "
+            "that should show it.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",

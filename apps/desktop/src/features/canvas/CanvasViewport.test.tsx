@@ -184,6 +184,33 @@ describe("CanvasViewport", () => {
     expect(screen.queryByText("Nothing rendered yet.")).toBeNull();
   });
 
+  it("shows that a render is running, and how long the last one took", async () => {
+    // An A2 at 150dpi takes about five seconds and every committed edit starts one. The only
+    // cue was a dot in the strip changing opacity, so the application looked frozen.
+    const base = await new FakeArcavexGateway().renderStatus();
+
+    renderApp(<CanvasViewport canvas={A3} selectionBounds={null} onHit={() => {}} />, {
+      script: {
+        renderStatus: {
+          ...base,
+          state: "rendering",
+          lastGood: base.lastGood ? { ...base.lastGood, renderMs: 4840 } : null,
+        },
+      },
+    });
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent(/Rendering/);
+    expect(status).toHaveTextContent("4.8s");
+  });
+
+  it("shows no progress banner once the render has settled", async () => {
+    renderApp(<CanvasViewport canvas={A3} selectionBounds={null} onHit={() => {}} />);
+
+    await screen.findByRole("img");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("says what state the proof is in and which revision it represents", async () => {
     renderApp(<CanvasViewport canvas={A3} selectionBounds={null} onHit={() => {}} />);
 

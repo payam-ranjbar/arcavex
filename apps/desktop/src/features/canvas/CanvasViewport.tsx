@@ -123,6 +123,9 @@ export function CanvasViewport({
 
   const output = render.data?.lastGood ?? null;
   const state = render.data?.state ?? "idle";
+  // How long the last render of this target took, so the wait has a size rather than being
+  // open-ended. Null until one has completed.
+  const lastRenderMs = output?.renderMs ?? null;
 
   /** Zoom a step from the centre, so the button and the wheel agree about what they anchor on. */
   function zoomBy(factor: number): void {
@@ -314,6 +317,22 @@ export function CanvasViewport({
             {state === "rendering" ? "Rendering the first proof…" : "Nothing rendered yet."}
           </p>
         )}
+
+        {state === "rendering" ? (
+          /* An A2 at 150dpi takes about five seconds to render, and every committed edit starts
+             one. The only cue used to be a dot in the strip changing opacity, so the application
+             looked frozen — the wait is unavoidable, being unable to see it is not. */
+          <div className="canvas__progress" role="status" aria-live="polite">
+            <span className="canvas__progress-bar" aria-hidden="true" />
+            <span>
+              Rendering {render.data?.key?.format ?? "this target"}
+              {render.data?.key?.locale ? ` · ${render.data.key.locale}` : ""}
+              {lastRenderMs === null
+                ? "…"
+                : ` — last one took ${(lastRenderMs / 1000).toFixed(1)}s`}
+            </span>
+          </div>
+        ) : null}
 
         {onSubmit ? (
           <SelectionOverlay

@@ -226,3 +226,117 @@ def test_no_warning_for_a_locale_that_reads_the_same_direction(tmp_path: Path) -
     result = Compiler().compile(template, None, "square", "en", None)
 
     assert not [d for d in result.diagnostics if d.code == "ARC-TPL-102"]
+
+
+_SHADOW_TPL = """\
+version: 0.1.0
+formats:
+  square: {canvas: {width: 200px, height: 200px, dpi: 72}}
+variables: {loc: {type: string, required: false}}
+locales:
+  en: {direction: ltr, data: {loc: en}}
+  fa: {direction: rtl, data: {loc: fa}}
+preview_data: {}
+root:
+  type: group
+  id: root
+  children:
+    - id: label
+      type: text
+      text: "{{ loc }}"
+      style: {font: Inter, font_size: 20px, color: black}
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: fill, h: fit_content}}
+"""
+
+
+def test_a_data_file_that_shadows_locale_content_says_so(tmp_path: Path) -> None:
+    """Project data outranking template locale data is by design; doing it in silence is not.
+
+    A template shipping `locales.fa.data` and a project data file that also sets the same key
+    produced a perfectly mirrored right-to-left layout containing entirely English copy. It
+    validated, it rendered, and it looked deliberate — the worst shape a failure can take.
+    """
+    template = tmp_path / "t.yaml"
+    template.write_text(_SHADOW_TPL, encoding="utf-8")
+    data = tmp_path / "data.yaml"
+    data.write_text("loc: en\n", encoding="utf-8")
+
+    result = Compiler().compile(template, data, "square", "fa", None)
+
+    shadowed = [d for d in result.diagnostics if d.code == "ARC-TPL-103"]
+    assert shadowed, [d.code for d in result.diagnostics]
+    assert shadowed[0].severity == "warning"
+    assert "loc" in shadowed[0].message
+    assert "fa" in shadowed[0].message
+
+
+def test_no_warning_when_the_data_file_leaves_locale_content_alone(tmp_path: Path) -> None:
+    """A data file that does not touch the locale's keys shadows nothing."""
+    template = tmp_path / "t.yaml"
+    template.write_text(_SHADOW_TPL, encoding="utf-8")
+    data = tmp_path / "data.yaml"
+    data.write_text("unrelated: 1\n", encoding="utf-8")
+
+    result = Compiler().compile(template, data, "square", "fa", None)
+
+    assert not [d for d in result.diagnostics if d.code == "ARC-TPL-103"]
+
+
+def test_paint_on_a_group_is_reported_rather_than_ignored(tmp_path: Path) -> None:
+    """A known field that silently does nothing is worse than an unknown one that errors.
+
+    `style` is shared vocabulary, so a group setting `fill` and `corner_radius` passed every
+    check and rendered exactly as if the keys were absent. A designer building a badge that way
+    only found out by looking at the pixels.
+    """
+    template = tmp_path / "t.yaml"
+    template.write_text(
+        "version: 0.1.0\n"
+        "formats: {square: {canvas: {width: 200px, height: 200px, dpi: 72}}}\n"
+        "preview_data: {}\n"
+        "root:\n"
+        "  type: group\n"
+        "  id: root\n"
+        "  children:\n"
+        "    - id: badge\n"
+        "      type: group\n"
+        '      style: {fill: "#FF4A1C", corner_radius: 2pt}\n'
+        "      constraints:\n"
+        "        anchor: {top: parent.top, left: parent.left}\n"
+        "        size: {w: 50px, h: 20px}\n"
+        "      children: []\n",
+        encoding="utf-8",
+    )
+
+    result = Compiler().compile(template, None, "square", None, None)
+
+    warned = [d for d in result.diagnostics if d.code == "ARC-TPL-104"]
+    assert warned, [d.code for d in result.diagnostics]
+    assert warned[0].severity == "warning"
+    assert "fill" in warned[0].message and "corner_radius" in warned[0].message
+
+
+def test_paint_on_a_shape_is_exactly_what_it_looks_like(tmp_path: Path) -> None:
+    """The same fields on a shape are the ordinary case and must stay quiet."""
+    template = tmp_path / "t.yaml"
+    template.write_text(
+        "version: 0.1.0\n"
+        "formats: {square: {canvas: {width: 200px, height: 200px, dpi: 72}}}\n"
+        "preview_data: {}\n"
+        "root:\n"
+        "  type: group\n"
+        "  id: root\n"
+        "  children:\n"
+        "    - id: plate\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        '      style: {fill: "#FF4A1C", corner_radius: 2pt}\n'
+        "      constraints:\n"
+        "        anchor: {top: parent.top, left: parent.left}\n"
+        "        size: {w: 50px, h: 20px}\n",
+        encoding="utf-8",
+    )
+
+    result = Compiler().compile(template, None, "square", None, None)
+
+    assert not [d for d in result.diagnostics if d.code == "ARC-TPL-104"]

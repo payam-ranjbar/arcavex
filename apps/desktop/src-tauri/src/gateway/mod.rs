@@ -388,6 +388,7 @@ impl<L: EngineLauncher> GatewayState<L> {
         if let Some(locale) = &job.key.locale {
             arguments["locales"] = json!([locale]);
         }
+        arguments["dpi"] = json!(PREVIEW_DPI);
 
         let report = self
             .call_tool("project_preview", arguments)
@@ -801,6 +802,17 @@ fn edit_changed_the_project(report: &Value) -> bool {
 ///
 /// Copying the render the engine already wrote is what "export" means here — re-rendering could
 /// produce a different picture from the one being looked at.
+/// Resolution the bench proofs at.
+///
+/// A canvas declared in physical units renders at its authored dpi, so an A2 at 150 dpi is
+/// ~2480x3508 px and takes about five seconds — every committed edit paying that, for a picture
+/// the canvas then draws at a third of its size. Capping the *preview* halves it, and a canvas
+/// declared in pixels is unaffected: the same request returns a byte-identical file.
+///
+/// Export does not use this. `save_render_as` re-renders at the authored resolution first, so
+/// what lands on disk is the print-ready picture rather than the proofing one.
+const PREVIEW_DPI: u64 = 96;
+
 #[tauri::command]
 pub async fn save_render_as(
     app: AppHandle,
@@ -812,7 +824,23 @@ pub async fn save_render_as(
     let output = status
         .last_good
         .ok_or_else(|| "There is no rendered picture to save yet.".to_owned())?;
-    let source = std::path::PathBuf::from(&output.source_path);
+    // Proofing runs at PREVIEW_DPI, which is not what anyone wants in a file. Ask for the
+    // authored resolution before copying, so an exported A2 is the print-ready one.
+    let project = state.open_project_path()?;
+    let mut arguments = json!({ "project": project });
+    if let Some(format) = &output.key.format {
+        arguments["formats"] = json!([format]);
+    }
+    if let Some(locale) = &output.key.locale {
+        arguments["locales"] = json!([locale]);
+    }
+    let report = state.call_tool("project_preview", arguments).await?;
+    let full = crate::gateway::session::preview_to_display(&report)
+        .ok()
+        .and_then(|preview| preview.get("output_path").and_then(Value::as_str))
+        .map(std::path::PathBuf::from);
+
+    let source = full.unwrap_or_else(|| std::path::PathBuf::from(&output.source_path));
     if !source.is_file() {
         return Err("The rendered file is no longer where the engine left it.".to_owned());
     }

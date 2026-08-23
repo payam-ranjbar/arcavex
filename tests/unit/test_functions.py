@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -23,8 +25,13 @@ def ev(src: str, ctx: dict | None = None) -> object:
 
 
 # ------------------------------------------------------------------- registry wiring
-def test_registry_backed_table_resolves_builtins() -> None:
-    """The bootstrap registry table resolves every built-in the default table does."""
+def test_registry_backed_table_resolves_builtins(arcavex_home: Path) -> None:
+    """The bootstrap registry table resolves every built-in the default table does.
+
+    Isolated home: the registry loads installed extensions too, so without it this compared the
+    built-ins against whatever the developer happens to have installed.
+    """
+    assert arcavex_home.is_dir()
     registries, _ = build_registries(TextService())
     table = build_function_table(registries)
     assert table("upper", ["hi"]) == "HI"

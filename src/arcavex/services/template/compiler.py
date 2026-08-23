@@ -472,7 +472,7 @@ class Compiler:
             # overlays are skipped; template-level patches above still ran for byte-identity.
             if resolved_data is None:
                 pre_overlays, post_overlays = self._locale_data_overlays(
-                    source, data, locale, loc_settings, inferred
+                    source, data, locale, loc_settings, inferred, diags
                 )
                 # Applying a locale's direction to text written in another one is the quietest
                 # way to ship a wrong artifact: the picture looks normal and an English time
@@ -1165,6 +1165,7 @@ class Compiler:
         locale: str | None,
         loc_settings: dict[str, Any],
         inferred: dict[str, str],
+        diags: list[Diagnostic],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Collect ``(pre, post)`` data overlays for the locale.
 
@@ -1177,9 +1178,11 @@ class Compiler:
         post: list[dict[str, Any]] = []
         inline = loc_settings.get("data")
         if isinstance(inline, dict) and inline:
-            pre.append(_to_plain(inline))
+            plain_inline = _to_plain(inline)
+            pre.append(plain_inline)
             if locale is not None:
                 inferred["locale_data"] = f"locales.{locale}.data"
+                self._warn_if_locale_data_is_shadowed(source, data, locale, plain_inline, diags)
         # A sibling data-file variant (base.<locale>.yaml) is applied when it exists, and the
         # inference is reported (§4.1.4 / §6.3).
         if data is not None and locale is not None:
@@ -1191,6 +1194,46 @@ class Compiler:
                     post.append(loaded)
                     inferred["data_overlay"] = candidate.name
         return pre, post
+
+    def _warn_if_locale_data_is_shadowed(
+        self,
+        source: TemplateSource,
+        data: Path | None,
+        locale: str,
+        inline: dict[str, Any],
+        diags: list[Diagnostic],
+    ) -> None:
+        """Say when the project's data file overrides the copy a locale ships.
+
+        User data outranking template data is deliberate (ADR-0002), and silence about it is
+        not: a template shipping `locales.fa.data` and a project data file setting the same key
+        rendered a mirrored right-to-left layout full of English words, with nothing reported.
+        """
+        if data is None or not data.is_file():
+            return
+        loaded = _to_plain(load_yaml(data))
+        if not isinstance(loaded, dict):
+            return
+        shadowed = sorted(key for key in inline if key in loaded)
+        if not shadowed:
+            return
+
+        named = ", ".join(shadowed)
+        diags.append(
+            diagnostic(
+                "ARC-TPL-103",
+                f"Locale {locale!r} supplies {named}, and {data.name} sets the same "
+                f"{'keys' if len(shadowed) > 1 else 'key'}, which wins — so this render uses the "
+                "project's data, not the locale's.",
+                severity="warning",
+                file=str(data),
+                keypath=f"locales.{locale}.data",
+                hint=(
+                    f"Remove {named} from {data.name}, or move the locale's copy into "
+                    f"'{data.stem}.{locale}{data.suffix}', which is applied over the base data."
+                ),
+            )
+        )
 
     # ---------------------------------------------------------------------- formats
     def _resolve_format(
@@ -1347,6 +1390,9 @@ class Compiler:
             raw, context, canvas, template, node_id, keypath, id_suffix
         )
         style = self._parse_style(raw, context, canvas, template, node_id, keypath)
+        self._warn_about_paint_that_never_paints(
+            raw, str(node_type), template, node_id, keypath, diags
+        )
         visible = bool(raw.get("visible", True))
         z = int(raw.get("z", 0))
 
@@ -2867,6 +2913,52 @@ class Compiler:
                         hint=f"Valid {block} fields are: {valid}.",
                     )
                 )
+
+    #: Style fields that only a shape draws. Valid vocabulary everywhere, painted nowhere else.
+    _PAINT_ONLY = ("fill", "stroke", "stroke_width", "corner_radius")
+
+    def _warn_about_paint_that_never_paints(
+        self,
+        raw: dict[str, Any],
+        node_type: str,
+        template: Path,
+        node_id: str,
+        keypath: str,
+        diags: list[Diagnostic],
+    ) -> None:
+        """Say when a node declares paint it will never draw.
+
+        `style` is shared vocabulary, so a group setting `fill` and `corner_radius` passes every
+        check this compiler makes and then renders as though the keys were absent. In an engine
+        that rejects unknown fields precisely so nothing silently does nothing, a known field
+        that silently does nothing is worse: it looks correct in the file and in validation, and
+        only the pixels disagree.
+        """
+        if node_type in {"shape", "path"}:
+            return
+        style = raw.get("style")
+        if not isinstance(style, dict):
+            return
+        declared = [field for field in self._PAINT_ONLY if field in style]
+        if not declared:
+            return
+
+        named = ", ".join(declared)
+        diags.append(
+            diagnostic(
+                "ARC-TPL-104",
+                f"Node {node_id!r} is a {node_type} and sets {named}, which only a shape paints, "
+                "so this has no effect on the render.",
+                severity="warning",
+                file=str(template),
+                keypath=f"{keypath}.style",
+                line=line_of(style, declared[0]),
+                hint=(
+                    f"Give {node_id!r} a shape child carrying {named}, or move the style onto "
+                    "the shape that should show it."
+                ),
+            )
+        )
 
     def _parse_style(
         self,
