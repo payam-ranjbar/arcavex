@@ -3290,14 +3290,22 @@ class Compiler:
                     hint=_expr_hint(exc),
                 )
             ) from exc
-        if isinstance(value, str):
-            return value
         from arcavex.services.template.expressions import localize_digits, stringify
 
+        # CR-8: an exact-match expression ("{{ n }}") bypasses render_value's per-fragment digit
+        # mapping, so apply the active digit policy here too — for a string as much as a number.
+        # Converting numbers only meant one poster could show a count as ۶ beside a clock time
+        # of "20:00", because the time happened to be carried as a string. Two numbering systems
+        # in one render, with nothing saying why.
+        #
+        # This is the displayed-text path only (`localize` is passed by the three text call
+        # sites), so asset paths, ids and style values are untouched.
+        if isinstance(value, str):
+            if localize and self._digits:
+                return localize_digits(value, self._digits)
+            return value
+
         text = stringify(value)
-        # CR-8: an exact-match numeric expression ("{{ n }}") bypasses render_value's
-        # per-fragment digit mapping, so apply the active digit policy here too. This makes
-        # "{{ n }}" and "n = {{ n }}" agree under --locale fa.
         if localize and self._digits and isinstance(value, (int, float)) and not isinstance(
             value, bool
         ):

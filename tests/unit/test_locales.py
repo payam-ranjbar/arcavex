@@ -538,3 +538,63 @@ def test_a_word_where_a_list_index_belongs_says_so() -> None:
 
     message = " ".join(d.message for d in raised.value.diagnostics)
     assert "must be an index" in message
+
+
+_DIGITS_TPL = """\
+version: 0.1.0
+formats:
+  square: {canvas: {width: 200px, height: 200px, dpi: 72}}
+variables:
+  clock: {type: string, required: false}
+  count: {type: number, required: false}
+locales:
+  en: {direction: ltr, digits: en}
+  fa: {direction: rtl, digits: fa}
+preview_data: {clock: "20:00", count: 6}
+root:
+  type: group
+  id: root
+  children:
+    - id: time
+      type: text
+      text: "{{ clock }}"
+      style: {font: Inter, font_size: 20px, color: black}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: fill, h: fit_content}
+    - id: remaining
+      type: text
+      text: "{{ count }}"
+      style: {font: Inter, font_size: 20px, color: black}
+      constraints:
+        anchor: {top: parent.top+30px, left: parent.left}
+        size: {w: fill, h: fit_content}
+"""
+
+
+def test_locale_digits_reach_digits_inside_a_string(tmp_path: Path) -> None:
+    """One render should not mix numbering systems.
+
+    `digits: fa` converted numeric values only, so a count rendered as ۶ while a clock time
+    carried in a string stayed "20:00" — in the same poster, with nothing saying why. Every
+    numeric-bearing string had to be passed through `locale_digits` by hand.
+    """
+    template = tmp_path / "t.yaml"
+    template.write_text(_DIGITS_TPL, encoding="utf-8")
+
+    result = Compiler().compile(template, None, "square", "fa", None)
+
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+    clock, count = result.document.root.children[0], result.document.root.children[1]
+    assert count.text == "۶", count.text
+    assert clock.text == "۲۰:۰۰", clock.text
+
+
+def test_an_ltr_locale_leaves_the_digits_alone(tmp_path: Path) -> None:
+    template = tmp_path / "t.yaml"
+    template.write_text(_DIGITS_TPL, encoding="utf-8")
+
+    result = Compiler().compile(template, None, "square", "en", None)
+
+    assert result.document is not None
+    assert result.document.root.children[0].text == "20:00"
