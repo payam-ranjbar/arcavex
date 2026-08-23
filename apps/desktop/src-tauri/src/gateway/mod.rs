@@ -270,7 +270,7 @@ impl<L: EngineLauncher> GatewayState<L> {
         );
 
         let consumer = Arc::clone(self);
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             while let Some(change) = changes.recv().await {
                 consumer.apply_change(change).await;
             }
@@ -357,7 +357,7 @@ impl<L: EngineLauncher> GatewayState<L> {
 
     fn run_render(self: &Arc<Self>, job: RenderJob) {
         let state = Arc::clone(self);
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             let outcome = state.render_once(&job).await;
             let (_, next) = {
                 let mut open = state.open.lock().expect("open project");
@@ -524,7 +524,7 @@ impl<L: EngineLauncher> GatewayState<L> {
     /// Re-read the open project's snapshot so revisions the UI sees match the engine's.
     fn refresh_open_snapshot(self: &Arc<Self>) {
         let state = Arc::clone(self);
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             let Ok(project) = state.open_project_path() else {
                 return;
             };
@@ -933,6 +933,32 @@ pub fn update_settings(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Tauri runs a synchronous command on a worker thread with no Tokio runtime, so a bare
+    /// `tokio::spawn` there panics — and this build aborts on panic, so the window vanishes with
+    /// no dialog. `request_render` and `set_active_target` are both synchronous commands, which
+    /// is why clicking Render or switching format or locale killed the application while an
+    /// edit-triggered render (reached from an async command) was fine.
+    ///
+    /// `tauri::async_runtime::spawn` works from any thread. This test asserts the gateway keeps
+    /// using it: the failure it guards costs a crash log to diagnose, not a red test.
+    #[test]
+    fn nothing_in_the_gateway_spawns_onto_an_ambient_runtime() {
+        // Only the code above the test module, and the needle assembled from parts, so this
+        // guard does not match its own explanation.
+        let source = include_str!("mod.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let needle = concat!("tokio", "::spawn(");
+
+        for (number, line) in production.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or(line);
+            assert!(
+                !code.contains(needle),
+                "gateway/mod.rs:{} spawns with tokio::spawn; use tauri::async_runtime::spawn so                  a synchronous command does not panic for want of a runtime",
+                number + 1
+            );
+        }
+    }
 
     #[test]
     fn an_accepted_edit_that_wrote_files_makes_the_picture_stale() {

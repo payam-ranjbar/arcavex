@@ -235,7 +235,39 @@ class ArcavexTools:
 
     # ---------------------------------------------------------------- semantic editor
     def editor_apply(self, transaction: dict[str, Any]) -> TransactionReport:
-        """Execute one semantic editor transaction; refusals return conflicts or diagnostics."""
+        """Execute one semantic editor transaction; refusals return conflicts or diagnostics.
+
+        A transaction is:
+
+            {"command_id": "<uuid4>",
+             "project_path": "<absolute path to the project directory>",
+             "base_project_revision": "<project_revision from project_snapshot>",
+             "actor": {"id": "<who is editing>"},
+             "target": {"format": "<name>", "locale": "<name or null>"},   # optional
+             "commands": [{"kind": "<one of the kinds below>", ...}]}
+
+        All geometry is in points (``_pt``), whatever units the template is authored in. Command
+        shapes, with their required fields:
+
+            set_text          layer_id, text
+            set_property      layer_id, keypath, value            (or remove: true)
+            set_visibility    layer_id, visible
+            set_display_name  layer_id, display_name              (writes project.ui.yaml)
+            translate         layer_ids, dx_pt, dy_pt
+            resize            layer_id, w_pt and/or h_pt
+            rotate            layer_id, deg
+            reorder           layer_id, parent_id, index
+            reparent          layer_id, parent_id, index
+            duplicate         layer_id
+            delete            layer_ids
+            group             layer_ids, group_id
+            splice_children   layer_id, children
+            set_effects       layer_id, effects
+
+        The whole transaction applies or none of it does. A stale ``base_project_revision`` is
+        refused as a conflict naming the files that moved; submit an empty transaction to have
+        the engine restate this shape.
+        """
         return self._facade.editor_apply(transaction)
 
     def editor_apply_authorized(self, project: str, command_id: str) -> TransactionReport:

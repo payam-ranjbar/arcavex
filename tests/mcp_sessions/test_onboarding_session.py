@@ -157,3 +157,27 @@ def test_a_pinned_template_can_be_detached_over_mcp(
     copied = Path(detached.path or "")
     assert copied.is_dir() and (copied / "template.yaml").is_file()
     assert copied.resolve().is_relative_to((tmp_path / "post").resolve())
+
+
+def test_the_editor_tool_describes_the_transaction_it_wants(tools: ArcavexTools) -> None:
+    """The catalog description is the only schema this tool has, so it must carry the shape.
+
+    `editor_apply` takes a free-form object, so its generated input schema is
+    `{"transaction": {"type": "object", "additionalProperties": true}}` -- no help at all. An
+    agent reverse-engineered the grammar from validation errors instead, one field per round.
+    """
+    description = tools.editor_apply.__doc__ or ""
+
+    for field in ("command_id", "project_path", "base_project_revision", "actor", "commands"):
+        assert field in description, f"{field} missing from the tool description"
+    assert "_pt" in description, "the description never says geometry is in points"
+
+
+def test_the_described_command_kinds_are_the_ones_that_exist() -> None:
+    """A description that drifts from the engine is worse than none: it misleads confidently."""
+    from arcavex.kernel.editor import COMMAND_KINDS
+
+    description = ArcavexTools.editor_apply.__doc__ or ""
+
+    for kind in COMMAND_KINDS:
+        assert kind in description, f"command kind {kind!r} is not described"
