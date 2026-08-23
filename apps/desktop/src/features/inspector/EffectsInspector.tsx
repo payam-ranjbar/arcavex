@@ -14,11 +14,16 @@ import type { InspectorSectionProps } from "./TextInspector.tsx";
 
 type EffectEntry = NonNullable<LayerNodeReport["effects"]>[number];
 
+/** An effect as the engine takes it.
+ *
+ * `enabled` belongs *inside* `params` — the same place the tree reports it. Sending it beside
+ * `params` produced `ARC-TPL-068 Node has unknown effect field 'enabled'`: the application
+ * writing a field its own engine rejects, so the toggle simply never worked.
+ */
 function toSpec(effect: EffectEntry, enabled: boolean) {
   return {
     name: effect.name,
-    params: (effect.params ?? {}) as Record<string, unknown>,
-    enabled,
+    params: { ...((effect.params ?? {}) as Record<string, unknown>), enabled },
   };
 }
 

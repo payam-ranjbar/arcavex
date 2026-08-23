@@ -360,8 +360,10 @@ describe("EffectsInspector", () => {
         kind: "set_effects",
         layer_id: "title",
         effects: [
-          { name: "halftone", params: { dot_pt: 2 }, enabled: false },
-          { name: "grain", params: { enabled: false }, enabled: false },
+          // `enabled` inside params, which is where the engine reads it and where the tree
+          // reports it; beside params it was rejected as an unknown effect field.
+          { name: "halftone", params: { dot_pt: 2, enabled: false } },
+          { name: "grain", params: { enabled: false } },
         ],
       },
     ]);

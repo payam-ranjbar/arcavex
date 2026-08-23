@@ -19,6 +19,8 @@ import "./workbench.css";
 
 export interface EditHistoryPanelProps {
   readonly history: HistoryState;
+  /** Re-read the project from disk. The conflict message tells people to do this. */
+  readonly onReload?: (() => void) | undefined;
   /** True while a transaction is in flight; a second one would race the first. */
   readonly busy: boolean;
   readonly lastReport: TransactionReport | null;
@@ -39,6 +41,7 @@ export function EditHistoryPanel({
   lastReport,
   onUndo,
   onRedo,
+  onReload,
 }: EditHistoryPanelProps): ReactNode {
   const canUndo = history.canUndo && !busy;
   const canRedo = history.canRedo && !busy;
@@ -73,12 +76,18 @@ export function EditHistoryPanel({
 
       {redoReason === null ? null : <p className="edits__note">{redoReason}</p>}
 
-      <Outcome report={lastReport} />
+      <Outcome report={lastReport} onReload={onReload} />
     </div>
   );
 }
 
-function Outcome({ report }: { readonly report: TransactionReport | null }): ReactNode {
+function Outcome({
+  report,
+  onReload,
+}: {
+  readonly report: TransactionReport | null;
+  readonly onReload?: (() => void) | undefined;
+}): ReactNode {
   if (report === null || report.ok === true) return null;
 
   const conflict = report.conflict ?? null;
@@ -92,6 +101,12 @@ function Outcome({ report }: { readonly report: TransactionReport | null }): Rea
             The project changed underneath this edit, so nothing was written. Reload to see the
             current version, then make the edit again.
           </p>
+          {/* The sentence above told people to reload and there was no way to. */}
+          {onReload ? (
+            <button type="button" onClick={onReload}>
+              Reload
+            </button>
+          ) : null}
           <ul>
             {(conflict.changed ?? []).map((changed) => (
               <li key={changed.path}>

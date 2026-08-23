@@ -133,3 +133,33 @@ describe("EditHistoryPanel", () => {
     expect(await seriousViolations(container)).toEqual([]);
   });
 });
+
+describe("EditHistoryPanel reload", () => {
+  it("offers the reload its own conflict message tells people to do", async () => {
+    // The message read "Reload to see the current version" and the application had no reload
+    // control anywhere — an instruction that could not be followed.
+    const user = userEvent.setup();
+    const onReload = vi.fn();
+    render(
+      <EditHistoryPanel
+        history={EMPTY_HISTORY}
+        busy={false}
+        lastReport={{
+          ok: false,
+          conflict: {
+            expected_project_revision: "a".repeat(64),
+            actual_project_revision: "b".repeat(64),
+            changed: [{ path: "template.yaml", change: "modified" }],
+          },
+        }}
+        onUndo={vi.fn()}
+        onRedo={vi.fn()}
+        onReload={onReload}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Reload" }));
+
+    expect(onReload).toHaveBeenCalledOnce();
+  });
+});

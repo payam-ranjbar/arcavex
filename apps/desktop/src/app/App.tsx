@@ -34,7 +34,7 @@ import type { TransactionReport } from "../contracts/index.ts";
 import type { AutomationMode, LayerTreeMode } from "../gateway/index.ts";
 import { useGateway } from "./providers.tsx";
 import { createRegistry, type ContributionRegistry } from "./contributions.ts";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface Selection {
   /** The tree row key, so the layers panel can highlight exactly what was hit. */
@@ -58,6 +58,7 @@ export function App(): ReactNode {
   const render = useRequestRender();
 
   const [selection, setSelection] = useState<Selection>(NO_SELECTION);
+  const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [lastReport, setLastReport] = useState<TransactionReport | null>(null);
 
@@ -103,6 +104,8 @@ export function App(): ReactNode {
       lastReport,
       onUndo: () => void commands.undo(),
       onRedo: () => void commands.redo(),
+      // The conflict message tells people to reload; this is that reload.
+      onReload: () => void queryClient.invalidateQueries(),
     },
   );
 
@@ -194,6 +197,8 @@ interface EditingContext {
   readonly lastReport: TransactionReport | null;
   readonly onUndo: () => void;
   readonly onRedo: () => void;
+  /** Re-read everything from disk, for the conflict message that tells people to. */
+  readonly onReload: () => void;
 }
 
 function useContributions(
@@ -296,6 +301,7 @@ function useContributions(
           lastReport={editing.lastReport}
           onUndo={editing.onUndo}
           onRedo={editing.onRedo}
+          onReload={editing.onReload}
         />
       ),
     });
