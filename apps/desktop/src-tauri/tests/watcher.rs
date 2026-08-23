@@ -114,6 +114,13 @@ fn engine_output_and_queue_state_never_start_a_burst() {
         "outputs/poster-a3.png",
         ".arcavex/pending/9f2c.json",
         ".arcavex/cache/derived/a.bin",
+        // Everything an edit writes through: one ordinary transaction touches a history record,
+        // a remembered manifest, and a staging tree, and the activity log reported the lot as
+        // "an external editor or AI client changed 86 files" — the application attributing its
+        // own edit to somebody else.
+        ".arcavex/history/00000007.json",
+        ".arcavex/manifests/9f2c.json",
+        ".arcavex/staging/8b1d/overlay/template.yaml",
         "data.yaml.tmp",
         ".git/index",
     ] {

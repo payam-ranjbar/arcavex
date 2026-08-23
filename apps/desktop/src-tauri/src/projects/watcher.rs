@@ -15,10 +15,20 @@ pub const DEBOUNCE: Duration = Duration::from_millis(120);
 
 /// Paths the desktop must never treat as project source.
 ///
-/// `outputs/` is what rendering produces, `.arcavex/pending` is the proposal queue, and caches
-/// are disposable. Reacting to any of them would make the desktop render its own output forever.
-const IGNORED_PREFIXES: [&str; 4] = ["outputs", ".arcavex/pending", ".arcavex/cache", ".git"];
+/// `outputs/` is what rendering produces, and everything under `.arcavex/` is engine-managed
+/// state — the proposal queue, caches, the history records, the remembered revision manifests,
+/// and the staging directory a transaction writes through. Reacting to any of them would make
+/// the desktop render its own output forever.
+///
+/// Only `pending` and `cache` used to be ignored, so one ordinary edit — which writes a history
+/// record, a manifest, and a staging tree — surfaced in the activity log as "an external editor
+/// or AI client changed 86 files". The application reporting its own edit as someone else's is
+/// worse than saying nothing: the whole point of that log is to show what you did not do.
+const IGNORED_PREFIXES: [&str; 2] = ["outputs", ".arcavex"];
 const IGNORED_SUFFIXES: [&str; 3] = [".tmp", ".swp", "~"];
+
+/// Version control is the user's business, not the desktop's.
+const IGNORED_DIRECTORIES: [&str; 1] = [".git"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +70,7 @@ pub fn relative_posix(root: &Path, path: &Path) -> Option<String> {
 pub fn is_ignored(relative: &str) -> bool {
     IGNORED_PREFIXES
         .iter()
+        .chain(IGNORED_DIRECTORIES.iter())
         .any(|prefix| relative == *prefix || relative.starts_with(&format!("{prefix}/")))
         || IGNORED_SUFFIXES
             .iter()
