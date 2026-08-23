@@ -303,10 +303,20 @@ class SemanticTransaction(BaseModel):
     @field_validator("project_path")
     @classmethod
     def _canonical_project_path(cls, value: str) -> str:
+        """Take any absolute spelling of the project directory and store the canonical one.
+
+        The path only has to identify the project unambiguously; the exact spelling is the
+        caller's business. Comparing the given string against the resolved one refused
+        `C:/Users/x/post` -- the form every other tool on this surface accepts, and the form a
+        JSON payload naturally carries -- for resolving to the same directory it named.
+        """
         path = Path(value)
-        if not path.is_absolute() or str(path.resolve()) != value:
-            raise ValueError("project_path must be a canonical absolute path")
-        return value
+        if not path.is_absolute():
+            raise ValueError(
+                "project_path must be an absolute path to the project directory, "
+                f"not {value!r}"
+            )
+        return str(path.resolve())
 
 
 # ---------------------------------------------------------------------------------- the reports

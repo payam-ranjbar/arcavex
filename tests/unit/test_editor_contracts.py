@@ -276,3 +276,52 @@ def test_a_conflict_detail_is_complete_enough_to_render_on_its_own() -> None:
     )
 
     assert detail.expected_project_revision != detail.actual_project_revision
+
+
+def test_a_project_path_is_canonicalised_rather_than_refused() -> None:
+    """Forward slashes are how every other tool on this surface takes a Windows path.
+
+    `project_path` compared the string it was given against the resolved one and refused any
+    difference, so `C:/Users/x/post` -- which resolves to exactly the same directory -- was
+    rejected as "not canonical" while `project_snapshot`, `layer_tree` and `project_preview`
+    all accepted it. Two agents lost round trips to that inconsistency, and the message never
+    said what was wrong with the path.
+    """
+    import os
+    from pathlib import Path
+
+    from arcavex.kernel.editor import SemanticTransaction
+
+    root = Path(os.getcwd()).resolve()
+    slashed = root.as_posix()
+
+    transaction = SemanticTransaction.model_validate(
+        {
+            "command_id": "11111111-1111-4111-8111-111111111111",
+            "project_path": slashed,
+            "base_project_revision": "a" * 64,
+            "actor": {"id": "test"},
+            "commands": [{"kind": "set_text", "layer_id": "title", "text": "x"}],
+        }
+    )
+
+    assert Path(transaction.project_path) == root
+
+
+def test_a_relative_project_path_is_still_refused() -> None:
+    """Canonicalising is not the same as accepting anything: a relative path is ambiguous."""
+    import pytest
+    from pydantic import ValidationError
+
+    from arcavex.kernel.editor import SemanticTransaction
+
+    with pytest.raises(ValidationError, match="absolute"):
+        SemanticTransaction.model_validate(
+            {
+                "command_id": "11111111-1111-4111-8111-111111111111",
+                "project_path": "some/relative/post",
+                "base_project_revision": "a" * 64,
+                "actor": {"id": "test"},
+                "commands": [{"kind": "set_text", "layer_id": "title", "text": "x"}],
+            }
+        )
