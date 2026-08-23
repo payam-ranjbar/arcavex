@@ -78,6 +78,31 @@ describe("InspectorRegistry", () => {
 });
 
 describe("TextInspector", () => {
+  it("says what a data binding is, before it is typed over", () => {
+    // The text of a designed layer is often a binding: {{ title_line_1 }} pulls from data.yaml
+    // and picks up the locale override, so the Farsi render reads Farsi. Replacing it with a
+    // literal is a legitimate edit, but a silent one cost a tester their Persian headline --
+    // the Farsi poster came back reading "CROSSING" in the middle of otherwise correct RTL text.
+    render(
+      <TextInspector
+        layers={[layer({ text: "{{ title_line_1 }}" })]}
+        {...ENABLED}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("note")).toHaveTextContent(/data/i);
+    expect(screen.getByRole("note")).toHaveTextContent("title_line_1");
+  });
+
+  it("says nothing about bindings when the text is a plain literal", () => {
+    render(
+      <TextInspector layers={[layer({ text: "Old headline" })]} {...ENABLED} onSubmit={vi.fn()} />,
+    );
+
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
   it("commits on Enter as one transaction", async () => {
     const onSubmit = vi.fn();
     render(<TextInspector layers={[layer()]} {...ENABLED} onSubmit={onSubmit} />);

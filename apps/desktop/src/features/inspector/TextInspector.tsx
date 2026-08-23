@@ -13,6 +13,11 @@ export interface InspectorSectionProps {
   readonly onSubmit: (commands: ReadonlyArray<EditorCommand>) => void;
 }
 
+/** The expressions a text value pulls from data, e.g. `{{ title_line_1 }}`. */
+function bindingsIn(value: string): ReadonlyArray<string> {
+  return [...value.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)].map((match) => match[1] ?? "");
+}
+
 /** The authored text the engine reported, or mixed across a multi-selection. */
 function textValue(layers: ReadonlyArray<LayerNodeReport>): FieldValue<string> {
   const values = layers.map((layer) => layer.text ?? "");
@@ -29,6 +34,10 @@ export function TextInspector({
   if (textLayers.length === 0) return null;
 
   const value = textValue(textLayers);
+  // Typing over a binding is a legitimate edit and a lossy one: the layer stops following
+  // data.yaml and stops picking up locale overrides, so a translated render quietly reverts to
+  // whatever was typed. Saying so costs a line; not saying it cost a tester their Farsi headline.
+  const bindings = value === MIXED ? [] : bindingsIn(value);
 
   return (
     <section className="inspector__section" aria-labelledby="inspector-text">
@@ -52,6 +61,13 @@ export function TextInspector({
           )
         }
       />
+      {bindings.length > 0 ? (
+        <p className="inspector__hint" role="note">
+          This text comes from data ({bindings.map((name) => `{{ ${name} }}`).join(", ")}). Typing
+          here replaces the binding with a literal, and the layer stops following data and locale
+          overrides.
+        </p>
+      ) : null}
       {value === MIXED ? (
         <p className="inspector__hint">
           The selected layers have different text. Typing replaces all of them.
