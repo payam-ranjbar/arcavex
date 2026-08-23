@@ -363,3 +363,41 @@ describe("LayersPanel editing", () => {
     expect(await screen.findByRole("button", { name: "Delete" })).toBeDisabled();
   });
 });
+
+describe("moving a layer without dragging", () => {
+  const submitted: Array<ReadonlyArray<unknown>> = [];
+
+  function renderEditable(selectedKey: string | null = "front") {
+    submitted.length = 0;
+    return renderApp(
+      <LayersPanel
+        selectedKey={selectedKey}
+        onSelect={() => {}}
+        onSubmit={(commands) => submitted.push(commands)}
+      />,
+      { script: { layerTree: NESTED } },
+    );
+  }
+
+  it("offers Move up and Move down, because dragging says nothing about itself", async () => {
+    // Rows have always been draggable and nothing on screen said so, so a designer looking for
+    // "put this behind that" found Group, Duplicate and Delete and concluded it was impossible.
+    // These are also the only route to reordering by keyboard.
+    renderEditable();
+    await screen.findByRole("group", { name: "Layer actions" });
+
+    expect(screen.getByRole("button", { name: "Move up" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move down" })).toBeInTheDocument();
+  });
+
+  it("moves a layer one place and says where it goes in authored terms", async () => {
+    renderEditable();
+    await screen.findByRole("group", { name: "Layer actions" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Move down" }));
+
+    expect(submitted[0]).toEqual([
+      { kind: "reorder", layer_id: "front", parent_id: "root", index: 1 },
+    ]);
+  });
+});

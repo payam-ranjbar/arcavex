@@ -151,6 +151,7 @@ export function LayersPanel({
       {onSubmit ? (
         <LayerActions
           selection={selectedRow ? [selectedRow] : []}
+          rows={rows}
           disabled={!structural}
           disabledReason={structuralReason}
           onSubmit={(commands) => submit(commands, "Applied a layer change.")}
