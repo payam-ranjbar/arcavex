@@ -129,3 +129,32 @@
 .proof-strip__export:focus-visible {
   text-decoration: underline;
 }
+
+/* ------------------------------------------------------------------ a render that failed */
+
+.canvas__failure {
+  margin: auto;
+  max-width: 60ch;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-inline-start: 3px solid var(--arcavex-danger);
+  background: var(--arcavex-surface-raised);
+  color: var(--arcavex-text-primary);
+}
+
+.canvas__failure-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.canvas__failure-line {
+  margin: 0;
+  color: var(--arcavex-text-secondary);
+}
+
+.canvas__failure-hint {
+  display: block;
+  opacity: 0.85;
+}

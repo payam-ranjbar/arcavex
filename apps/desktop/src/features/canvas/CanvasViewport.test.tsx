@@ -153,6 +153,37 @@ describe("CanvasViewport", () => {
     expect(screen.getByText("Failed")).toBeInTheDocument();
   });
 
+  it("says why the render failed when there is no picture to fall back on", async () => {
+    // A first render that fails leaves nothing to dim, and the canvas said "Nothing rendered
+    // yet." — reporting absence when it meant failure, with the reason in a panel far below the
+    // fold. Someone watching an empty black canvas cannot know an effect name is wrong.
+    const lastGood = await new FakeArcavexGateway().renderStatus();
+
+    renderApp(<CanvasViewport canvas={A3} selectionBounds={null} onHit={() => {}} />, {
+      script: {
+        renderStatus: {
+          ...lastGood,
+          state: "failed",
+          lastGood: null,
+          diagnostics: [
+            {
+              code: "ARC-FX-910",
+              message: "Node 'wordmark' references unknown effect 'wow-flutter'",
+              severity: "error",
+              hint: "Registered effects: blur, grain, halftone.",
+            },
+          ],
+        },
+      },
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("ARC-FX-910");
+    expect(alert).toHaveTextContent("unknown effect 'wow-flutter'");
+    expect(alert).toHaveTextContent("Registered effects");
+    expect(screen.queryByText("Nothing rendered yet.")).toBeNull();
+  });
+
   it("says what state the proof is in and which revision it represents", async () => {
     renderApp(<CanvasViewport canvas={A3} selectionBounds={null} onHit={() => {}} />);
 

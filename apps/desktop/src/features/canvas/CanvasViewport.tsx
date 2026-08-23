@@ -291,6 +291,24 @@ export function CanvasViewport({
               height: `${canvas.heightPt * viewport.scale}px`,
             }}
           />
+        ) : state === "failed" ? (
+          /* A failed render used to read "Nothing rendered yet." — the canvas reporting absence
+             when it meant failure, with the reason in a panel far below the fold. A person
+             watching an empty black canvas has no way to know an effect name is wrong. */
+          <div className="canvas__failure" role="alert">
+            <p className="canvas__failure-title">This target did not render.</p>
+            {(render.data?.diagnostics ?? []).slice(0, 4).map((diagnostic) => (
+              <p key={`${diagnostic.code}-${diagnostic.message}`} className="canvas__failure-line">
+                <span className="measure">{diagnostic.code}</span> {diagnostic.message}
+                {diagnostic.hint ? (
+                  <span className="canvas__failure-hint"> {diagnostic.hint}</span>
+                ) : null}
+              </p>
+            ))}
+            {(render.data?.diagnostics ?? []).length === 0 ? (
+              <p className="canvas__failure-line">The engine gave no reason.</p>
+            ) : null}
+          </div>
         ) : (
           <p className="canvas__empty">
             {state === "rendering" ? "Rendering the first proof…" : "Nothing rendered yet."}
