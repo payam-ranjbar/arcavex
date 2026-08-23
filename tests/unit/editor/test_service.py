@@ -579,3 +579,76 @@ def test_a_conflict_also_carries_a_coded_diagnostic(
     assert "ARC-EDT-012" in codes, codes
     detail = " ".join(d.message for d in stale.diagnostics)
     assert "template.yaml" in detail, detail
+
+
+def _project_with_a_nested_template(tmp_path: Path) -> Path:
+    """The shape `template detach` produces: the template inside the project, in a subdirectory."""
+    project = tmp_path / "detached"
+    nested = project / "templates" / "kit"
+    nested.mkdir(parents=True)
+    (nested / "template.yaml").write_text(_TEMPLATE, encoding="utf-8")
+    (project / "data").mkdir(parents=True)
+    (project / "project.yaml").write_text(
+        "name: detached\ntemplate: templates/kit\nlocales: []\n"
+        "formats:\n  - square\ndata: data/data.yaml\n",
+        encoding="utf-8",
+    )
+    (project / "data" / "data.yaml").write_text("{}\n", encoding="utf-8")
+    return project
+
+
+def test_a_template_in_a_subdirectory_is_edited_where_it_lives(
+    service: EditorService, tmp_path: Path
+) -> None:
+    """`detach` is the remedy this editor prescribes, so its result has to be editable.
+
+    Two failures met here. The template was loaded with a file loader pointed at a *directory*,
+    which reported "File not found" for a directory that plainly existed -- so the remedy for
+    ARC-EDT-008 produced a project ARC-TPL-001 refused. And the write target was hard-coded to
+    `template.yaml` at the project root, so had the load succeeded the edit would have landed in
+    a file the project does not reference: six changes applied, `ok: true` returned, and nothing
+    different on screen.
+    """
+    project = _project_with_a_nested_template(tmp_path)
+    nested = project / "templates" / "kit" / "template.yaml"
+
+    report = service.apply(
+        _transaction(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_text", "layer_id": "title", "text": "EDITED"}],
+        )
+    )
+
+    assert report.ok, [d.model_dump() for d in report.diagnostics]
+    assert "EDITED" in nested.read_text(encoding="utf-8"), "the pinned template was not edited"
+    assert not (project / "template.yaml").exists(), (
+        "the edit created a second template at the project root that nothing renders"
+    )
+    assert [c.path for c in report.changed] == ["templates/kit/template.yaml"]
+
+
+def test_a_malformed_transaction_hides_none_of_its_problems(service: EditorService) -> None:
+    """Reporting a subset makes the caller fix what it can see, then start again.
+
+    An agent that had corrected everything reported was told only "and 1 more", and spent
+    another round trip rediscovering the one error the message had dropped.
+    """
+    report = service.apply(
+        {
+            "command_id": "11111111-1111-4111-8111-111111111111",
+            "project_path": "/tmp/x",
+            "base_project_revision": "a" * 64,
+            "actor": {"id": "a"},
+            "commands": [
+                {"kind": "translate", "layer_id": "one"},
+                {"kind": "resize", "layer_id": "two"},
+                {"kind": "reorder", "layer_ids": ["three"]},
+            ],
+        }
+    )
+
+    detail = " ".join(d.message for d in report.diagnostics)
+    assert "more" not in detail.split("nothing was executed.")[-1], detail
+    for command_index in ("commands.0", "commands.1", "commands.2"):
+        assert command_index in detail, f"{command_index} missing from: {detail}"

@@ -61,7 +61,7 @@ from arcavex.services.project_policy import ProjectPolicyService
 from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import ProjectService
 from arcavex.services.proposals import ProposalService
-from arcavex.services.template.loader import load_yaml
+from arcavex.services.template.loader import load_yaml, resolve_template_path
 
 #: Validates a staged project state for one target: (staged_root, format, locale) -> diagnostics.
 StagedValidator = Callable[[Path, str | None, str | None], list[Diagnostic]]
@@ -72,6 +72,10 @@ class _Execution:
     """What one dispatch pass produces before anything touches the live project."""
 
     template_bytes: bytes
+    #: Where the pinned template file sits, relative to the project root. A project may keep it
+    #: at ``template.yaml`` or, after a detach, at ``templates/<name>/template.yaml``; writing to
+    #: a fixed name would edit a file the project does not reference.
+    template_relative: str
     inverse_commands: list[Any]
     changed_layer_ids: list[str]
     display_names: dict[str, str | None]
@@ -257,7 +261,7 @@ class EditorService:
 
         target = transaction.target
         changed: list[ChangedPath] = []
-        touched = ["template.yaml"] if execution.template_bytes else []
+        touched = [execution.template_relative] if execution.template_bytes else []
         if execution.display_names:
             touched.append("project.ui.yaml")
         before_files = _read_files(root, touched)
@@ -272,7 +276,12 @@ class EditorService:
             try:
                 changed = apply_staged_writes(
                     root,
-                    [StagedWrite(relative="template.yaml", content=execution.template_bytes)],
+                    [
+                        StagedWrite(
+                            relative=execution.template_relative,
+                            content=execution.template_bytes,
+                        )
+                    ],
                     validate=validate,
                 )
             except DiagnosticError as error:
@@ -406,7 +415,11 @@ class EditorService:
             layer_id for layer_id, layer in metadata.layers.items() if layer.locked
         }
 
-        raw = load_yaml(template_dir) if touches_template else None
+        # `resolve_template_path` accepts either a template file or a directory containing one;
+        # `load_yaml` accepts only a file, so pointing it at a detached template's directory
+        # reported "File not found" for a directory that plainly existed.
+        template_file = resolve_template_path(template_dir)[1] if touches_template else None
+        raw = load_yaml(template_file) if template_file is not None else None
         tree_root = raw.get("root") if raw is not None and hasattr(raw, "get") else None
         if touches_template and not hasattr(tree_root, "get"):
             raise DiagnosticError(
@@ -442,8 +455,14 @@ class EditorService:
         if touches_template:
             template_bytes = _dump_bytes(raw)
 
+        relative = (
+            template_file.resolve().relative_to(root.resolve()).as_posix()
+            if template_file is not None
+            else "template.yaml"
+        )
         return _Execution(
             template_bytes=template_bytes,
+            template_relative=relative,
             inverse_commands=inverse_commands,
             changed_layer_ids=changed_layer_ids,
             display_names=display_names,
@@ -571,10 +590,9 @@ def _malformed_message(error: ValidationError) -> str:
         if problem not in unique:
             unique.append(problem)
 
-    listed = "; ".join(unique[:12])
-    if len(unique) > 12:
-        listed += f"; and {len(unique) - 12} more"
-    return f"Invalid editor transaction; nothing was executed. {listed}"
+    # Every problem, not the first twelve. Truncating to "and 1 more" hid the one remaining
+    # error from a caller who had fixed the rest, costing a whole round trip to rediscover it.
+    return f"Invalid editor transaction; nothing was executed. {'; '.join(unique)}"
 
 
 def _malformed_hint() -> str:
