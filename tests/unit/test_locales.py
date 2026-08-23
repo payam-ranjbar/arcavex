@@ -598,3 +598,91 @@ def test_an_ltr_locale_leaves_the_digits_alone(tmp_path: Path) -> None:
 
     assert result.document is not None
     assert result.document.root.children[0].text == "20:00"
+
+
+# ------------------------------------------------------- a stack that hugs its content
+
+
+_STACK_TPL = """\
+version: 0.1.0
+formats:
+  square: {canvas: {width: 400px, height: 400px, dpi: 72}}
+preview_data: {}
+root:
+  type: group
+  id: root
+  children:
+    - id: card
+      type: group
+      layout: vstack
+      gap: 10px
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 200px, h: fit_content}
+      children:
+        - id: a
+          type: shape
+          shape: rect
+          style: {fill: "#111111"}
+          constraints: {size: {w: fill, h: 40px}}
+        - id: b
+          type: shape
+          shape: rect
+          style: {fill: "#222222"}
+          constraints: {size: {w: fill, h: 30px}}
+"""
+
+
+def _card_height(tmp_path: Path) -> float:
+    from arcavex.bootstrap import build_compiler_stack
+
+    template = tmp_path / "t.yaml"
+    template.write_text(_STACK_TPL, encoding="utf-8")
+
+    text_service, registries, _diags, _styles, compiler = build_compiler_stack(None)
+    result = compiler.compile(template, None, "square", None, None)
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+
+    from arcavex.builtin.layout_anchors import AnchorLayoutSolver
+
+    layout = AnchorLayoutSolver().solve(result.document, text_service.measure)
+    card = next(n for n in _walk(layout.root) if n.authored_node_id == "card")
+    return card.bounds.h
+
+
+def _walk(node):  # noqa: ANN001, ANN202
+    yield node
+    for child in getattr(node, "children", ()) or ():
+        yield from _walk(child)
+
+
+def test_a_stack_can_hug_its_children(tmp_path: Path) -> None:
+    """A group that cannot size to its content forces every height to be hand-computed.
+
+    `fit_content` was text-only, so a vertical stack of rows needed a hardcoded height, and
+    changing one line of copy meant retuning every format by hand. A designer called it the
+    single biggest cost of building a campaign in this engine.
+
+    40 + 30 with a 10 gap is 80.
+    """
+    assert _card_height(tmp_path) == pytest.approx(80.0, abs=0.5)
+
+
+def test_a_child_cannot_fill_a_stack_that_is_sizing_to_it(tmp_path: Path) -> None:
+    """Each waiting for the other has no answer, and saying so beats guessing zero."""
+    from arcavex.bootstrap import build_compiler_stack
+    from arcavex.builtin.layout_anchors import AnchorLayoutSolver
+    from arcavex.kernel.diagnostics import DiagnosticError
+
+    template = tmp_path / "t.yaml"
+    template.write_text(_STACK_TPL.replace("h: 40px", "h: fill"), encoding="utf-8")
+
+    text_service, _registries, _diags, _styles, compiler = build_compiler_stack(None)
+    result = compiler.compile(template, None, "square", None, None)
+    assert result.document is not None
+
+    with pytest.raises(DiagnosticError) as raised:
+        AnchorLayoutSolver().solve(result.document, text_service.measure)
+
+    codes = [d.code for d in raised.value.diagnostics]
+    assert "ARC-LAY-021" in codes, codes

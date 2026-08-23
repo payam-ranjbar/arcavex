@@ -25,7 +25,7 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**186** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**187** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
 
 ## Unknown fields are always rejected
@@ -81,7 +81,7 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 | Prefix | Count | Domain | Representative codes |
 |---|---|---|---|
 | `ARC-TPL` | 65 | Template loading, variables, formats, nodes, constructs, expressions, patches, locales, authoring | `ARC-TPL-014` missing variable, `ARC-TPL-051` unknown sub-block field, `ARC-TPL-064` unknown node field, `ARC-TPL-061` repeat+if, `ARC-TPL-097` section defined twice, `ARC-TPL-100` undeclared locale |
-| `ARC-LAY` | 18 | Anchor/layout solver, sizes, stacks, fit policies | `ARC-LAY-030` under-constrained, `ARC-LAY-052` sibling cycle, `ARC-LAY-054` stack child anchors, `ARC-LAY-050` overflow=error, `ARC-LAY-057` max_lines at the shrink floor |
+| `ARC-LAY` | 19 | Anchor/layout solver, sizes, stacks, fit policies | `ARC-LAY-030` under-constrained, `ARC-LAY-052` sibling cycle, `ARC-LAY-054` stack child anchors, `ARC-LAY-050` overflow=error, `ARC-LAY-057` max_lines at the shrink floor |
 | `ARC-IR` | 10 | Dimensions, sizes, colors, transforms, duplicate ids, masks, finite coordinates | `ARC-IR-011` invalid dimension, `ARC-IR-015` invalid hit-test coordinate, `ARC-IR-020` duplicate id, `ARC-IR-030` invalid color |
 | `ARC-RND` | 12 | Fonts/glyphs, font installation, resource budgets | `ARC-RND-010` family not found, `ARC-RND-011` missing glyph, `ARC-RND-020..023` budget (exit 4), `ARC-RND-031` unsupported font file |
 | `ARC-FX` | 8 | Effects, masks, shape generators | `ARC-FX-902` invalid params, `ARC-FX-910` unknown effect, `ARC-FX-913` unknown generator |

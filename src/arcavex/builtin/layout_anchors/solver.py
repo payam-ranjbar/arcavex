@@ -371,6 +371,75 @@ class AnchorLayoutSolver(LayoutSolver):
             remaining = max(0.0, remaining)
         return resolved
 
+    def _stack_intrinsic(
+        self,
+        group: CompiledGroup,
+        width: float | None,
+        measure: MeasureFn,
+    ) -> float:
+        """The size a stack needs to hold its children, along the axis being resolved.
+
+        `fit_content` used to be text-only, so every group in a stack carried a hand-computed
+        height and one extra line of copy meant retuning three formats by hand. A stack is the
+        one container whose intrinsic size is unambiguous: along its main axis it is the sum of
+        its children plus the gaps and padding, and across it is the widest child.
+
+        A child sized `fill` or a percentage of this group is circular — it is asking for a share
+        of the size being computed — so it is refused by name rather than silently counted as
+        zero. ``width`` is None while the width is being resolved and known once it is, which is
+        what tells the two axes apart.
+        """
+        stack = group.stack
+        assert stack is not None
+        horizontal = stack.kind == "hstack"
+        resolving_width = width is None
+        resolving_main = resolving_width == horizontal
+
+        pad_main = (
+            stack.pad_left_pt + stack.pad_right_pt
+            if horizontal
+            else stack.pad_top_pt + stack.pad_bottom_pt
+        )
+        pad_cross = (
+            stack.pad_top_pt + stack.pad_bottom_pt
+            if horizontal
+            else stack.pad_left_pt + stack.pad_right_pt
+        )
+        # Across the stack the extent is known once the width is; along it there is nothing to
+        # measure against, which is exactly why a parent-relative child cannot be allowed.
+        cross_extent = max(0.0, (width or 0.0) - pad_cross) if not horizontal else 0.0
+
+        total = 0.0
+        widest = 0.0
+        for child in group.children:
+            main_spec = child.constraints.width if horizontal else child.constraints.height
+            cross_spec = child.constraints.height if horizontal else child.constraints.width
+            axis_spec = main_spec if resolving_main else cross_spec
+            if axis_spec.mode in {"fill", "percent"}:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-LAY-021",
+                        f"Stack {group.id!r} sizes to its content, so child {child.id!r} cannot "
+                        f"size itself as {axis_spec.mode!r} of it",
+                        hint=(
+                            f"Give {child.id!r} a fixed size or 'fit_content' on that axis, or "
+                            f"give {group.id!r} a size of its own."
+                        ),
+                        **_loc(child),
+                    )
+                )
+            cross, main = self._stack_child_sizes(
+                child, main_spec, cross_spec, 0.0, cross_extent, stack, horizontal,
+                main_is_fill=False, measure=measure,
+            )
+            total += main
+            widest = max(widest, cross)
+
+        if not resolving_main:
+            return widest + pad_cross
+        gaps = stack.gap_pt * max(0, len(group.children) - 1)
+        return total + gaps + pad_main
+
     def _stack_child_sizes(
         self,
         child: CompiledNode,
@@ -529,7 +598,9 @@ class AnchorLayoutSolver(LayoutSolver):
             return basis
         if spec.mode == "aspect":  # resolved by caller
             return 0.0
-        # fit_content — text intrinsic (width when width is None, else height at that width).
+        # fit_content — a stack hugs its children; text uses its own intrinsic size.
+        if isinstance(node, CompiledGroup) and node.stack is not None:
+            return self._stack_intrinsic(node, width, measure)
         result = self._measure_text(node, width, None, measure)
         if width is None:
             # Cushion the measured longest-line width so feeding it back as the paint-time
@@ -781,8 +852,12 @@ class AnchorLayoutSolver(LayoutSolver):
             raise DiagnosticError(
                 diagnostic(
                     "ARC-LAY-020",
-                    f"Node {node.id!r} uses 'fit_content' but is not a text node",
-                    hint="Only text nodes support fit_content; give images/groups a fixed size.",
+                    f"Node {node.id!r} uses 'fit_content' but has no content to size to",
+                    hint=(
+                        "fit_content works on a text node and on a stack (layout: vstack or "
+                        "hstack), which sizes to its children. An anchored group or an image "
+                        "needs a size of its own."
+                    ),
                     **_loc(node),
                 )
             )
