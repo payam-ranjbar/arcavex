@@ -181,3 +181,44 @@ def test_the_described_command_kinds_are_the_ones_that_exist() -> None:
 
     for kind in COMMAND_KINDS:
         assert kind in description, f"command kind {kind!r} is not described"
+
+
+def test_a_run_can_be_rerun_by_the_id_that_run_list_reports(
+    isolated_tools: ArcavexTools, tmp_path: Path
+) -> None:
+    """Listing runs and rerunning one should not need a fact the listing never mentions.
+
+    `run_list` reports `run_id`; `run_rerun` took `run_dir`. The two are the same string only
+    because the id happens to be the directory's name under outputs/, which nothing says. An
+    agent guessed wrong and lost a round trip to it.
+    """
+    isolated_tools.template_new(target=str(tmp_path / "seed"), name="seed")
+    project = tmp_path / "post"
+    created = isolated_tools.project_create(
+        target=str(project), template=str(tmp_path / "seed"), formats=["square"]
+    )
+    assert created.ok, [d.model_dump() for d in created.diagnostics]
+    rendered = isolated_tools.project_render(project=str(project))
+    assert rendered.ok, [d.model_dump() for d in rendered.diagnostics]
+
+    listed = isolated_tools.run_list(project=str(project))
+    assert listed.runs, "the render recorded no run"
+
+    reproduced = isolated_tools.run_rerun(run_id=listed.runs[0].run_id, project=str(project))
+
+    assert reproduced.ok, [d.model_dump() for d in reproduced.diagnostics]
+
+
+def test_rerunning_an_unknown_run_says_which_ones_exist(
+    isolated_tools: ArcavexTools, tmp_path: Path
+) -> None:
+    isolated_tools.template_new(target=str(tmp_path / "seed"), name="seed")
+    project = tmp_path / "post"
+    isolated_tools.project_create(
+        target=str(project), template=str(tmp_path / "seed"), formats=["square"]
+    )
+
+    refused = isolated_tools.run_rerun(run_id="not-a-run", project=str(project))
+
+    assert refused.ok is False
+    assert any("Recorded runs" in (d.hint or "") for d in refused.diagnostics)

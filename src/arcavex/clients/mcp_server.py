@@ -68,7 +68,7 @@ from arcavex.kernel.api import (
     TemplateInspectReport,
     TemplateListReport,
 )
-from arcavex.kernel.diagnostics import has_errors
+from arcavex.kernel.diagnostics import diagnostic, has_errors
 from arcavex.kernel.editor import HistoryReport, TransactionReport
 
 _INSTRUCTIONS = (
@@ -535,9 +535,44 @@ class ArcavexTools:
         """Diff two recorded runs: per-output pixels/perceptual plus provenance metadata."""
         return self._facade.diff_runs(Path(run_a), Path(run_b))
 
-    def run_rerun(self, run_dir: str) -> RerunReport:
-        """Reproduce a recorded run into a new run directory (byte-identical on match)."""
-        return self._facade.rerun(Path(run_dir))
+    def run_rerun(
+        self, run_dir: str | None = None, run_id: str | None = None, project: str | None = None
+    ) -> RerunReport:
+        """Reproduce a recorded run into a new run directory (byte-identical on match).
+
+        Takes either the run directory or the ``run_id`` that ``arcavex_run_list`` reports —
+        listing runs and then rerunning one should not require knowing that the id happens to be
+        the directory's name under ``outputs/``.
+        """
+        if run_dir is not None:
+            return self._facade.rerun(Path(run_dir))
+        if run_id is None:
+            return RerunReport(
+                ok=False,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-RUN-001",
+                        "Pass either 'run_dir' or the 'run_id' that arcavex_run_list reports.",
+                        hint="arcavex_run_list returns run_id for every recorded run.",
+                    )
+                ],
+            )
+        listed = self._facade.list_runs(project=_opt_path(project), path=None)
+        match = next((run for run in listed.runs if run.run_id == run_id), None)
+        if match is None:
+            known = ", ".join(run.run_id for run in listed.runs[:5]) or "none recorded"
+            return RerunReport(
+                ok=False,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-RUN-001",
+                        f"No recorded run {run_id!r} for this project.",
+                        hint=f"Recorded runs: {known}.",
+                    )
+                ],
+            )
+        root = Path(project) if project else Path.cwd()
+        return self._facade.rerun(root / "outputs" / match.run_id)
 
     # ---------------------------------------------------------------- diagnostics
     def diagnostic_explain(self, code: str) -> DiagnosticHelp:
