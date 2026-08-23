@@ -17,3171 +17,1716 @@ type Mutation = {
 };
 
 const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArray<Mutation>>> = {
-  "CheckResult": [
+  CheckResult: [
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "EngineHandshakeReport": [
+  EngineHandshakeReport: [
     {
-      "path": [
-        "accepted_ir_versions"
-      ],
-      "operation": "delete"
+      path: ["accepted_ir_versions"],
+      operation: "delete",
     },
     {
-      "path": [
-        "capabilities"
-      ],
-      "operation": "delete"
+      path: ["capabilities"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "doctor"
-      ],
-      "operation": "delete"
+      path: ["doctor"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks"
-      ],
-      "operation": "delete"
+      path: ["doctor", "checks"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        0,
-        "detail"
-      ],
-      "operation": "delete"
+      path: ["doctor", "checks", 0, "detail"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        0,
-        "name"
-      ],
-      "operation": "delete"
+      path: ["doctor", "checks", 0, "name"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        0,
-        "status"
-      ],
-      "operation": "delete"
+      path: ["doctor", "checks", 0, "status"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        0,
-        "status"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["doctor", "checks", 0, "status"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        1,
-        "detail"
-      ],
-      "operation": "delete"
+      path: ["doctor", "checks", 1, "detail"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        1,
-        "name"
-      ],
-      "operation": "delete"
+      path: ["doctor", "checks", 1, "name"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        1,
-        "status"
-      ],
-      "operation": "delete"
+      path: ["doctor", "checks", 1, "status"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "checks",
-        1,
-        "status"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["doctor", "checks", 1, "status"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "doctor",
-        "engine_version"
-      ],
-      "operation": "delete"
+      path: ["doctor", "engine_version"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["doctor", "ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "doctor",
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["doctor", "ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "doctor",
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["doctor", "response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "extension_sdk_version"
-      ],
-      "operation": "delete"
+      path: ["extension_sdk_version"],
+      operation: "delete",
     },
     {
-      "path": [
-        "identity"
-      ],
-      "operation": "delete"
+      path: ["identity"],
+      operation: "delete",
     },
     {
-      "path": [
-        "identity",
-        "engine_version"
-      ],
-      "operation": "delete"
+      path: ["identity", "engine_version"],
+      operation: "delete",
     },
     {
-      "path": [
-        "mcp_contract_version"
-      ],
-      "operation": "delete"
+      path: ["mcp_contract_version"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "paths"
-      ],
-      "operation": "delete"
+      path: ["paths"],
+      operation: "delete",
     },
     {
-      "path": [
-        "paths",
-        "assets"
-      ],
-      "operation": "delete"
+      path: ["paths", "assets"],
+      operation: "delete",
     },
     {
-      "path": [
-        "paths",
-        "cache"
-      ],
-      "operation": "delete"
+      path: ["paths", "cache"],
+      operation: "delete",
     },
     {
-      "path": [
-        "paths",
-        "extensions"
-      ],
-      "operation": "delete"
+      path: ["paths", "extensions"],
+      operation: "delete",
     },
     {
-      "path": [
-        "paths",
-        "fonts"
-      ],
-      "operation": "delete"
+      path: ["paths", "fonts"],
+      operation: "delete",
     },
     {
-      "path": [
-        "paths",
-        "home"
-      ],
-      "operation": "delete"
+      path: ["paths", "home"],
+      operation: "delete",
     },
     {
-      "path": [
-        "paths",
-        "styles"
-      ],
-      "operation": "delete"
+      path: ["paths", "styles"],
+      operation: "delete",
     },
     {
-      "path": [
-        "paths",
-        "templates"
-      ],
-      "operation": "delete"
+      path: ["paths", "templates"],
+      operation: "delete",
     },
     {
-      "path": [
-        "produced_ir_version"
-      ],
-      "operation": "delete"
+      path: ["produced_ir_version"],
+      operation: "delete",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "HistoryReport": [
+  HistoryReport: [
     {
-      "path": [
-        "branched_by_external_edit"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["branched_by_external_edit"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "can_redo"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["can_redo"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "can_undo"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["can_undo"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "contract_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["contract_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "entries",
-        0
-      ],
-      "operation": "addKey"
+      path: ["entries", 0],
+      operation: "addKey",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "actor"
-      ],
-      "operation": "delete"
+      path: ["entries", 0, "actor"],
+      operation: "delete",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "actor",
-        "id"
-      ],
-      "operation": "delete"
+      path: ["entries", 0, "actor", "id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "after_project_revision"
-      ],
-      "operation": "delete"
+      path: ["entries", 0, "after_project_revision"],
+      operation: "delete",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "after_project_revision"
-      ],
-      "operation": "set",
-      "value": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c!"
+      path: ["entries", 0, "after_project_revision"],
+      operation: "set",
+      value: "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c!",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "before_project_revision"
-      ],
-      "operation": "delete"
+      path: ["entries", 0, "before_project_revision"],
+      operation: "delete",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "before_project_revision"
-      ],
-      "operation": "set",
-      "value": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!"
+      path: ["entries", 0, "before_project_revision"],
+      operation: "set",
+      value: "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "command_id"
-      ],
-      "operation": "delete"
+      path: ["entries", 0, "command_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "command_id"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["entries", 0, "command_id"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "created_at"
-      ],
-      "operation": "delete"
+      path: ["entries", 0, "created_at"],
+      operation: "delete",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "created_at"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["entries", 0, "created_at"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "entries",
-        0,
-        "summary"
-      ],
-      "operation": "delete"
+      path: ["entries", 0, "summary"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "HitTestReport": [
+  HitTestReport: [
     {
-      "path": [
-        "candidates",
-        0,
-        "authored_id"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "authored_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "bounds_pt"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "bounds_pt"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "bounds_pt"
-      ],
-      "operation": "set",
-      "value": [
-        10,
-        20,
-        300
-      ]
+      path: ["candidates", 0, "bounds_pt"],
+      operation: "set",
+      value: [10, 20, 300],
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "bounds_pt",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "bounds_pt", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "bounds_pt",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "bounds_pt", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "bounds_pt",
-        2
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "bounds_pt", 2],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "bounds_pt",
-        3
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "bounds_pt", 3],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "display_name"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "display_name"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "editable"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "editable"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "editable"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["candidates", 0, "editable"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "id"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "instance_id"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "instance_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "kind"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "kind"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "kind"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["candidates", 0, "kind"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "locked"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "locked"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "locked"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["candidates", 0, "locked"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "paint_bounds_pt"
-      ],
-      "operation": "delete"
+      path: ["candidates", 0, "paint_bounds_pt"],
+      operation: "delete",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "paint_bounds_pt"
-      ],
-      "operation": "set",
-      "value": [
-        8,
-        18,
-        304
-      ]
+      path: ["candidates", 0, "paint_bounds_pt"],
+      operation: "set",
+      value: [8, 18, 304],
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "paint_bounds_pt",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "paint_bounds_pt", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "paint_bounds_pt",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "paint_bounds_pt", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "paint_bounds_pt",
-        2
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "paint_bounds_pt", 2],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "candidates",
-        0,
-        "paint_bounds_pt",
-        3
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["candidates", 0, "paint_bounds_pt", 3],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "point_pt"
-      ],
-      "operation": "set",
-      "value": [
-        120.5
-      ]
+      path: ["point_pt"],
+      operation: "set",
+      value: [120.5],
     },
     {
-      "path": [
-        "point_pt",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["point_pt", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "point_pt",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["point_pt", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "point_px"
-      ],
-      "operation": "set",
-      "value": [
-        241
-      ]
+      path: ["point_px"],
+      operation: "set",
+      value: [241],
     },
     {
-      "path": [
-        "point_px",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["point_px", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "point_px",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["point_px", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "LayerTreeReport": [
-    {
-      "path": [
-        "canvas_pt"
-      ],
-      "operation": "set",
-      "value": [
-        842
-      ]
-    },
-    {
-      "path": [
-        "canvas_pt",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "canvas_pt",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "canvas_px"
-      ],
-      "operation": "set",
-      "value": [
-        1684
-      ]
-    },
-    {
-      "path": [
-        "canvas_px",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "canvas_px",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
-    },
-    {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "dpi"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "mode"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
-    },
-    {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "authored_id"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "authored_index"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "authored_index"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "absolute_transform"
-      ],
-      "operation": "set",
-      "value": [
-        1,
-        0,
-        0,
-        1,
-        10
-      ]
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "absolute_transform",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "absolute_transform",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "absolute_transform",
-        2
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "absolute_transform",
-        3
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "absolute_transform",
-        4
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "absolute_transform",
-        5
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "authored_id"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "authored_index"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "authored_index"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_pt"
-      ],
-      "operation": "set",
-      "value": [
-        10,
-        20,
-        300
-      ]
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_pt",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_pt",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_pt",
-        2
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_pt",
-        3
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_px"
-      ],
-      "operation": "set",
-      "value": [
-        20,
-        40,
-        600
-      ]
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_px",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_px",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_px",
-        2
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "bounds_px",
-        3
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "color"
-      ],
-      "operation": "set",
-      "value": "#3A7BD5!"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "display_name"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "editable"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "effects",
-        0,
-        "category"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "effects",
-        0,
-        "index"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "effects",
-        0,
-        "index"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "effects",
-        0,
-        "name"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "hit_testable"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "id"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "kind"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "locked"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "mask",
-        "component"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "origin"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "box_h_pt"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "box_h_pt"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "box_w_pt"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "box_w_pt"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "kind"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "measured_h_pt"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "measured_h_pt"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "measured_w_pt"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "overflow",
-        "measured_w_pt"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_pt"
-      ],
-      "operation": "set",
-      "value": [
-        8,
-        18,
-        304
-      ]
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_pt",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_pt",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_pt",
-        2
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_pt",
-        3
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_px"
-      ],
-      "operation": "set",
-      "value": [
-        16,
-        36,
-        608
-      ]
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_px",
-        0
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_px",
-        1
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_px",
-        2
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_bounds_px",
-        3
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "paint_index"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "rotate_deg"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "virtual"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "visible"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "children",
-        0,
-        "z"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "display_name"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "editable"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "hit_testable"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "id"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "kind"
-      ],
-      "operation": "delete"
-    },
-    {
-      "path": [
-        "root",
-        "locked"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "origin"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
-    },
-    {
-      "path": [
-        "root",
-        "paint_index"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "rotate_deg"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    },
-    {
-      "path": [
-        "root",
-        "virtual"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "visible"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
-    },
-    {
-      "path": [
-        "root",
-        "z"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+  LayerTreeReport: [
+    {
+      path: ["canvas_pt"],
+      operation: "set",
+      value: [842],
+    },
+    {
+      path: ["canvas_pt", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["canvas_pt", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["canvas_px"],
+      operation: "set",
+      value: [1684],
+    },
+    {
+      path: ["canvas_px", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["canvas_px", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
+    },
+    {
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
+    },
+    {
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
+    },
+    {
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["dpi"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["mode"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
+    },
+    {
+      path: ["ok"],
+      operation: "delete",
+    },
+    {
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "authored_id"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "authored_index"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "authored_index"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "absolute_transform"],
+      operation: "set",
+      value: [1, 0, 0, 1, 10],
+    },
+    {
+      path: ["root", "children", 0, "absolute_transform", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "absolute_transform", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "absolute_transform", 2],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "absolute_transform", 3],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "absolute_transform", 4],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "absolute_transform", 5],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "authored_id"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "authored_index"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "authored_index"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_pt"],
+      operation: "set",
+      value: [10, 20, 300],
+    },
+    {
+      path: ["root", "children", 0, "bounds_pt", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_pt", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_pt", 2],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_pt", 3],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_px"],
+      operation: "set",
+      value: [20, 40, 600],
+    },
+    {
+      path: ["root", "children", 0, "bounds_px", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_px", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_px", 2],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "bounds_px", 3],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "color"],
+      operation: "set",
+      value: "#3A7BD5!",
+    },
+    {
+      path: ["root", "children", 0, "display_name"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "editable"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "children", 0, "effects", 0, "category"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
+    },
+    {
+      path: ["root", "children", 0, "effects", 0, "index"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "effects", 0, "index"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "effects", 0, "name"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "hit_testable"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "children", 0, "id"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "kind"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "locked"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "children", 0, "mask", "component"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "origin"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "box_h_pt"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "box_h_pt"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "box_w_pt"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "box_w_pt"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "kind"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "measured_h_pt"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "measured_h_pt"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "measured_w_pt"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "children", 0, "overflow", "measured_w_pt"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_pt"],
+      operation: "set",
+      value: [8, 18, 304],
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_pt", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_pt", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_pt", 2],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_pt", 3],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_px"],
+      operation: "set",
+      value: [16, 36, 608],
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_px", 0],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_px", 1],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_px", 2],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_bounds_px", 3],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "paint_index"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "rotate_deg"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "children", 0, "virtual"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "children", 0, "visible"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "children", 0, "z"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "display_name"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "editable"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "hit_testable"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "id"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "kind"],
+      operation: "delete",
+    },
+    {
+      path: ["root", "locked"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "origin"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
+    },
+    {
+      path: ["root", "paint_index"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "rotate_deg"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+    {
+      path: ["root", "virtual"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "visible"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
+    },
+    {
+      path: ["root", "z"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "PreviewProjectReport": [
+  PreviewProjectReport: [
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "compile_ms"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["previews", 0, "compile_ms"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["previews", 0, "diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["previews", 0, "diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["previews", 0, "diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["previews", 0, "diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["previews", 0, "diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["previews", 0, "ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["previews", 0, "ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "render_ms"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["previews", 0, "render_ms"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "previews",
-        0,
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["previews", 0, "response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "ProjectPolicyReport": [
+  ProjectPolicyReport: [
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "policy"
-      ],
-      "operation": "addKey"
+      path: ["policy"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "policy",
-        "extensions"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["policy", "extensions"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "policy",
-        "mode"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["policy", "mode"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "policy",
-        "version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-const"
+      path: ["policy", "version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-const",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "ProjectSnapshotReport": [
+  ProjectSnapshotReport: [
     {
-      "path": [
-        "default_target",
-        "format"
-      ],
-      "operation": "delete"
+      path: ["default_target", "format"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "dpi"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["dpi"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "project_manifest",
-        0,
-        "bytes"
-      ],
-      "operation": "delete"
+      path: ["project_manifest", 0, "bytes"],
+      operation: "delete",
     },
     {
-      "path": [
-        "project_manifest",
-        0,
-        "bytes"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["project_manifest", 0, "bytes"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "project_manifest",
-        0,
-        "path"
-      ],
-      "operation": "delete"
+      path: ["project_manifest", 0, "path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "project_manifest",
-        0,
-        "sha256"
-      ],
-      "operation": "delete"
+      path: ["project_manifest", 0, "sha256"],
+      operation: "delete",
     },
     {
-      "path": [
-        "render_manifest",
-        0,
-        "bytes"
-      ],
-      "operation": "delete"
+      path: ["render_manifest", 0, "bytes"],
+      operation: "delete",
     },
     {
-      "path": [
-        "render_manifest",
-        0,
-        "bytes"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["render_manifest", 0, "bytes"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "render_manifest",
-        0,
-        "path"
-      ],
-      "operation": "delete"
+      path: ["render_manifest", 0, "path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "render_manifest",
-        0,
-        "sha256"
-      ],
-      "operation": "delete"
+      path: ["render_manifest", 0, "sha256"],
+      operation: "delete",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "source_files",
-        0,
-        "path"
-      ],
-      "operation": "delete"
+      path: ["source_files", 0, "path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        0,
-        "project_owned"
-      ],
-      "operation": "delete"
+      path: ["source_files", 0, "project_owned"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        0,
-        "project_owned"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["source_files", 0, "project_owned"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "source_files",
-        0,
-        "resolved_path"
-      ],
-      "operation": "delete"
+      path: ["source_files", 0, "resolved_path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        0,
-        "role"
-      ],
-      "operation": "delete"
+      path: ["source_files", 0, "role"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        0,
-        "role"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["source_files", 0, "role"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "source_files",
-        1,
-        "path"
-      ],
-      "operation": "delete"
+      path: ["source_files", 1, "path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        1,
-        "project_owned"
-      ],
-      "operation": "delete"
+      path: ["source_files", 1, "project_owned"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        1,
-        "project_owned"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["source_files", 1, "project_owned"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "source_files",
-        1,
-        "resolved_path"
-      ],
-      "operation": "delete"
+      path: ["source_files", 1, "resolved_path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        1,
-        "role"
-      ],
-      "operation": "delete"
+      path: ["source_files", 1, "role"],
+      operation: "delete",
     },
     {
-      "path": [
-        "source_files",
-        1,
-        "role"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["source_files", 1, "role"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "targets",
-        0,
-        "format"
-      ],
-      "operation": "delete"
+      path: ["targets", 0, "format"],
+      operation: "delete",
     },
     {
-      "path": [
-        "targets",
-        1,
-        "format"
-      ],
-      "operation": "delete"
-    }
+      path: ["targets", 1, "format"],
+      operation: "delete",
+    },
   ],
-  "ProjectUIMetadataReport": [
+  ProjectUIMetadataReport: [
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "metadata"
-      ],
-      "operation": "addKey"
+      path: ["metadata"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "metadata",
-        "layers",
-        "logo"
-      ],
-      "operation": "addKey"
+      path: ["metadata", "layers", "logo"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "metadata",
-        "layers",
-        "logo",
-        "locked"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["metadata", "layers", "logo", "locked"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "metadata",
-        "layers",
-        "title"
-      ],
-      "operation": "addKey"
+      path: ["metadata", "layers", "title"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "metadata",
-        "layers",
-        "title",
-        "color"
-      ],
-      "operation": "set",
-      "value": "#3A7BD5!"
+      path: ["metadata", "layers", "title", "color"],
+      operation: "set",
+      value: "#3A7BD5!",
     },
     {
-      "path": [
-        "metadata",
-        "layers",
-        "title",
-        "locked"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["metadata", "layers", "title", "locked"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "metadata",
-        "version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-const"
+      path: ["metadata", "version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-const",
     },
     {
-      "path": [
-        "metadata",
-        "workspace"
-      ],
-      "operation": "addKey"
+      path: ["metadata", "workspace"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "metadata",
-        "workspace",
-        "layer_tree_mode"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["metadata", "workspace", "layer_tree_mode"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "ProposalActionReport": [
+  ProposalActionReport: [
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "proposal"
-      ],
-      "operation": "addKey"
+      path: ["proposal"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "proposal",
-        "actor"
-      ],
-      "operation": "delete"
+      path: ["proposal", "actor"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposal",
-        "actor",
-        "id"
-      ],
-      "operation": "delete"
+      path: ["proposal", "actor", "id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposal",
-        "base_project_revision"
-      ],
-      "operation": "delete"
+      path: ["proposal", "base_project_revision"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposal",
-        "base_project_revision"
-      ],
-      "operation": "set",
-      "value": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!"
+      path: ["proposal", "base_project_revision"],
+      operation: "set",
+      value: "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!",
     },
     {
-      "path": [
-        "proposal",
-        "command_id"
-      ],
-      "operation": "delete"
+      path: ["proposal", "command_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposal",
-        "command_id"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["proposal", "command_id"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "proposal",
-        "command_payload"
-      ],
-      "operation": "delete"
+      path: ["proposal", "command_payload"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposal",
-        "created_at"
-      ],
-      "operation": "delete"
+      path: ["proposal", "created_at"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposal",
-        "created_at"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["proposal", "created_at"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "proposal",
-        "project_path"
-      ],
-      "operation": "delete"
+      path: ["proposal", "project_path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposal",
-        "state"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["proposal", "state"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "proposal",
-        "version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-const"
+      path: ["proposal", "version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-const",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "ProposalListReport": [
+  ProposalListReport: [
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "proposals",
-        0
-      ],
-      "operation": "addKey"
+      path: ["proposals", 0],
+      operation: "addKey",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "actor"
-      ],
-      "operation": "delete"
+      path: ["proposals", 0, "actor"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "actor",
-        "id"
-      ],
-      "operation": "delete"
+      path: ["proposals", 0, "actor", "id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "base_project_revision"
-      ],
-      "operation": "delete"
+      path: ["proposals", 0, "base_project_revision"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "base_project_revision"
-      ],
-      "operation": "set",
-      "value": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!"
+      path: ["proposals", 0, "base_project_revision"],
+      operation: "set",
+      value: "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "command_id"
-      ],
-      "operation": "delete"
+      path: ["proposals", 0, "command_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "command_id"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["proposals", 0, "command_id"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "command_payload"
-      ],
-      "operation": "delete"
+      path: ["proposals", 0, "command_payload"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "created_at"
-      ],
-      "operation": "delete"
+      path: ["proposals", 0, "created_at"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "created_at"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["proposals", 0, "created_at"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "project_path"
-      ],
-      "operation": "delete"
+      path: ["proposals", 0, "project_path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "state"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["proposals", 0, "state"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "proposals",
-        0,
-        "version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-const"
+      path: ["proposals", 0, "version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-const",
     },
     {
-      "path": [
-        "proposals",
-        1
-      ],
-      "operation": "addKey"
+      path: ["proposals", 1],
+      operation: "addKey",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "actor"
-      ],
-      "operation": "delete"
+      path: ["proposals", 1, "actor"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "actor",
-        "id"
-      ],
-      "operation": "delete"
+      path: ["proposals", 1, "actor", "id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "base_project_revision"
-      ],
-      "operation": "delete"
+      path: ["proposals", 1, "base_project_revision"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "base_project_revision"
-      ],
-      "operation": "set",
-      "value": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!"
+      path: ["proposals", 1, "base_project_revision"],
+      operation: "set",
+      value: "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "command_id"
-      ],
-      "operation": "delete"
+      path: ["proposals", 1, "command_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "command_id"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["proposals", 1, "command_id"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "command_payload"
-      ],
-      "operation": "delete"
+      path: ["proposals", 1, "command_payload"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "created_at"
-      ],
-      "operation": "delete"
+      path: ["proposals", 1, "created_at"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "created_at"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["proposals", 1, "created_at"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "project_path"
-      ],
-      "operation": "delete"
+      path: ["proposals", 1, "project_path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "state"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["proposals", 1, "state"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "proposals",
-        1,
-        "version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-const"
+      path: ["proposals", 1, "version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-const",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
   ],
-  "SemanticTransaction": [
+  SemanticTransaction: [
     {
-      "path": [],
-      "operation": "addKey"
+      path: [],
+      operation: "addKey",
     },
     {
-      "path": [
-        "actor"
-      ],
-      "operation": "delete"
+      path: ["actor"],
+      operation: "delete",
     },
     {
-      "path": [
-        "actor",
-        "id"
-      ],
-      "operation": "delete"
+      path: ["actor", "id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "base_project_revision"
-      ],
-      "operation": "delete"
+      path: ["base_project_revision"],
+      operation: "delete",
     },
     {
-      "path": [
-        "base_project_revision"
-      ],
-      "operation": "set",
-      "value": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!"
+      path: ["base_project_revision"],
+      operation: "set",
+      value: "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f!",
     },
     {
-      "path": [
-        "command_id"
-      ],
-      "operation": "delete"
+      path: ["command_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "command_id"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["command_id"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "commands"
-      ],
-      "operation": "delete"
+      path: ["commands"],
+      operation: "delete",
     },
     {
-      "path": [
-        "project_path"
-      ],
-      "operation": "delete"
+      path: ["project_path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "target"
-      ],
-      "operation": "addKey"
+      path: ["target"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-const"
-    }
+      path: ["version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-const",
+    },
   ],
-  "TransactionReport": [
+  TransactionReport: [
     {
-      "path": [
-        "changed",
-        0
-      ],
-      "operation": "addKey"
+      path: ["changed", 0],
+      operation: "addKey",
     },
     {
-      "path": [
-        "changed",
-        0,
-        "change"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["changed", 0, "change"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "changed",
-        0,
-        "path"
-      ],
-      "operation": "delete"
+      path: ["changed", 0, "path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "changed",
-        1
-      ],
-      "operation": "addKey"
+      path: ["changed", 1],
+      operation: "addKey",
     },
     {
-      "path": [
-        "changed",
-        1,
-        "change"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["changed", 1, "change"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "changed",
-        1,
-        "path"
-      ],
-      "operation": "delete"
+      path: ["changed", 1, "path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "changed",
-        2
-      ],
-      "operation": "addKey"
+      path: ["changed", 2],
+      operation: "addKey",
     },
     {
-      "path": [
-        "changed",
-        2,
-        "change"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["changed", 2, "change"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "changed",
-        2,
-        "path"
-      ],
-      "operation": "delete"
+      path: ["changed", 2, "path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "command_id"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["command_id"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "contract_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["contract_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "code"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "code"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "message"
-      ],
-      "operation": "delete"
+      path: ["diagnostics", 0, "message"],
+      operation: "delete",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "severity"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-enum"
+      path: ["diagnostics", 0, "severity"],
+      operation: "set",
+      value: "__arcavex_unexpected__-enum",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "column"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "column"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "diagnostics",
-        0,
-        "source",
-        "line"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
+      path: ["diagnostics", 0, "source", "line"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
     },
     {
-      "path": [
-        "inverse"
-      ],
-      "operation": "addKey"
+      path: ["inverse"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "inverse",
-        "actor"
-      ],
-      "operation": "delete"
+      path: ["inverse", "actor"],
+      operation: "delete",
     },
     {
-      "path": [
-        "inverse",
-        "actor",
-        "id"
-      ],
-      "operation": "delete"
+      path: ["inverse", "actor", "id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "inverse",
-        "base_project_revision"
-      ],
-      "operation": "delete"
+      path: ["inverse", "base_project_revision"],
+      operation: "delete",
     },
     {
-      "path": [
-        "inverse",
-        "base_project_revision"
-      ],
-      "operation": "set",
-      "value": "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c!"
+      path: ["inverse", "base_project_revision"],
+      operation: "set",
+      value: "3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c!",
     },
     {
-      "path": [
-        "inverse",
-        "command_id"
-      ],
-      "operation": "delete"
+      path: ["inverse", "command_id"],
+      operation: "delete",
     },
     {
-      "path": [
-        "inverse",
-        "command_id"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-format"
+      path: ["inverse", "command_id"],
+      operation: "set",
+      value: "__arcavex_unexpected__-format",
     },
     {
-      "path": [
-        "inverse",
-        "commands"
-      ],
-      "operation": "delete"
+      path: ["inverse", "commands"],
+      operation: "delete",
     },
     {
-      "path": [
-        "inverse",
-        "project_path"
-      ],
-      "operation": "delete"
+      path: ["inverse", "project_path"],
+      operation: "delete",
     },
     {
-      "path": [
-        "inverse",
-        "target"
-      ],
-      "operation": "addKey"
+      path: ["inverse", "target"],
+      operation: "addKey",
     },
     {
-      "path": [
-        "inverse",
-        "version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-const"
+      path: ["inverse", "version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-const",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "delete"
+      path: ["ok"],
+      operation: "delete",
     },
     {
-      "path": [
-        "ok"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-boolean"
+      path: ["ok"],
+      operation: "set",
+      value: "__arcavex_unexpected__-boolean",
     },
     {
-      "path": [
-        "response_version"
-      ],
-      "operation": "set",
-      "value": "__arcavex_unexpected__-number"
-    }
-  ]
+      path: ["response_version"],
+      operation: "set",
+      value: "__arcavex_unexpected__-number",
+    },
+  ],
 } as Readonly<Record<DesktopContractName, ReadonlyArray<Mutation>>>;
 
-function container(root: unknown, path: ReadonlyArray<string | number>): Record<string, unknown> | unknown[] {
+function container(
+  root: unknown,
+  path: ReadonlyArray<string | number>,
+): Record<string, unknown> | unknown[] {
   let current = root;
   for (const step of path) {
     current = (current as Record<string, unknown>)[step as string];
@@ -3213,10 +1758,7 @@ test("Pydantic-serialized fixtures satisfy every generated desktop guard", () =>
 
 test("every desktop contract carries populated fixtures worth mutating", () => {
   for (const name of desktopContractNames) {
-    assert.ok(
-      desktopContractMutations[name].length > 0,
-      `${name} has no schema-derived mutations`,
-    );
+    assert.ok(desktopContractMutations[name].length > 0, `${name} has no schema-derived mutations`);
   }
 });
 

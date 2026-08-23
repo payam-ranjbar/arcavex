@@ -306,6 +306,8 @@ def test_layer_node_contract_separates_authored_and_rendered_identity() -> None:
         "display_name": "Feature card",
         # A group has no authored text; text nodes report theirs so an editor can diff it.
         "text": None,
+        # The authored style mapping, so a properties panel can show a value before changing it.
+        "style": None,
         "visible": True,
         "locked": True,
         "color": "#AABBCC",
