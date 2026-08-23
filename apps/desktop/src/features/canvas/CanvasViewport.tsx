@@ -18,6 +18,7 @@ import {
 
 import type { HitCandidate } from "../../contracts/index.ts";
 import type { EditorCommand } from "../workspace/index.ts";
+import { useGateway } from "../../app/providers.tsx";
 import { useHitTest, useRenderStatus } from "../projects/index.ts";
 import { pointerToCanvas } from "./coordinates.ts";
 import {
@@ -75,6 +76,7 @@ export function CanvasViewport({
   const render = useRenderStatus();
   const hitTest = useHitTest();
   const surface = useRef<HTMLDivElement>(null);
+  const gateway = useGateway();
   const [viewport, setViewport] = useState<Viewport>({ scale: 1, panXCss: 0, panYCss: 0 });
   const dragging = useRef<{ x: number; y: number } | null>(null);
   const [interaction, setInteraction] = useState<InteractionState>(IDLE);
@@ -334,13 +336,13 @@ export function CanvasViewport({
           </button>
         </div>
         {output?.imageUrl ? (
-          <a
+          <button
+            type="button"
             className="proof-strip__export"
-            href={output.imageUrl}
-            download={`${render.data?.key?.format ?? "proof"}.png`}
+            onClick={() => void gateway.saveRenderAs()}
           >
-            Save image
-          </a>
+            Save image…
+          </button>
         ) : null}
       </div>
     </>

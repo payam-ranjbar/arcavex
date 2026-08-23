@@ -41,5 +41,40 @@ test("the proof can be zoomed and returned to actual size", async ({ page }) => 
 });
 
 test("a rendered proof can be saved out of the application", async ({ page }) => {
-  await expect(page.getByRole("link", { name: "Save image" })).toBeVisible();
+  // A button that saves through the host, not a link: a WebView treats a download link as a
+  // navigation, replacing the whole application with a bare image and writing nothing.
+  await expect(page.getByRole("button", { name: "Save image…" })).toBeVisible();
+});
+
+test("the inspector scrolls with the wheel, not only by dragging its bar", async ({ page }) => {
+  // A grid item defaults to min-height:auto, so the column grew instead of scrolling and the
+  // wheel did nothing at all — everything below the first section was unreachable in practice.
+  await page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("button", { name: /^Title/ })
+    .click();
+
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+  const before = await inspector.evaluate((element) => element.scrollTop);
+  await inspector.hover();
+  await page.mouse.wheel(0, 400);
+
+  await expect
+    .poll(async () => inspector.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(before);
+});
+
+test("no control is wider than the panel holding it", async ({ page }) => {
+  const inspector = page.getByRole("complementary", { name: "Inspector" });
+  const overflowing = await inspector.evaluate((panel) => {
+    const wide: string[] = [];
+    for (const control of panel.querySelectorAll("select, input, button")) {
+      if (control.getBoundingClientRect().width > panel.getBoundingClientRect().width + 1) {
+        wide.push(control.getAttribute("aria-label") ?? control.tagName);
+      }
+    }
+    return wide;
+  });
+
+  expect(overflowing).toEqual([]);
 });

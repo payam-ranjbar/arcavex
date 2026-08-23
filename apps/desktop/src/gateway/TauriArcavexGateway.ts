@@ -56,6 +56,10 @@ export class TauriArcavexGateway implements ArcavexGateway {
     return invoke("close_project");
   }
 
+  saveRenderAs(): Promise<string | null> {
+    return invoke("save_render_as");
+  }
+
   projectSnapshot(): Promise<ProjectSnapshotReport> {
     return invoke("project_snapshot");
   }

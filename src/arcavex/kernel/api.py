@@ -1397,6 +1397,10 @@ class LayerNodeReport(BaseModel):
     #: the rest of the vocabulary. Reported so an editor can show a value before changing it;
     #: without it a properties panel can only offer geometry, which is what it did.
     style: dict[str, Any] | None = None
+    #: The node's authored ``paragraph`` mapping — ``align`` and ``direction``. Reported apart
+    #: from ``style`` because that is where the text renderer reads alignment from: a value
+    #: written to ``style.align`` is accepted by the schema and then ignored.
+    paragraph: dict[str, Any] | None = None
     visible: bool = True
     locked: bool = False
     color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")

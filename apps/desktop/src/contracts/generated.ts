@@ -36,7 +36,7 @@ export type LayerEffect = { readonly category?: "geometry" | "color" | "raster" 
 
 export type LayerMask = { readonly component: string; readonly params?: Readonly<Record<string, unknown>>; };
 
-export type LayerNodeReport = { readonly absolute_transform?: readonly [number, number, number, number, number, number] | null; readonly authored_id: string; readonly authored_index: number; readonly bounds_pt?: readonly [number, number, number, number] | null; readonly bounds_px?: readonly [number, number, number, number] | null; readonly children?: ReadonlyArray<LayerNodeReport>; readonly collection?: string | null; readonly color?: string | null; readonly condition?: string | null; readonly display_name: string; readonly editable?: boolean; readonly effects?: ReadonlyArray<LayerEffect>; readonly hit_testable?: boolean; readonly id: string; readonly instance_id?: string | null; readonly key?: string | null; readonly kind: string; readonly locked?: boolean; readonly loop_var?: string | null; readonly mask?: LayerMask | null; readonly origin?: "static" | "repeat" | "if"; readonly overflow?: OverflowReport | null; readonly paint_bounds_pt?: readonly [number, number, number, number] | null; readonly paint_bounds_px?: readonly [number, number, number, number] | null; readonly paint_index?: number | null; readonly parent_id?: string | null; readonly resolved_text?: string | null; readonly rotate_deg?: number; readonly source?: LayerSource | null; readonly style?: Readonly<Record<string, unknown>> | null; readonly text?: string | null; readonly virtual?: boolean; readonly visible?: boolean; readonly z?: number; };
+export type LayerNodeReport = { readonly absolute_transform?: readonly [number, number, number, number, number, number] | null; readonly authored_id: string; readonly authored_index: number; readonly bounds_pt?: readonly [number, number, number, number] | null; readonly bounds_px?: readonly [number, number, number, number] | null; readonly children?: ReadonlyArray<LayerNodeReport>; readonly collection?: string | null; readonly color?: string | null; readonly condition?: string | null; readonly display_name: string; readonly editable?: boolean; readonly effects?: ReadonlyArray<LayerEffect>; readonly hit_testable?: boolean; readonly id: string; readonly instance_id?: string | null; readonly key?: string | null; readonly kind: string; readonly locked?: boolean; readonly loop_var?: string | null; readonly mask?: LayerMask | null; readonly origin?: "static" | "repeat" | "if"; readonly overflow?: OverflowReport | null; readonly paint_bounds_pt?: readonly [number, number, number, number] | null; readonly paint_bounds_px?: readonly [number, number, number, number] | null; readonly paint_index?: number | null; readonly paragraph?: Readonly<Record<string, unknown>> | null; readonly parent_id?: string | null; readonly resolved_text?: string | null; readonly rotate_deg?: number; readonly source?: LayerSource | null; readonly style?: Readonly<Record<string, unknown>> | null; readonly text?: string | null; readonly virtual?: boolean; readonly visible?: boolean; readonly z?: number; };
 
 export type LayerSource = { readonly file?: string | null; readonly keypath?: string | null; readonly line?: number | null; };
 
@@ -1581,6 +1581,19 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             ],
             "default": null,
             "title": "Paint Index"
+          },
+          "paragraph": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Paragraph"
           },
           "parent_id": {
             "anyOf": [
@@ -5450,6 +5463,7 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
             136
           ],
           "paint_index": 1,
+          "paragraph": null,
           "parent_id": "root",
           "resolved_text": null,
           "rotate_deg": 1.5,
@@ -5484,6 +5498,7 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
       "paint_bounds_pt": null,
       "paint_bounds_px": null,
       "paint_index": 0,
+      "paragraph": null,
       "parent_id": null,
       "resolved_text": null,
       "rotate_deg": 0,

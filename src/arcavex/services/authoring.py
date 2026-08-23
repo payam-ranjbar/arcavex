@@ -98,6 +98,10 @@ class AuthoredLayer:
     #: The node's authored ``style`` mapping, so an editor can show what it is about to change
     #: rather than writing blind. Plain values only; absent when the node declares no style.
     style: dict[str, Any] | None
+    #: The node's authored ``paragraph`` mapping (``align``, ``direction``). Separate from style
+    #: because the text renderer reads alignment from here, and an editor writing it to ``style``
+    #: produces a value the schema accepts and the renderer ignores.
+    paragraph: dict[str, Any] | None
     parent_id: str | None
     authored_index: int
     z: int
@@ -733,6 +737,7 @@ def _authored_layer(
         kind=_str_or_none(node_raw.get("type")) or "?",
         text=_str_or_none(node_raw.get("text")),
         style=_plain_mapping(node_raw.get("style")),
+        paragraph=_plain_mapping(node_raw.get("paragraph")),
         parent_id=parent_id,
         authored_index=authored_index,
         z=z,

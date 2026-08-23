@@ -37,6 +37,9 @@ pub enum RenderState {
 pub struct RenderOutput {
     pub key: RenderKey,
     pub image_url: String,
+    /// Where the engine actually wrote this picture. Saving copies this file rather than
+    /// re-rendering, so what lands on disk is the proof that was on screen.
+    pub source_path: String,
     pub width_px: u32,
     pub height_px: u32,
     pub content_sha256: Option<String>,

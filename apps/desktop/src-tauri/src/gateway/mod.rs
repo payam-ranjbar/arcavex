@@ -425,6 +425,7 @@ impl<L: EngineLauncher> GatewayState<L> {
         Ok(RenderOutput {
             key: job.key.clone(),
             image_url,
+            source_path: output_path.to_owned(),
             width_px,
             height_px,
             content_sha256,
@@ -790,6 +791,55 @@ fn files_changed_by(report: &Value) -> Vec<String> {
 /// case.
 fn edit_changed_the_project(report: &Value) -> bool {
     report.get("ok").and_then(Value::as_bool) == Some(true) && !files_changed_by(report).is_empty()
+}
+
+/// Save the picture currently on the bench to a file the person chooses.
+///
+/// The proof strip used to offer a download link, which a WebView does not treat as a download:
+/// it navigated the window to the PNG, replacing the whole application with a bare image and no
+/// way back, and wrote nothing to disk. Fifty minutes of rendering produced no file at all.
+///
+/// Copying the render the engine already wrote is what "export" means here — re-rendering could
+/// produce a different picture from the one being looked at.
+#[tauri::command]
+pub async fn save_render_as(
+    app: AppHandle,
+    state: tauri::State<'_, SharedState>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let status = state.render_status();
+    let output = status
+        .last_good
+        .ok_or_else(|| "There is no rendered picture to save yet.".to_owned())?;
+    let source = std::path::PathBuf::from(&output.source_path);
+    if !source.is_file() {
+        return Err("The rendered file is no longer where the engine left it.".to_owned());
+    }
+
+    let suggested = source
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "arcavex.png".to_owned());
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Save the rendered image")
+        .set_file_name(&suggested)
+        .add_filter("PNG image", &["png"])
+        .save_file(move |chosen| {
+            let _ = sender.send(chosen);
+        });
+
+    let Some(destination) = receiver.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let destination = destination
+        .into_path()
+        .map_err(|error| format!("that destination cannot be written to: {error}"))?;
+    std::fs::copy(&source, &destination).map_err(|error| format!("saving failed: {error}"))?;
+    Ok(Some(destination.display().to_string()))
 }
 
 #[tauri::command]

@@ -428,6 +428,19 @@
           "default": null,
           "title": "Paint Index"
         },
+        "paragraph": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paragraph"
+        },
         "parent_id": {
           "anyOf": [
             {

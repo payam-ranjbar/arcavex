@@ -131,6 +131,8 @@ export interface ArcavexGateway {
   chooseProjectDirectory(): Promise<string | null>;
   openProject(path: string): Promise<ProjectSnapshotReport>;
   closeProject(): Promise<void>;
+  /** Save the rendered picture to a file the person chooses; null when they cancel. */
+  saveRenderAs(): Promise<string | null>;
   projectSnapshot(): Promise<ProjectSnapshotReport>;
   validateProject(): Promise<CheckResult>;
 

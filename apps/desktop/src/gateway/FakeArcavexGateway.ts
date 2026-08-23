@@ -204,6 +204,10 @@ export class FakeArcavexGateway implements ArcavexGateway {
     return this.record("closeProject", undefined);
   }
 
+  saveRenderAs(): Promise<string | null> {
+    return this.record("saveRenderAs", "/chosen/by/the/person/proof.png");
+  }
+
   projectSnapshot(): Promise<ProjectSnapshotReport> {
     // No project open is an error from the core, not an empty report — and the fake has to say
     // so, or a test can never see what the window does after the project is closed.

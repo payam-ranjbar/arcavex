@@ -547,6 +547,7 @@
             136.0
           ],
           "paint_index": 1,
+          "paragraph": null,
           "parent_id": "root",
           "resolved_text": null,
           "rotate_deg": 1.5,
@@ -581,6 +582,7 @@
       "paint_bounds_pt": null,
       "paint_bounds_px": null,
       "paint_index": 0,
+      "paragraph": null,
       "parent_id": null,
       "resolved_text": null,
       "rotate_deg": 0.0,

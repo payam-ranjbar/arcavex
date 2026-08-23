@@ -309,6 +309,7 @@ def test_layer_node_contract_separates_authored_and_rendered_identity() -> None:
         # The authored style mapping, so a properties panel can show a value before changing it.
         "resolved_text": None,
         "style": None,
+        "paragraph": None,
         "visible": True,
         "locked": True,
         "color": "#AABBCC",

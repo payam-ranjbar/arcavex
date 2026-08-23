@@ -78,6 +78,32 @@
   background: var(--arcavex-surface-raised);
   display: flex;
   flex-direction: column;
+  /* A grid item defaults to min-height:auto, so a tall column grows the track instead of
+     scrolling inside it: the wheel had nothing to scroll and only the scrollbar thumb moved.
+     min-height:0 is what makes overflow-y above actually mean something. */
+  min-height: 0;
+  /* Likewise across: a long <select> option string forces a min-content width wider than the
+     panel, which clipped every Modes control mid-word on a 2880px display. */
+  min-width: 0;
+}
+
+/* Controls shrink with their panel rather than setting its width.
+   A <fieldset> defaults to min-width: min-content and will not shrink below its widest child,
+   so a long option label ("Unrestricted — AI and CLI edits apply immediately") pushed every
+   Modes control past the panel edge and clipped it mid-word. */
+.panel fieldset {
+  min-width: 0;
+}
+
+.panel select,
+.panel input {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.panel select {
+  width: 100%;
+  text-overflow: ellipsis;
 }
 
 .workbench__sidebar {

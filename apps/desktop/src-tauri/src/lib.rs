@@ -240,6 +240,7 @@ pub fn run() {
             gateway::request_render,
             gateway::layer_tree,
             gateway::hit_test,
+            gateway::save_render_as,
             gateway::editor_apply,
             gateway::editor_apply_authorized,
             gateway::editor_undo,

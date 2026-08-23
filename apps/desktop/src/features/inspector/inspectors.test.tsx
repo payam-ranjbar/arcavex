@@ -413,6 +413,7 @@ describe("StyleInspector", () => {
   function styled(overrides: Partial<LayerNodeReport> = {}): LayerNodeReport {
     return layer({
       style: { font: "Archivo", font_size: "70px", font_weight: 400, color: "#FFFFFF" },
+      paragraph: { align: "start", direction: "ltr" },
       ...overrides,
     });
   }
@@ -454,8 +455,10 @@ describe("StyleInspector", () => {
 
     await user.click(screen.getByRole("button", { name: "end" }));
 
+    // paragraph.align, not style.align: the schema accepts both and the renderer reads only
+    // this one, so writing style.align stored a value that never moved any text.
     expect(onSubmit).toHaveBeenCalledWith([
-      { kind: "set_property", layer_id: "title", keypath: "style.align", value: "end" },
+      { kind: "set_property", layer_id: "title", keypath: "paragraph.align", value: "end" },
     ]);
   });
 

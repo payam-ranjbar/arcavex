@@ -19,6 +19,7 @@ fn key(revision: &str) -> RenderKey {
 fn output(job: &RenderJob) -> RenderOutput {
     RenderOutput {
         key: job.key.clone(),
+        source_path: "/workspace/poster/outputs/a3.png".to_owned(),
         image_url: format!("arcavex://render/{}.png", job.id),
         width_px: 1684,
         height_px: 2382,

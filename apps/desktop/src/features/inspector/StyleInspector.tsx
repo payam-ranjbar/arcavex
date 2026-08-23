@@ -30,6 +30,15 @@ function styleValue<T>(
   return shared(layers.map((layer) => read((layer.style ?? {})[key])));
 }
 
+/** The same for `paragraph`, which is where the text renderer reads alignment and direction. */
+function paragraphValue<T>(
+  layers: ReadonlyArray<LayerNodeReport>,
+  key: string,
+  read: (raw: unknown) => T,
+): FieldValue<T> {
+  return shared(layers.map((layer) => read((layer.paragraph ?? {})[key])));
+}
+
 /** A style value is a scalar in the template; anything else is not something to show. */
 function asText(raw: unknown): string {
   if (typeof raw === "string") return raw;
@@ -86,7 +95,10 @@ export function StyleInspector({
     );
   }
 
-  const alignment = styleValue(text, "align", asText);
+  // Alignment belongs to `paragraph`. The schema also accepts `style.align`, which is how this
+  // panel used to write it — producing a value the engine stores, never reads, and never applies,
+  // so the buttons highlighted nothing and the text never moved.
+  const alignment = paragraphValue(text, "align", asText);
   const colour = styleValue(styled, "color", asText);
 
   return (
@@ -143,7 +155,16 @@ export function StyleInspector({
                 type="button"
                 aria-pressed={alignment !== MIXED && alignment === option}
                 disabled={disabled}
-                onClick={() => set("align", option)}
+                onClick={() =>
+                  onSubmit(
+                    text.map((layer) => ({
+                      kind: "set_property" as const,
+                      layer_id: layer.authored_id,
+                      keypath: "paragraph.align",
+                      value: option,
+                    })),
+                  )
+                }
               >
                 {option}
               </button>
