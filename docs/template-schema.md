@@ -108,9 +108,9 @@ Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`,
 | Node kind | Notes |
 |---|---|
 | `group` | A container. May set `layout: hstack\|vstack` (with `gap`/`padding`/`main_align`/`cross_align`) to flow its children, and a `direction`. |
-| `text` | Live shaped text (`text:` or a `runs:` list). Supports `style`, `paragraph`, and `fit` policies. |
+| `text` | Live shaped text (`text:` or a `runs:` list). Supports [`style`](#style-keys), [`paragraph`](#paragraph), and `fit` policies. |
 | `image` | References an `asset:` (template-relative path). `fit:` is `fill`/`contain`/`cover`. |
-| `shape` | `rect`, `rrect`, or `circle`; or a `generator:` (`starburst`, `speech_bubble`, `qr_code`). |
+| `shape` | `rect`, `rrect`, or `circle`; or a [`generator:`](#shape-generator-parameters) (`starburst`, `speech_bubble`, `qr_code`). Painted by the `style` [paint keys](#style-keys). |
 | `path` | A vector path. Geometry effects (e.g. `torn-paper`) apply to `shape`/`path` nodes only. |
 
 Common fields on any node: `visible: true|false` (a hidden node and its subtree are not rendered),
@@ -130,10 +130,81 @@ Beyond those, each kind adds only its own fields — and nothing else is accepte
 | `path` | `d` |
 
 There is **no per-node `condition:`** — gate a node with the structural `if:`/`node:` construct
-below. Paint properties (`opacity`, `color`, `font_size`, …) live in `style:`, not on the node;
-size lives in `constraints.size`, position in `constraints.anchor`, and rotation/scale in
+below. Paint properties (`opacity`, `color`, `font_size`, …) live in [`style:`](#style-keys), not on
+the node; size lives in `constraints.size`, position in `constraints.anchor`, and rotation/scale in
 `transform`.
 Writing any of them at node level is a located error whose hint names the real home.
+
+### `style` keys
+
+`style:` is one vocabulary shared by every node kind — these thirteen keys are the only ones
+accepted, and a typo is `ARC-TPL-051` with the valid list in its hint. Paint keys draw only on a
+`shape`; typography keys are read only by a `text` node. A paint key on a `group`, `text`, or
+`image` warns (`ARC-TPL-104` — the render is unchanged); a typography key on a `shape` or `image`
+validates and does nothing. Lengths take `px` (a bare number), `pt`, or `mm` — not `%` — and are
+converted to points at the format's dpi; colors are as in [Units and colors](#units-and-colors).
+Only the three color keys accept `{{ }}` expressions (a palette entry, a `color` variable); lengths,
+weights, and `opacity` are literals — vary them per format with a [patch](#patches).
+
+| Key | Applies to | Type / units | Default | Notes |
+|---|---|---|---|---|
+| `fill` | `shape` | color | none (no fill) | The interior paint. |
+| `stroke` | `shape` | color | none (no outline) | Drawn only when `stroke_width` is above `0`. |
+| `stroke_width` | `shape` | length | `0` | `0` disables the stroke even when `stroke` is set. |
+| `corner_radius` | `shape` | length | `0` | Rounds `rect` and `rrect`; `circle` and generators ignore it. |
+| `opacity` | `shape`, `image` | number `0`–`1` | `1` | Multiplies the node's own paint; `0` hides any node and its subtree. Text, and a plain group's children, ignore it unless the node carries `effects:` (the element then composites as one layer). |
+| `font` | `text` | family name, or a list in fallback order | `Inter` | Must be in the bundled font DB (`ARC-RND-010`, exit 3, lists the families; `arcavex font add` installs more). |
+| `font_size` | `text` | length | `16pt` | A bare number is px, so `font_size: 96` at 96 dpi is `72pt`. |
+| `font_weight` | `text` | integer, CSS weight `100`–`900` | `400` | `700` is bold; the nearest available face is used. A word such as `bold` is `ARC-IR-014`. |
+| `italic` | `text` | boolean (`true`/`false`) | `false` | |
+| `color` | `text` | color | `#000000` | The text ink. |
+| `align` | `text` | `left`, `right`, `center`, `start`, `end` | `start` | Fallback for [`paragraph.align`](#paragraph); anything else is `ARC-TPL-037`. |
+| `direction` | `text` | `ltr`, `rtl` | none | Fallback for [`paragraph.direction`](#paragraph), which alone accepts `auto`; anything else is `ARC-TPL-038`. |
+| `letter_spacing` | `text` | length | `0` | Extra space between glyphs. |
+
+`line_height` is recognised but unsupported in this build: writing it is `ARC-TPL-053`, not a
+silent no-op (see [known-limitations.md](known-limitations.md)). A `runs:` entry is a string or a
+mapping of `text` plus any of `font`, `font_size`, `font_weight`, `italic`, `color`, and
+`letter_spacing`, each overriding the node's `style` for that run. A `path` node accepts the paint
+keys, but its `d` is not painted in this build, so they have no visible effect there.
+
+### `paragraph`
+
+A text node's `paragraph` block holds exactly two keys (`ARC-TPL-051` otherwise). `paragraph.align`
+is the primary alignment field; `style.align` is honoured as a fallback when it is absent, and the
+two render identically — when both are set, `paragraph` wins.
+
+| Key | Values | Default | Notes |
+|---|---|---|---|
+| `align` | `left`, `right`, `center`, `start`, `end` | `style.align`, else `start` | `start`/`end` follow the resolved base direction, so one template mirrors under `rtl`. Anything else is `ARC-TPL-037`. |
+| `direction` | `ltr`, `rtl`, `auto` | `style.direction` if set, else `auto` | The BiDi base direction; `auto` takes it from the first strong character. Anything else is `ARC-TPL-038`. |
+
+### Shape generator parameters
+
+A `generator:` replaces the primitive — `shape:` is ignored when both are set — and builds a path
+inside the node's bounds that `fill`/`stroke` paint like any shape (`corner_radius` does not
+apply). `params` is validated against the generator's schema: an unknown name, a wrong type, or an
+out-of-range value is `ARC-FX-912` naming every offending field, and an unregistered generator is
+`ARC-FX-913` listing the registered ones. Values may be `{{ }}` expressions (`data: "{{ url }}"`).
+Generator lengths follow the effect-parameter convention, not the `style` one: a bare number is
+**points**, `pt` and `mm` suffixes are accepted, and `px` or `%` is rejected.
+
+| Generator | Parameter | Type / units | Default | Range |
+|---|---|---|---|---|
+| `starburst` | `points` | integer (spikes) | `12` | `3`–`120` |
+| `starburst` | `inner_ratio` | number (inner radius as a fraction of the outer) | `0.5` | above `0`, below `1` |
+| `speech_bubble` | `corner` | length (pt) | `16` | `0` or more |
+| `speech_bubble` | `side` | `bottom`, `top`, `left`, `right` | `bottom` | — |
+| `speech_bubble` | `position` | number (fraction along the side) | `0.5` | `0`–`1` |
+| `speech_bubble` | `tail_width` | length (pt) | `24` | above `0` |
+| `speech_bubble` | `tail_height` | length (pt) | `20` | above `0` |
+| `qr_code` | `data` | string | required | at least one character |
+| `qr_code` | `quiet_zone` | integer (modules of border) | `2` | `0`–`8` |
+
+`starburst` inscribes the star in the largest circle that fits the bounds. `speech_bubble` insets
+the rounded body by `tail_height` on the tail's side so the tail stays inside the bounds. `qr_code`
+draws one square per dark module in the largest centred square that fits, at error-correction level
+M; the same `data` always yields the same modules, so renders are byte-identical.
 
 ### Structural constructs — `repeat` and `if`
 
@@ -260,14 +331,17 @@ A text node may set `fit: {policy, overflow, min_size, max_lines}`:
   help; widen the box, lower `min_size`, or raise `max_lines`.
 - Non-convergent shrink and sub-line-height truncation emit `ARC-LAY-051` warnings with the measured
   numbers. `paragraph: {align, direction}` sets alignment (`start`/`end` follow the base direction)
-  and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).
+  and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character) — see
+  [`paragraph`](#paragraph).
 
 Text metrics are paragraph-level and `line_height` is not yet honored — see
 [known-limitations.md](known-limitations.md).
 
 ## Units and colors
 
-Bare numbers are pixels; `px`, `pt`, `mm`, and `%` are also accepted (`1080` == `1080px`). Colors
+Bare numbers are pixels; `px`, `pt`, `mm`, and `%` are also accepted (`1080` == `1080px`). The
+exception is component parameters — [effect](#effects) and
+[shape-generator](#shape-generator-parameters) lengths — where a bare number is points. Colors
 are `#RGB`/`#RRGGBB`/`#RRGGBBAA`, `rgb()`/`rgba()` (channels must be in range), or a named CSS basic
 color. An unparseable color is `ARC-IR-030`.
 
@@ -379,8 +453,9 @@ When text sits over a textured effect panel (halftone, grain, noise), give it a 
 high-contrast fill plus a dark drop-shadow — the dot/speckle mesh eats a same-toned label.
 `examples/graphic-style-lab`'s title bar is a flat plate over the halftone for exactly this reason.
 
-Shape nodes may use a `generator:` (`starburst`, `speech_bubble`, `qr_code`). See
-`examples/graphic-style-lab` for a Warhol grid using effects, loops, and style packs together.
+Shape nodes may use a `generator:` (`starburst`, `speech_bubble`, `qr_code`; parameters in
+[Shape generator parameters](#shape-generator-parameters)). See `examples/graphic-style-lab` for a
+Warhol grid using effects, loops, and style packs together.
 
 ## Exit codes
 
