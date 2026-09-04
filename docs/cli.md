@@ -115,7 +115,9 @@ arcavex preview [TEMPLATE] [OPTIONS]
 
 Adds `--watch` (re-render on every dependent-file save) and `--debug` to the render/validate flag
 set. Writes to a stable preview path under `$ARCAVEX_HOME/cache/preview` so an external viewer can
-watch one file.
+watch one file. The path is keyed on the template plus every input that changes the pixels
+(`--data`, `--locale`, `--dpi`, `--style`): the same command always lands on the same file, and two
+variants previewed side by side get two files rather than taking turns overwriting one.
 
 ## doctor
 

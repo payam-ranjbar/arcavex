@@ -114,6 +114,28 @@ _FiniteMatrix = tuple[
 ]
 
 
+def _preview_variant(
+    data: Path | None, locale: str | None, dpi: int | None, style: str | None
+) -> str:
+    """Spell out the preview inputs beyond template + format that change the rendered pixels.
+
+    Empty when none is given, which is what keeps the plain preview path historical. Each part is
+    tagged with its name so a locale that happens to spell like a style reference, or a style file
+    that happens to equal a data path, cannot fold to the same key. The data path is resolved so
+    ``./data.yaml`` and its absolute spelling share one preview.
+    """
+    parts: list[str] = []
+    if data is not None:
+        parts.append(f"data={Path(data).resolve()}")
+    if locale is not None:
+        parts.append(f"locale={locale}")
+    if dpi is not None:
+        parts.append(f"dpi={dpi}")
+    if style is not None:
+        parts.append(f"style={style}")
+    return "\n".join(parts)
+
+
 def _output_name(stem: str, fmt: str, locale: str | None) -> str:
     """Build the default output filename ``<stem>.<format>[.<locale>].png`` (§6.3 / DX-3)."""
     locale_seg = f".{locale}" if locale else ""
@@ -2937,22 +2959,45 @@ class Facade:
             )
 
     # -------------------------------------------------------------------- preview
-    def preview_path(self, template: Path, format_name: str) -> Path:
-        """Return the stable preview output path for a template + format.
+    def preview_path(
+        self,
+        template: Path,
+        format_name: str,
+        *,
+        data: Path | None = None,
+        locale: str | None = None,
+        dpi: int | None = None,
+        style: str | None = None,
+    ) -> Path:
+        """Return the stable preview output path for a template + format and its variant inputs.
 
         The path is derived from the resolved ``template.yaml`` so the same template always
         previews to the same file regardless of whether the caller passed the directory or the
         file (§4.1.1 path equivalence, CR-4), under ``$ARCAVEX_HOME/cache/preview`` or an OS
         temp directory.
+
+        Every other input that changes the pixels — the data file, the locale, the DPI, the style
+        pack — takes part in the name when it is given, so two variants of one template previewed
+        side by side land in two files instead of taking turns overwriting one. The same inputs
+        always give the same path (``--watch`` and the desktop re-read one file across renders),
+        and with none of them given the historical template + format path is unchanged, so
+        existing callers keep the file they are already watching.
         """
         try:
             _root_dir, template_yaml = self._compiler.resolve_paths(template)
             base = template_yaml
         except Exception:  # noqa: BLE001 - fall back to the raw path when resolution fails
             base = Path(template)
-        key = hashlib.sha256(str(base.resolve()).encode("utf-8")).hexdigest()[:16]
+        key_source = str(base.resolve())
+        variant = _preview_variant(data, locale, dpi, style)
+        if variant:
+            key_source += "\n" + variant
+        key = hashlib.sha256(key_source.encode("utf-8")).hexdigest()[:16]
+        # The locale is short and already file-safe (project previews name it the same way), so
+        # it is spelled out too: a person looking at the cache can tell the ``fa`` preview apart.
+        segment = f".{locale}" if locale else ""
         root = self._resolve_preview_root()
-        return root / f"{key}.{format_name}.png"
+        return root / f"{key}.{format_name}{segment}.png"
 
     def render_preview(
         self,
@@ -3013,7 +3058,9 @@ class Facade:
             )
 
         resolved_format = compiled.format_name or "out"
-        out_path = self.preview_path(template, resolved_format)
+        out_path = self.preview_path(
+            template, resolved_format, data=data, locale=locale, dpi=dpi, style=style
+        )
 
         render_start = time.perf_counter()
         surface, _, warnings = self._layout_and_render(compiled.document, dpi, debug=debug)
