@@ -51,6 +51,9 @@ arcavex 0.1.0
 | [`asset …`](#asset) | Asset ingest/annotation. |
 | [`mcp …`](#mcp) | MCP authoring server: serve/tools. |
 | [`ext …`](#ext) | Trusted local extension lifecycle. |
+| [`editor …`](#editor) | Semantic project editing: apply a transaction, undo, redo, history. |
+| [`skill install`](#skill) | Install the bundled design skill into an AI assistant. |
+| [`desktop handshake`](#desktop) | What Arcavex Desktop checks before it trusts an engine. |
 
 ---
 
@@ -443,11 +446,55 @@ MCP authoring server (spec §6.2).
 | Subcommand | Purpose |
 |---|---|
 | `serve` | Start the stdio MCP authoring server (blocks until the client disconnects). |
-| `tools [--json]` | Print the 25-tool catalog (names, descriptions, input/output schemas). |
+| `tools [--json]` | Print the tool catalog (names, descriptions, input/output schemas). |
 
 Every MCP tool is a thin wrapper over one facade method and returns the same versioned pydantic
 result as the CLI's `--json`. See [architecture.md](architecture.md#mcp-parity) and the
 [MCP section of the README](../README.md#mcp-authoring-surface-62).
+
+## editor
+
+Semantic project editing: the same transactions Arcavex Desktop submits, from the command line.
+A transaction names the project revision it was composed against and is applied atomically; a
+conflict or a refused command writes nothing and reports why. The model, the command kinds, and
+every refusal are in [desktop/editor.md](desktop/editor.md).
+
+| Subcommand | Purpose |
+|---|---|
+| `apply FILE [--project P]` | Execute one semantic transaction (JSON); a refusal reports conflicts or diagnostics. |
+| `undo [--project P]` | Restore the project state before its newest applied history entry. |
+| `redo [--project P]` | Re-apply the oldest undone history entry. |
+| `history [--project P]` | Show the undo/redo timeline and whether an external edit branched it. |
+
+## skill
+
+Install the bundled design skill — the document that teaches an AI assistant this engine's
+authoring loop, art direction, multi-format and locale work, and verification — into the
+assistant's own skill directory.
+
+| Subcommand | Purpose |
+|---|---|
+| `install [--target T …] [--path DIR] [--project] [--force] [--list]` | Copy the skill to every known harness, or the named ones (`claude-code`, `agents`; `codex` and `chatgpt` alias `agents`), or an explicit `--path`. `--project` installs into the current directory so the skill travels with a repository. `--list` shows every destination without writing. |
+
+```console
+$ arcavex skill install --list
+target                           path                                              state
+Claude Code                      C:\Users\you\.claude\skills\arcavex-design-studio  not installed
+Codex / ChatGPT (Agent Skills    C:\Users\you\.agents\skills\arcavex-design-studio  not installed
+standard)
+```
+
+A host reads its skills when it starts, so restart the assistant (or open a new session) after
+installing. The same document is also served by the MCP server as the resource
+`skill://arcavex-design-studio/SKILL.md`, for clients that connect over MCP rather than a shell.
+
+## desktop
+
+Commands Arcavex Desktop uses to check the engine it launches; not part of the authoring loop.
+
+| Subcommand | Purpose |
+|---|---|
+| `handshake [--json]` | Report engine identity, compatibility versions, paths, capabilities, and health. |
 
 ## ext
 
