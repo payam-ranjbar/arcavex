@@ -2203,17 +2203,16 @@ def skill_install(
 def _print_skill_report(console: Console, report: object, *, list_only: bool) -> None:
     """Print install destinations and what was written."""
     targets = report.targets  # type: ignore[attr-defined]
-    if targets:
-        table = Table(box=None, pad_edge=False)
-        table.add_column("target", style="bold")
-        table.add_column("path")
-        table.add_column("state")
-        for entry in targets:
-            state = "installed" if entry.installed else "not installed"
-            if not entry.verified:
-                state += " (path unverified)"
-            table.add_row(entry.label, entry.path, state)
-        console.print(table)
+    for entry in targets:
+        state = "installed" if entry.installed else "not installed"
+        if not entry.verified:
+            state += " (path unverified)"
+        # One block per target and no table: a fixed-width table elided the destination to '…'
+        # in a terminal under about 108 columns, and the destination is what --list is for. The
+        # path sits alone on its line with folding left to the terminal, so it copies whole.
+        console.print(f"[bold]{_esc(entry.label)}[/bold]")
+        console.print(f"  {_esc(entry.path)}", soft_wrap=True)
+        console.print(f"  [dim]{state}[/dim]")
     installed = report.installed  # type: ignore[attr-defined]
     if installed:
         console.print(f"Installed {report.skill} to {len(installed)} location(s):")  # type: ignore[attr-defined]

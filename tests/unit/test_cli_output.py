@@ -11,8 +11,8 @@ import io
 
 from rich.console import Console
 
-from arcavex.clients.cli import _print_preview_line
-from arcavex.kernel.api import PreviewResult
+from arcavex.clients.cli import _print_preview_line, _print_skill_report
+from arcavex.kernel.api import PreviewResult, SkillInstallReport, SkillTargetInfo
 
 _LONG_PREVIEW_PATH = (
     "C:\\Users\\somebody\\AppData\\Local\\Arcavex\\cache\\preview\\"
@@ -53,3 +53,45 @@ def test_preview_watch_line_keeps_the_path_whole_and_names_the_change() -> None:
     lines = buffer.getvalue().splitlines()
     assert lines[0] == _LONG_PREVIEW_PATH
     assert lines[1].startswith("changed=C:\\Users\\somebody\\poster\\data.yaml")
+
+
+def test_skill_list_prints_every_path_whole_in_a_narrow_terminal() -> None:
+    """The Rich table elided the destination column to '…' in a terminal under about 108
+    columns, and the destination is exactly what a person runs --list to read."""
+    console, buffer = _narrow_console(60)
+    long_path = "C:\\Users\\somebody with a long name\\.codex\\skills\\arcavex-poster-studio"
+    assert len(long_path) > 60
+    report = SkillInstallReport(
+        ok=True,
+        skill="arcavex-poster-studio",
+        source="C:\\src\\arcavex\\skills\\arcavex-poster-studio",
+        targets=[
+            SkillTargetInfo(
+                key="claude-code",
+                label="Claude Code (user)",
+                path=long_path,
+                installed=False,
+                verified=True,
+            ),
+            SkillTargetInfo(
+                key="agents",
+                label="Codex / ChatGPT (Agent Skills)",
+                path=long_path + "-agents",
+                installed=True,
+                verified=False,
+            ),
+        ],
+    )
+    _print_skill_report(console, report, list_only=True)
+    text = buffer.getvalue()
+    assert "…" not in text
+    stripped = [line.strip() for line in text.splitlines()]
+    assert long_path in stripped
+    assert long_path + "-agents" in stripped
+    # Each target reads top to bottom: label, then the path, then the state.
+    first = stripped.index("Claude Code (user)")
+    assert stripped[first + 1] == long_path
+    assert stripped[first + 2] == "not installed"
+    second = stripped.index("Codex / ChatGPT (Agent Skills)")
+    assert stripped[second + 1] == long_path + "-agents"
+    assert stripped[second + 2] == "installed (path unverified)"
