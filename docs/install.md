@@ -4,7 +4,36 @@ Arcavex is a Python package with one heavyweight dependency, `skia-python` (whic
 ICU data Arcavex needs). It runs headless — no display, no browser, no network on the render path.
 Python 3.11+ is required; the reference platform is CPython 3.12 with skia-python 144.
 
-Once installed, verify the environment with [`arcavex doctor`](#doctor) before rendering.
+Once installed, verify the environment with [`arcavex doctor`](#doctor) before rendering, then
+[teach your assistant](#teach-your-assistant) to use it.
+
+## Global command (the install for using Arcavex)
+
+[uv](https://docs.astral.sh/uv/) installs Arcavex into an environment of its own and puts one
+`arcavex` command on your PATH. There is no virtual environment to activate; `--python 3.12` asks for
+the reference interpreter, and uv downloads a managed copy by itself if the machine has none:
+
+```bash
+uv tool install --python 3.12 git+https://github.com/payam-ranjbar/arcavex
+arcavex doctor
+```
+
+**No Python or uv on the machine yet?** Install uv first, then open a new terminal so it is on PATH:
+
+- Windows: `winget install --id=astral-sh.uv -e`
+- macOS or Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+If the install ends with a warning that uv's tool directory `is not on your PATH`, run
+`uv tool update-shell` and open a new terminal; `arcavex` is then found. To update later, run the
+same `uv tool install` command again with `--reinstall`. To remove it, `uv tool uninstall arcavex`.
+
+From a clone of the repository, `uv tool install <path-to-clone>` installs that checkout the same
+way (it does not track later edits to the clone — use the [development install](#from-source-development)
+for that).
+
+The package is not on PyPI yet and there are no GitHub releases yet. Once it is published,
+`uv tool install arcavex` (or `pipx install arcavex`) becomes the whole install, and releases will
+attach the wheel; until then the repository URL above is the install.
 
 ## From source (development)
 
@@ -27,17 +56,22 @@ pip install -e ".[dev]"
 ```
 
 The `[dev]` extra adds the test and lint toolchain (`pytest`, `hypothesis`, `ruff`, `mypy`,
-`import-linter`, `pillow`, `mcp`). For a runtime-only install, drop it: `pip install -e .`.
+`import-linter`, `pillow`). The MCP server needs no extra: `mcp` is a runtime dependency, so
+`arcavex mcp serve` works from every install. For a runtime-only install, drop the extra:
+`pip install -e .`.
 
 The console entry point is `arcavex` (defined as `arcavex.clients.cli:main`); `python -m arcavex`
-is the same program for an interpreter whose scripts directory is not on PATH. From a source
-checkout it lives at `.venv/Scripts/arcavex.exe` (Windows) or `.venv/bin/arcavex` (POSIX).
+is the same program for an interpreter whose scripts directory is not on PATH. A venv install does
+**not** put `arcavex` on your PATH by itself: from a source checkout it lives at
+`.venv/Scripts/arcavex.exe` (Windows) or `.venv/bin/arcavex` (POSIX), or run it as
+`uv run arcavex …` from the checkout, or activate the venv first. The [global command](#global-command-the-install-for-using-arcavex)
+route avoids this.
 
 ## Packaged wheel (no dev tree)
 
 Arcavex renders from a plain wheel install with no source tree present — the wheel bundles the four
-fonts (`arcavex/_bundled/fonts/`, via `force-include` in `pyproject.toml`) and ICU ships with
-`skia-python`. Build and install:
+fonts (`arcavex/_bundled/fonts/`, via `force-include` in `pyproject.toml`), the seeded style packs,
+and the design skill, and ICU ships with `skia-python`. Build and install:
 
 ```bash
 uv build --wheel
@@ -48,6 +82,25 @@ The end-to-end proof — building the wheel, installing into a clean throwaway v
 quick-start from outside the checkout with byte-identical output to the dev tree — is captured
 verbatim in [packaged-install.md](packaged-install.md), and enforced by the `packaged-install` CI
 job. Read that page for the full transcript; it is not duplicated here.
+
+## Teach your assistant
+
+Two commands connect an AI assistant to the engine; both are optional for a person using the CLI
+alone.
+
+```bash
+arcavex skill install    # the design skill, into each assistant's own skill directory
+arcavex mcp install      # the MCP server, registered with Claude Code / Claude Desktop / Codex
+```
+
+A host reads its skills when it starts, so **restart the assistant, or open a new session, after
+`skill install`**; the same applies after `mcp install`, which the host reads at connection time.
+`skill install --list` shows every destination without writing; `--target`, `--path DIR`, and
+`--project` choose where it goes ([cli.md#skill](cli.md#skill)). `mcp install --print` shows the
+configuration snippet for a host it does not know, and [cli.md#mcp](cli.md#mcp) covers serving,
+registering, and the tool catalog. An assistant with a shell needs only the skill; one that speaks
+MCP but has no shell (Claude Desktop) needs the server, which also serves the skill to it as a
+resource.
 
 ## ICU (`icudtl.dat`)
 
