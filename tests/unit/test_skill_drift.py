@@ -26,9 +26,7 @@ from arcavex.services.skills import SKILL_NAME, bundled_skill_dir
 # Commands the skill documents ahead of the engine. An entry is consulted only when the command is
 # missing, so the skill can describe a command a sibling branch is adding without this test failing
 # until the two meet; once the command lands the entry is dead and can be deleted.
-_DOCUMENTED_AHEAD_OF_THE_ENGINE: dict[tuple[str, ...], str] = {
-    ("mcp", "install"): "codex/fix-mcp-install registers the server with Claude Code/Desktop/Codex",
-}
+_DOCUMENTED_AHEAD_OF_THE_ENGINE: dict[tuple[str, ...], str] = {}
 
 # Registered tools the skill need not mention. The unprefixed tools (project_snapshot, layer_tree,
 # hit_test, the policy and proposal tools) serve Arcavex Desktop's live view, and this one prefixed
