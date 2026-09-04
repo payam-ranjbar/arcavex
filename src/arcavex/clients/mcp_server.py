@@ -25,13 +25,17 @@ import warnings
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic_settings import IncompleteFieldDefinitionWarning
-
 # Importing FastMCP under pydantic-settings >= 2.15 prints a warning about one of the SDK's own
 # settings fields. It is the SDK's to fix; to a person who has just typed `arcavex mcp serve` for
 # the first time, a warning on stderr from every spawn reads as "it is broken", so keep it quiet.
+# Older pydantic-settings has neither the warning nor the class that names it.
+try:
+    from pydantic_settings import IncompleteFieldDefinitionWarning as _SettingsWarning
+except ImportError:  # pragma: no cover - depends on the resolved pydantic-settings
+    _SettingsWarning = None  # type: ignore[assignment,misc]
 with warnings.catch_warnings():
-    warnings.simplefilter("ignore", IncompleteFieldDefinitionWarning)
+    if _SettingsWarning is not None:
+        warnings.simplefilter("ignore", _SettingsWarning)
     from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import TextContent
 
@@ -81,26 +85,26 @@ from arcavex.kernel.diagnostics import diagnostic, has_errors
 from arcavex.kernel.editor import HistoryReport, TransactionReport
 
 _INSTRUCTIONS = (
-    "Arcavex rendering engine, MCP authoring surface. Every tool mirrors a service API method "
-    "and returns a structured, versioned result (with a 'diagnostics' list of coded, located "
-    "diagnostics — never free text). Typical loop: arcavex_template_inspect to read the "
-    "contract and its node ids, arcavex_template_patch to edit an addressed node, "
-    "arcavex_template_validate to check, arcavex_render_preview to see the image, "
-    "arcavex_layout_inspect to read resolved geometry, arcavex_render to write the final PNG. "
-    "To author real content, scaffold with arcavex_project_create, write data with "
-    "arcavex_data_set / arcavex_data_import, then arcavex_project_render for a recorded run "
-    "(discoverable via arcavex_run_list). Discover vocabulary with arcavex_style_list / "
-    "arcavex_effects_list / arcavex_font_list (the only font families a template may name). "
-    "Use arcavex_diagnostic_explain <code> for any code you do not know. "
-    "Starting from nothing: arcavex_template_new scaffolds a minimal renderable template "
-    "(arcavex_template_publish puts one in the library so arcavex_project_create can pin it by "
-    "name). To change an existing design semantically rather than by patching source, use the "
-    "editor tools — arcavex_editor_apply (with arcavex_editor_undo / _redo / _history) — which "
-    "take a whole transaction, check the project revision, and write atomically; submit an empty "
-    "transaction to have the engine state the exact shape it wants. "
-    "READ THE GUIDE FIRST: the resource skill://arcavex-design-studio/SKILL.md is the design "
-    "skill shipped with this engine, and its references/ documents cover the authoring loop, "
-    "art direction, multi-format and locale work, and verification."
+    "Arcavex: a deterministic poster/graphic rendering engine. You are talking to it over MCP. "
+    "FIRST, read the resource skill://arcavex-design-studio/SKILL.md — the design skill shipped "
+    "with this engine; its references/ cover the authoring loop, art direction, multi-format and "
+    "locale work, and verification. Then: "
+    "STARTING FROM NOTHING — arcavex_template_new scaffolds a minimal renderable template; "
+    "arcavex_project_create makes a project around a template (a path, or a library name after "
+    "arcavex_template_publish); arcavex_data_set / arcavex_data_import write its content; "
+    "arcavex_project_render writes a recorded run (see arcavex_run_list). "
+    "THE LOOP ON AN EXISTING DESIGN — arcavex_template_inspect reads the contract and node ids; "
+    "arcavex_template_patch edits an addressed node; arcavex_template_validate checks; "
+    "arcavex_render_preview returns the picture as image content (pass dpi=96 while iterating); "
+    "arcavex_layout_inspect reads resolved geometry and overlaps; arcavex_render writes the final "
+    "file. For semantic edits with undo, use arcavex_editor_apply (and _undo / _redo / _history): "
+    "it takes a whole transaction, checks the project revision, and writes atomically; submit an "
+    "empty transaction to have the engine state the exact shape it wants. "
+    "VOCABULARY — arcavex_style_list, arcavex_effects_list, arcavex_font_list (the only font "
+    "families a template may name). Every tool returns a structured, versioned result with a "
+    "'diagnostics' list of coded, located diagnostics; arcavex_diagnostic_explain <code> explains "
+    "any code. Tools without the arcavex_ prefix (project_snapshot, layer_tree, hit_test, "
+    "project_policy…) serve Arcavex Desktop's live view and are not needed for authoring."
 )
 
 
