@@ -1,5 +1,5 @@
 # ARC-EXT-040 — Unknown extension
 
-An enable/disable command named an extension that has not been added.
+An enable, disable, or remove command named an extension that has not been added.
 
-**Typical fix:** Add it first with 'arcavex ext add <path>'; 'arcavex ext list' shows what is added.
+**Typical fix:** 'arcavex ext list' shows what is added; add one first with 'arcavex ext add <dir>'.

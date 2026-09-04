@@ -99,6 +99,73 @@ def test_enable_unknown_extension_is_diagnosed(arcavex_home: Path) -> None:
     assert "ARC-EXT-040" in codes
 
 
+def test_remove_deletes_the_copy_and_the_record(arcavex_home: Path, tmp_path: Path) -> None:
+    """add -> remove -> list. The only way out used to be deleting the sources directory by hand
+    and editing state.toml."""
+    ext_dir = tmp_path / "gone-fx"
+    assert runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ext", "add", str(ext_dir)]).exit_code == 0
+    stored = arcavex_home / "extensions" / "sources" / "gone-fx"
+    assert stored.is_dir()
+
+    removed = runner.invoke(app, ["ext", "remove", "gone-fx", "--json"])
+    assert removed.exit_code == 0, removed.output
+    payload = json.loads(removed.stdout)
+    assert payload["ok"] is True and payload["name"] == "gone-fx"
+    assert Path(payload["removed_path"]) == stored
+    assert not stored.exists()
+
+    listing = runner.invoke(app, ["ext", "list", "--json"])
+    assert json.loads(listing.stdout)["extensions"] == []
+    state = (arcavex_home / "extensions" / "state.toml").read_text(encoding="utf-8")
+    assert "gone-fx" not in state
+
+
+def test_remove_reports_the_removal_for_a_person(arcavex_home: Path, tmp_path: Path) -> None:
+    ext_dir = tmp_path / "shown-fx"
+    assert runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ext", "add", str(ext_dir)]).exit_code == 0
+    removed = runner.invoke(app, ["ext", "remove", "shown-fx", "--no-color"])
+    assert removed.exit_code == 0, removed.output
+    assert "Removed shown-fx" in removed.output
+    assert str(arcavex_home / "extensions" / "sources" / "shown-fx") in removed.output
+
+
+def test_remove_unknown_extension_is_diagnosed(arcavex_home: Path) -> None:
+    result = runner.invoke(app, ["ext", "remove", "nonexistent", "--json"])
+    assert result.exit_code != 0
+    diags = json.loads(result.stdout)["diagnostics"]
+    assert [d["code"] for d in diags] == ["ARC-EXT-040"]
+    assert "arcavex ext list" in diags[0]["hint"]
+
+
+def test_remove_enabled_extension_needs_force(arcavex_home: Path, tmp_path: Path) -> None:
+    """An enabled extension is live for every run; removing it silently would turn each template
+    that uses its components into an unknown-effect failure on the next start."""
+    ext_dir = tmp_path / "live-fx"
+    assert runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ext", "add", str(ext_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ext", "enable", "live-fx"]).exit_code == 0
+    stored = arcavex_home / "extensions" / "sources" / "live-fx"
+
+    refused = runner.invoke(app, ["ext", "remove", "live-fx", "--json"])
+    assert refused.exit_code != 0
+    diags = json.loads(refused.stdout)["diagnostics"]
+    assert [d["code"] for d in diags] == ["ARC-EXT-041"]
+    assert "arcavex ext disable live-fx" in diags[0]["hint"]
+    assert "--force" in diags[0]["hint"]
+    listing = json.loads(runner.invoke(app, ["ext", "list", "--json"]).stdout)
+    assert listing["extensions"][0]["name"] == "live-fx"
+    assert listing["extensions"][0]["enabled"] is True
+    assert stored.is_dir()
+
+    forced = runner.invoke(app, ["ext", "remove", "live-fx", "--force", "--json"])
+    assert forced.exit_code == 0, forced.output
+    assert json.loads(forced.stdout)["ok"] is True
+    assert json.loads(runner.invoke(app, ["ext", "list", "--json"]).stdout)["extensions"] == []
+    assert not stored.exists()
+
+
 def test_validate_flags_disallowed_import(arcavex_home: Path, tmp_path: Path) -> None:
     ext_dir = tmp_path / "reachy"
     runner.invoke(app, ["ext", "scaffold", "effect", str(ext_dir)])

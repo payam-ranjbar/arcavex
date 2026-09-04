@@ -1465,8 +1465,18 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-EXT-040",
             "Unknown extension",
-            "An enable/disable command named an extension that has not been added.",
-            "Add it first with 'arcavex ext add <path>'; 'arcavex ext list' shows what is added.",
+            "An enable, disable, or remove command named an extension that has not been added.",
+            "'arcavex ext list' shows what is added; add one first with 'arcavex ext add <dir>'.",
+        ),
+        _e(
+            "ARC-EXT-041",
+            "Enabled extension not removed",
+            "'ext remove' named an extension that is enabled, and --force was not given. Its "
+            "components are live for every run, so removing it silently would make each template "
+            "that uses them fail on the next start with an unknown-effect error that says nothing "
+            "about the removal.",
+            "Disable it first with 'arcavex ext disable <name>' and remove it again, or pass "
+            "--force to remove it while enabled.",
         ),
         _e(
             "ARC-EXT-050",
@@ -1503,10 +1513,12 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-EXT-060",
-            "Extension scaffold or add target problem",
-            "'ext scaffold' will not write into a non-empty directory, or 'ext add' could not "
-            "copy the extension into the Arcavex home.",
-            "Choose a new or empty scaffold directory, and ensure the Arcavex home is writable.",
+            "Extension scaffold, add, or remove target problem",
+            "'ext scaffold' will not write into a non-empty directory; 'ext add' could not copy "
+            "the extension into the Arcavex home; or 'ext remove' dropped the extension's record "
+            "but could not delete its stored copy (nothing loads from that directory any more).",
+            "Choose a new or empty scaffold directory, ensure the Arcavex home is writable, or "
+            "delete the leftover directory the message names by hand.",
         ),
         _e(
             "ARC-INT-010",

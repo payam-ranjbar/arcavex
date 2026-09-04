@@ -1144,7 +1144,11 @@ class ExtensionTestReport(BaseModel):
 
 
 class ExtensionActionReport(BaseModel):
-    """The result of ``arcavex ext add/enable/disable`` — the extension's new state."""
+    """The result of ``arcavex ext add/enable/disable/remove`` — the extension's new state.
+
+    ``removed_path`` is set by ``remove`` to the stored copy it deleted, so the report says what
+    left the disk; it stays ``None`` when there was no copy to delete.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -1152,6 +1156,7 @@ class ExtensionActionReport(BaseModel):
     ok: bool
     name: str | None = None
     enabled: bool = False
+    removed_path: str | None = None
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -1178,6 +1183,8 @@ class ExtensionServiceProtocol(Protocol):
     def enable_extension(self, name: str) -> ExtensionActionReport: ...
 
     def disable_extension(self, name: str) -> ExtensionActionReport: ...
+
+    def remove_extension(self, name: str, *, force: bool) -> ExtensionActionReport: ...
 
 
 class SplitResult(BaseModel):
@@ -2738,6 +2745,17 @@ class Facade:
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return ExtensionActionReport(
                 ok=False, diagnostics=[internal_error("ext disable failed", detail=repr(exc))]
+            )
+
+    def remove_extension(self, name: str, *, force: bool = False) -> ExtensionActionReport:
+        """Remove an added extension's stored copy and record; enabled needs ``force``. No raise."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionActionReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.remove_extension(name, force=force)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionActionReport(
+                ok=False, diagnostics=[internal_error("ext remove failed", detail=repr(exc))]
             )
 
     # ----------------------------------------------------------------------- fonts (§4.3)

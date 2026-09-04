@@ -25,7 +25,7 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**191** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**192** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
 
 ## Unknown fields are always rejected
@@ -85,7 +85,7 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 | `ARC-IR` | 10 | Dimensions, sizes, colors, transforms, duplicate ids, masks, finite coordinates | `ARC-IR-011` invalid dimension, `ARC-IR-015` invalid hit-test coordinate, `ARC-IR-020` duplicate id, `ARC-IR-030` invalid color |
 | `ARC-RND` | 12 | Fonts/glyphs, font installation, resource budgets | `ARC-RND-010` family not found, `ARC-RND-011` missing glyph, `ARC-RND-020..023` budget (exit 4), `ARC-RND-031` unsupported font file |
 | `ARC-FX` | 8 | Effects, masks, shape generators | `ARC-FX-902` invalid params, `ARC-FX-910` unknown effect, `ARC-FX-913` unknown generator |
-| `ARC-EXT` | 20 | Extension manifest, compat, imports, determinism, golden test | `ARC-EXT-001` duplicate component, `ARC-EXT-030` import surface, `ARC-EXT-050` dishonest bounds, `ARC-EXT-053` test harness I/O |
+| `ARC-EXT` | 21 | Extension manifest, compat, imports, determinism, golden test | `ARC-EXT-001` duplicate component, `ARC-EXT-030` import surface, `ARC-EXT-050` dishonest bounds, `ARC-EXT-053` test harness I/O |
 | `ARC-PRJ` | 14 | Project manifest, discovery, status, snapshots, metadata, policy, proposals, detach | `ARC-PRJ-001` no project, `ARC-PRJ-008` invalid UI metadata, `ARC-PRJ-014` unsafe working path |
 | `ARC-STY` | 4 | Style packs, presets, roles | `ARC-STY-001` unknown pack, `ARC-STY-010` unknown preset |
 | `ARC-AST` | 5 | Asset resolution, decode, guards, traversal, shape advice | `ARC-AST-003` decode guard, `ARC-AST-004` path escape, `ARC-AST-020` mostly-transparent asset under contain/cover |

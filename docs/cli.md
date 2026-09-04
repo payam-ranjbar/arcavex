@@ -578,4 +578,5 @@ Trusted local extension commands (spec §7). Full walkthrough in
 | `add DIR` | Validate and add a local extension to the Arcavex home, recorded disabled. |
 | `enable NAME` | Enable an added extension (its components register on the next run). |
 | `disable NAME` | Disable an added extension (deregistered on the next run). |
+| `remove NAME [--force]` | Remove an added extension: its stored copy and its state entry. An enabled one is refused (`ARC-EXT-041`) unless `--force`; disable it first. |
 | `list` | List every added extension, its enabled state, and its components. |

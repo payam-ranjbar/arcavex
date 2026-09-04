@@ -2009,6 +2009,38 @@ def ext_disable(
     raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
 
 
+@ext_app.command("remove")
+def ext_remove(
+    name: str = typer.Argument(..., help="Added extension name."),
+    force: bool = typer.Option(
+        False, "--force", help="Remove the extension even though it is enabled."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Remove an added extension (its stored copy and state entry); enabled ones need --force."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.remove_extension(name, force=force)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            where = (
+                f"deleted {_esc(result.removed_path)}"
+                if result.removed_path
+                else "no stored copy was left to delete"
+            )
+            console.print(
+                f"[green]Removed[/green] {_esc(result.name)} ({where})", soft_wrap=True
+            )
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
 @ext_app.command("list")
 def ext_list(
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
