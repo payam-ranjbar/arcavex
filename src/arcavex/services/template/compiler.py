@@ -10,6 +10,8 @@ are rejected with located "not supported" diagnostics rather than silently ignor
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -478,23 +480,27 @@ class Compiler:
                 # Applying a locale's direction to text written in another one is the quietest
                 # way to ship a wrong artifact: the picture looks normal and an English time
                 # range comes out reversed. Say it, rather than let it look deliberate.
+                requested_direction = str(loc_settings.get("direction") or "ltr").lower()
                 if (
                     locale is not None
                     and not pre_overlays
                     and not post_overlays
                     and _direction_differs(source, loc_settings, locale)
+                    and not _copy_reads_in(requested_direction, source, data)
                 ):
                     diags.append(
                         diagnostic(
                             "ARC-TPL-102",
-                            f"Locale {locale!r} was applied but supplies no text of its own, so "
-                            "the existing copy is rendered under its direction and digit rules.",
+                            f"Locale {locale!r} was applied but none of the copy is in its "
+                            "script, so text written for the other direction is being set under "
+                            "its direction and digit rules.",
                             severity="warning",
                             file=str(source.template_path),
                             keypath=f"locales.{locale}",
                             hint=(
-                                f"Add 'locales.{locale}.data', or a sibling "
-                                f"'<data>.{locale}.yaml', or render without --locale."
+                                f"Pass data written in {locale!r} (a sibling "
+                                f"'<data>.{locale}.yaml', or 'locales.{locale}.data'), or render "
+                                "without --locale."
                             ),
                         )
                     )
@@ -3828,6 +3834,60 @@ def _direction_differs(source: Any, loc_settings: dict[str, Any], locale: str) -
     if isinstance(settings, dict) and settings.get("direction"):
         authored_direction = str(settings["direction"]).lower()
     return requested != authored_direction
+
+_EXPRESSION = re.compile(r"\{\{.*?\}\}", re.DOTALL)
+
+
+def _copy_reads_in(direction: str, source: Any, data: Path | None) -> bool:
+    """True when some of the copy the render was given already reads in ``direction``.
+
+    A locale is rules, not translation, and the engine cannot know what language a string is in.
+    It can see what script it is written in: a strong right-to-left character (Arabic-script or
+    Hebrew letters) in the data means the copy was written for an RTL locale, and applying that
+    locale to it is the intended use, not the mistake ARC-TPL-102 exists to name. The flagship
+    example ships two full data files rather than a base plus an overlay, which is exactly the
+    shape the overlay-only check misread.
+
+    The strings inspected are the ones that will be rendered: the data file when one was passed,
+    the template's ``preview_data`` otherwise, plus any literal text in the node tree with its
+    ``{{ }}`` expressions removed (an expression's variable *names* are Latin whatever it binds).
+    """
+    wanted = {"R", "AL"} if direction == "rtl" else {"L"}
+    strings: list[str] = []
+    raw = source.raw if hasattr(source, "raw") and isinstance(source.raw, dict) else {}
+    if data is not None and Path(data).is_file():
+        strings.extend(_strings_in(_to_plain(load_yaml(Path(data)))))
+    else:
+        strings.extend(_strings_in(raw.get("preview_data")))
+    strings.extend(_EXPRESSION.sub("", text) for text in _text_fields(raw.get("root")))
+    return any(unicodedata.bidirectional(ch) in wanted for text in strings for ch in text)
+
+
+def _strings_in(value: Any) -> list[str]:
+    """Every string leaf in a plain data structure, in document order."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _strings_in(v)]
+    if isinstance(value, list):
+        return [s for v in value for s in _strings_in(v)]
+    return []
+
+
+def _text_fields(node: Any) -> list[str]:
+    """The literal ``text`` of every node in an authored tree."""
+    if not isinstance(node, dict):
+        return []
+    out: list[str] = []
+    text = node.get("text")
+    if isinstance(text, str):
+        out.append(text)
+    children = node.get("children")
+    if isinstance(children, list):
+        for child in children:
+            out.extend(_text_fields(child))
+    return out
+
 
 def _size_options_for(node_type: str) -> str:
     """The size values this node kind accepts, for a hint that does not contradict the next one.
