@@ -16,8 +16,8 @@ Arcavex engine 0.1.0
 ## 1. Render the hello poster
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square -o hello.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square -o hello.png
 Rendered hello.png
 ```
 
@@ -25,8 +25,8 @@ The `-o` extension chooses the exporter. With no `-o`, Arcavex writes a determin
 and reports it first (on failure too, so you always learn what would have been written):
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square
 inferred: output=hello-poster.square.png
 Rendered hello-poster.square.png
 ```
@@ -37,9 +37,9 @@ Content is separate from the template — edit data, not the node tree. Copy the
 headline, and re-render:
 
 ```console
-$ cp event.yaml mydata.yaml
+$ cp examples/hello-poster/data.yaml mydata.yaml
 # edit mydata.yaml:  title: "My Event"
-$ arcavex render poster.yaml \
+$ arcavex render examples/hello-poster/template.yaml \
     --data mydata.yaml --format square -o mine.png
 Rendered mine.png
 ```
@@ -48,7 +48,7 @@ To see the contract a template expects before you edit — its variables, format
 functions — ask it:
 
 ```console
-$ arcavex template inspect poster.yaml
+$ arcavex template inspect examples/hello-poster/template.yaml
 variables (2):
   title: string (required) Main headline
   subtitle: string (optional) Supporting line under the title
@@ -63,8 +63,8 @@ nodes:
 The hello poster declares two canvases. Switch with `--format`:
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format story -o hello-story.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format story -o hello-story.png
 Rendered hello-story.png
 ```
 
@@ -84,7 +84,7 @@ Rendered ipen-fa.png
 Requesting a locale the template does not declare is a located error, never a silent ignore:
 
 ```console
-$ arcavex render poster.yaml … --locale zz …
+$ arcavex render examples/hello-poster/template.yaml … --locale zz …
 ERROR ARC-TPL-100 Template does not declare locale 'zz'
   hint: Declare it under 'locales:', or use one of: (none).
 ```
@@ -96,11 +96,11 @@ sets lossy quality (JPEG, lossy WebP; default 90); `--lossless` selects lossless
 raster-embedded RGB at the target DPI with correct physical page size and trim/bleed boxes.
 
 ```console
-$ arcavex render poster.yaml -d event.yaml \
+$ arcavex render examples/hello-poster/template.yaml -d event.yaml \
     -f square -o out.jpg --quality 85
 Rendered out.jpg
 
-$ arcavex render poster.yaml -d event.yaml \
+$ arcavex render examples/hello-poster/template.yaml -d event.yaml \
     -f square -o out.webp --lossless
 Rendered out.webp
 

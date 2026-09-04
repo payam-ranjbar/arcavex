@@ -111,12 +111,19 @@ Everything below is reachable within two clicks from this index.
 
 ## Examples
 
-The shipped examples live under [`examples/`](examples/): `future-archive-poster` (a multi-format
+The shipped examples live under [`examples/`](examples/): `hello-poster` (the two-format,
+asset-free template the quick start renders first), `future-archive-poster` (a multi-format
 bilingual system with a custom raster extension), `graphic-style-lab` (four art directions across
 announcement, product ad, movie poster and video thumbnail), and `extensions/` (a minimal
 extension with its golden fixture).
 
+The Future Archive poster uses an effect that ships *with the example*, not with the engine, so
+add and enable that extension once before rendering it — without those two commands the render
+refuses with `ARC-FX-910 unknown effect 'archive-print'`:
+
 ```bash
+arcavex ext add examples/future-archive-poster/extensions/archive-print
+arcavex ext enable archive-print
 arcavex render examples/future-archive-poster/template.yaml --format square -o out.png
 ```
 

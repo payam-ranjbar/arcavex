@@ -77,18 +77,18 @@ arcavex render [TEMPLATE] [OPTIONS]
 | `--debug` | Overlay node bounds, ids, baselines, and the safe-area margin. |
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square -o hello.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square -o hello.png
 Rendered hello.png
 ```
 
 With no `-o`, the default name is reported before rendering (on failure too):
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square
-inferred: output=poster.square.png
-Rendered poster.square.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square
+inferred: output=hello-poster.square.png
+Rendered hello-poster.square.png
 ```
 
 ## validate
@@ -217,7 +217,7 @@ Created ./mytpl (render with --format square)
 ```
 
 ```console
-$ arcavex template inspect poster.yaml
+$ arcavex template inspect examples/hello-poster/template.yaml
 variables (2):
   title: string (required) Main headline
   subtitle: string (optional) Supporting line under the title
@@ -226,7 +226,6 @@ nodes:
   root: group
   background: shape
   accent: shape
-  logo: image
   title: text
   subtitle: text
 functions:
@@ -253,8 +252,8 @@ can allocate room for a blur or a tear. The two are equal unless the node is rot
 expanding effect.
 
 ```console
-$ arcavex layout inspect poster.yaml \
-    --data event.yaml --format square
+$ arcavex layout inspect examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square
 canvas 810x810pt (1080x1080px @ 96dpi) format=square locale=-
 root group bounds (0.0, 0.0, 810.0, 810.0)pt
   paint (0.0, 0.0, 810.0, 810.0)pt
@@ -298,7 +297,7 @@ overlaps: 1 content, 1 effect spill
 filters on it directly rather than re-deriving the distinction from geometry:
 
 ```console
-$ arcavex layout inspect poster.yaml --format portrait --json \
+$ arcavex layout inspect examples/hello-poster/template.yaml --format square --json \
   | jq '[.overlaps[] | select(.kind == "content")]'
 ```
 
