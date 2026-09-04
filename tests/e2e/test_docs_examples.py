@@ -102,8 +102,10 @@ def _quick_start_sessions() -> list[tuple[str, list[str], str]]:
 
 
 def _is_self_contained(argv: list[str]) -> bool:
-    """A command the test can run: it names shipped files, or needs none."""
+    """A command the test can run: it names shipped files, or needs none, and it returns."""
     if "…" in argv or any(token.startswith("~") for token in argv):
+        return False
+    if "--watch" in argv:  # runs until interrupted, by design
         return False
     if argv[:1] == ["cp"]:
         return True

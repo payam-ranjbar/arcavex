@@ -133,7 +133,22 @@ Rendered poster.pdf
 Every format is deterministic: identical inputs produce byte-identical files, with no embedded
 timestamps or run ids.
 
-## 6. Use a font that is not bundled
+## 6. Watch it change
+
+`preview` renders to a stable path under the Arcavex home instead of a file you name, and with
+`--watch` it keeps re-rendering there on every save of the template or its data. Open the printed
+path in a viewer that reloads when a file changes (most image viewers and browsers do), then edit:
+the picture follows about a second after each save. This is the loop to use while someone else, or
+an AI assistant, is editing the files.
+
+```console
+$ arcavex preview examples/hello-poster/template.yaml --data mydata.yaml --format square --watch
+```
+
+The command runs until you stop it (Ctrl-C). Without `--watch` it renders once and prints the same
+stable path; `--json` carries it as `output_path`.
+
+## 7. Use a font that is not bundled
 
 Four families ship with the engine, and they are the only fonts a template may name until you
 install more — system fonts are never used, because determinism requires it. `font list` shows
@@ -171,7 +186,7 @@ Lalezar, Vazirmatn. Install another with 'arcavex font add <path/to/font.ttf>'.
 
 `arcavex font remove FAMILY` removes one you installed; a bundled family is refused.
 
-## 7. Ask where a value came from, and what an error means
+## 8. Ask where a value came from, and what an error means
 
 `template inspect --resolved` reports the resolved direction/digits and each applied patch with its
 originating layer — the answer to "why is this value what it is?":
