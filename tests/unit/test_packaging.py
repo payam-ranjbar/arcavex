@@ -71,8 +71,8 @@ def test_every_dependency_has_a_lower_bound() -> None:
 
 def test_mcp_excludes_the_major_that_removed_fastmcp() -> None:
     """`mcp` 2.0.0 removed `mcp.server.fastmcp`, which `clients.mcp_server` imports."""
-    dev = _declared_requirements()["optional-dependencies.dev"]
-    spec = next(r for r in dev if r.startswith("mcp"))
+    core = _declared_requirements()["dependencies"]
+    spec = next(r for r in core if r.startswith("mcp"))
     assert "<2" in spec.replace(" ", ""), f"mcp must be capped below 2.0: {spec!r}"
 
 
@@ -133,3 +133,15 @@ def test_default_frozen_build_ignores_ambient_onefile_flag(
 
     assert build.main() == 0
     assert (build.DIST / "arcavex" / "icudtl.dat").read_bytes() == b"icu"
+
+
+def test_the_mcp_server_ships_with_the_runtime_install() -> None:
+    """`mcp` was a dev-only extra, so `arcavex mcp serve` crashed on every non-developer install.
+
+    A wheel, a `uv tool install`, or the desktop's frozen sidecar built without the dev group had
+    no MCP server at all: the two commands the README tells an assistant's host to run raised a
+    raw ImportError. The server is how an assistant reaches the engine; it is part of the product.
+    """
+    core = [req for req in _declared_requirements()["dependencies"] if req.startswith("mcp")]
+
+    assert core, "mcp is not a runtime dependency"

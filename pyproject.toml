@@ -35,6 +35,10 @@ dependencies = [
     "watchfiles>=1.2,<2",           # 1.2.0
     "numpy>=1.26,<3",               # 2.5.1
     "segno>=1.6,<2",                # 1.6.6
+    # The MCP server is how an AI assistant reaches the engine; it is part of the product, not
+    # a developer convenience. Moving it here is what makes `arcavex mcp serve` work from a
+    # runtime-only install (a wheel, `uv tool install`, the desktop sidecar).
+    "mcp>=1.28,<2",                 # 1.29.1 — 2.0.0 removed mcp.server.fastmcp
 ]
 
 [project.optional-dependencies]
@@ -45,7 +49,6 @@ dev = [
     "mypy>=2.2,<3",                 # 2.2.0
     "import-linter>=2.13,<3",       # 2.13
     "pillow>=12.3,<13",             # 12.3.0
-    "mcp>=1.28,<2",                 # 1.28.1 — 2.0.0 removed mcp.server.fastmcp
 ]
 # Freezing the standalone engine that Arcavex Desktop bundles. Separate from `dev` because the
 # engine's own suite never needs it, and because the PyInstaller bootloader is itself a shipped
