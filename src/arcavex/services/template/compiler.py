@@ -2175,12 +2175,20 @@ class Compiler:
         assert self._effects is not None
         if name not in self._effects:
             available = ", ".join(sorted(self._effects)) or "(none)"
+            # An effect may also come from an extension that is not added or enabled yet (some
+            # shipped examples bundle one), so the hint says how to get it registered, not only
+            # what is registered already.
             raise DiagnosticError(
                 diagnostic(
                     "ARC-FX-910",
                     f"Node {node_id!r} references unknown effect {name!r}",
                     file=str(template), keypath=keypath,
-                    hint=f"Registered effects: {available}.",
+                    hint=(
+                        f"Registered effects: {available}. Use one of them, or add and enable "
+                        f"the extension that provides {name!r}: arcavex ext add <dir>, then "
+                        "arcavex ext enable <name>; arcavex ext list shows added extensions and "
+                        "their state."
+                    ),
                 )
             )
         kind = self._effect_kind(name) if self._effect_kind is not None else None
