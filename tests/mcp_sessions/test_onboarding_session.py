@@ -13,6 +13,8 @@ cannot quietly reopen.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -222,3 +224,37 @@ def test_rerunning_an_unknown_run_says_which_ones_exist(
 
     assert refused.ok is False
     assert any("Recorded runs" in (d.hint or "") for d in refused.diagnostics)
+
+
+# ------------------------------------------------------------------ first contact is clean
+
+
+def test_the_handshake_reports_the_engine_version_not_the_sdk_version() -> None:
+    """``serverInfo.version`` is what a client pins; it must be the engine's, not the library's."""
+    from arcavex import __version__
+
+    server = build_mcp_server(build_facade())
+
+    options = server._mcp_server.create_initialization_options()  # noqa: SLF001
+
+    assert options.server_version == __version__
+
+
+def test_starting_the_server_module_prints_nothing_to_stderr() -> None:
+    """A warning on every spawn reads as "broken" to someone typing `arcavex mcp serve` first time.
+
+    Importing the MCP SDK under a recent pydantic-settings emits an IncompleteFieldDefinitionWarning
+    about one of the SDK's own fields. That is the SDK's problem, and the engine keeps it off the
+    user's terminal. A fresh interpreter is the only honest check: this test process has long since
+    imported both modules.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-c", "import arcavex.clients.mcp_server"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr.strip() == "", completed.stderr

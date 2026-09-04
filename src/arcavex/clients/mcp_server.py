@@ -21,12 +21,21 @@ expect ``Path``, so the coercion cannot be skipped for any path argument (DX-1).
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import Any, Literal
 
-from mcp.server.fastmcp import FastMCP, Image
+from pydantic_settings import IncompleteFieldDefinitionWarning
+
+# Importing FastMCP under pydantic-settings >= 2.15 prints a warning about one of the SDK's own
+# settings fields. It is the SDK's to fix; to a person who has just typed `arcavex mcp serve` for
+# the first time, a warning on stderr from every spawn reads as "it is broken", so keep it quiet.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", IncompleteFieldDefinitionWarning)
+    from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import TextContent
 
+from arcavex import __version__
 from arcavex.bootstrap import build_facade
 from arcavex.kernel.api import (
     AssetReport,
@@ -641,6 +650,9 @@ def build_mcp_server(facade: Facade | None = None) -> FastMCP:
     """
     tools = ArcavexTools(facade if facade is not None else build_facade())
     server = FastMCP("arcavex", instructions=_INSTRUCTIONS)
+    # FastMCP has no version parameter, so the handshake would advertise the MCP SDK's version as
+    # the server's. A client pinning the engine it talks to needs the engine's own.
+    server._mcp_server.version = __version__  # noqa: SLF001
     for tool_name, method_name in _TOOL_METHODS:
         method = getattr(tools, method_name)
         structured = None if method_name != "render_preview" else False
