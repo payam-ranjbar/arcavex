@@ -49,7 +49,7 @@ arcavex 0.1.0
 | [`project …`](#project) | Project lifecycle: new/clone/set-status/upgrade. |
 | [`data …`](#data) | Project data authoring: set/import. |
 | [`asset …`](#asset) | Asset ingest/annotation. |
-| [`mcp …`](#mcp) | MCP authoring server: serve/tools. |
+| [`mcp …`](#mcp) | MCP authoring server: serve/tools; `install` registers it with an AI host. |
 | [`ext …`](#ext) | Trusted local extension lifecycle. |
 | [`editor …`](#editor) | Semantic project editing: apply a transaction, undo, redo, history. |
 | [`skill install`](#skill) | Install the bundled design skill into an AI assistant. |
@@ -447,10 +447,76 @@ MCP authoring server (spec §6.2).
 |---|---|
 | `serve` | Start the stdio MCP authoring server (blocks until the client disconnects). |
 | `tools [--json]` | Print the tool catalog (names, descriptions, input/output schemas). |
+| `install [--target T …] [--list] [--print] [--force] [--command PATH]` | Register the server with every AI host present on this machine, or the named ones: `claude-code`, `claude-desktop`, `codex` (`desktop` and `chatgpt` are aliases). `--list` shows each host's state without writing; `--print` shows the snippet to paste by hand; `--force` replaces an existing `arcavex` entry; `--command` registers another executable. |
 
 Every MCP tool is a thin wrapper over one facade method and returns the same versioned pydantic
 result as the CLI's `--json`. See [architecture.md](architecture.md#mcp-parity) and the
 [MCP section of the README](../README.md#mcp-authoring-surface-62).
+
+### Connecting a host
+
+`mcp install` registers the server with the assistants on this machine, so nobody has to find a
+config file and type an absolute path into it. It knows three hosts. Claude Code is registered
+through `claude mcp add` at user scope — the scope that works in every project without an approval
+prompt — and its own file is never edited. Claude Desktop has no CLI, so its
+`claude_desktop_config.json` is edited in place: every other key is kept, the file's indentation
+too, the write is atomic, and the previous content stays beside it as `.bak`. Codex goes through
+`codex mcp add` when the CLI is on PATH and otherwise gets a `[mcp_servers.arcavex]` table in
+`~/.codex/config.toml`, appended (or, with `--force`, swapped) by text so nothing else in the file
+is reformatted. A host that is not installed is skipped with a notice; with no `--target`, `ok`
+means every host that is here has been registered.
+
+```console
+$ arcavex mcp install --list
+target          location                                                        state
+Claude Code     claude mcp (user scope)                                         registered
+Claude Desktop  C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json  not registered
+Codex CLI       C:\Users\you\.codex\config.toml                                host not found
+command: C:\Users\you\arcavex\.venv\Scripts\arcavex.exe mcp serve
+```
+
+The command registered is the engine that ran `mcp install`: the frozen executable, or the
+`arcavex` console script beside the running interpreter, or `python -m arcavex` — always as
+absolute paths, and always printed so you can see exactly what a host will run. `--command PATH`
+registers that executable instead (as `PATH mcp serve`).
+
+`--print` writes nothing and prints, per host, exactly what a person would paste to do it by hand.
+The same snippet is in the hint when a host named with `--target` is not installed
+(`ARC-MCP-002`).
+
+```console
+$ arcavex mcp install --print
+Claude Code  claude mcp (user scope)
+Registered for every project; 'claude mcp list' shows it under user scope.
+claude mcp add -s user arcavex -- C:\Users\you\arcavex\.venv\Scripts\arcavex.exe mcp serve
+
+Claude Desktop  C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+Quit and reopen Claude Desktop after registering; it reads the file at start.
+{
+  "mcpServers": {
+    "arcavex": {
+      "command": "C:\\Users\\you\\arcavex\\.venv\\Scripts\\arcavex.exe",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}
+
+Codex CLI  C:\Users\you\.codex\config.toml
+The ChatGPT desktop app cannot run a local MCP server; Codex is the OpenAI host that can.
+[mcp_servers.arcavex]
+command = "C:\\Users\\you\\arcavex\\.venv\\Scripts\\arcavex.exe"
+args = ["mcp", "serve"]
+
+command: C:\Users\you\arcavex\.venv\Scripts\arcavex.exe mcp serve
+```
+
+An existing `arcavex` entry is refused with `ARC-MCP-003`; `--force` replaces it. Each host reads
+its configuration when it starts: open a new Claude Code session, quit and reopen Claude Desktop,
+start a new Codex session. The plain-language walkthrough for someone setting up an assistant is
+[connect-your-assistant.md](connect-your-assistant.md).
 
 ## editor
 
