@@ -687,11 +687,16 @@ def _print_preview_line(
     if quiet:
         return
     if res.ok:
+        # The path comes first, alone on its line, and is never folded by Rich: a person pastes it
+        # into a viewer and an assistant reads it back, and in an 80-column terminal it used to
+        # trail the timings and wrap mid-filename. soft_wrap leaves any folding to the terminal,
+        # which keeps the characters contiguous for copy and paste.
+        console.print(_esc(res.output_path or ""), soft_wrap=True)
         # In one-shot mode there is no change to report, so drop the watch-only 'changed='.
-        prefix = f"changed={res.changed_file} " if (watching and res.changed_file) else ""
+        prefix = f"changed={_esc(res.changed_file)} " if (watching and res.changed_file) else ""
         console.print(
-            f"{prefix}compile={res.compile_ms:.1f}ms "
-            f"render={res.render_ms:.1f}ms -> {res.output_path}"
+            f"{prefix}compile={res.compile_ms:.1f}ms render={res.render_ms:.1f}ms",
+            soft_wrap=True,
         )
     else:
         # A prior good preview is only "kept" if one was ever written (DX-10).
