@@ -30,7 +30,7 @@ binary contradicts anything written here, believe the binary.
 
 The real question is **whether this session has a shell**, not which product you are running in.
 
-1. **Shell available?** Try `arcavex --version`. If it is not on PATH, try `python -m arcavex.clients.cli --version`,
+1. **Shell available?** Try `arcavex --version`. If it is not on PATH, try `python -m arcavex --version` (`python -m arcavex.clients.cli --version` on an older engine),
    then look for a standalone binary. A shell gives you everything, including authoring your own
    effects.
 2. **`arcavex_*` MCP tools available?** Call `arcavex_effects_list`. That gives you the full

@@ -29,7 +29,8 @@ pip install -e ".[dev]"
 The `[dev]` extra adds the test and lint toolchain (`pytest`, `hypothesis`, `ruff`, `mypy`,
 `import-linter`, `pillow`, `mcp`). For a runtime-only install, drop it: `pip install -e .`.
 
-The console entry point is `arcavex` (defined as `arcavex.clients.cli:main`). From a source
+The console entry point is `arcavex` (defined as `arcavex.clients.cli:main`); `python -m arcavex`
+is the same program for an interpreter whose scripts directory is not on PATH. From a source
 checkout it lives at `.venv/Scripts/arcavex.exe` (Windows) or `.venv/bin/arcavex` (POSIX).
 
 ## Packaged wheel (no dev tree)
