@@ -980,6 +980,49 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Reinstall from a wheel built with the skill included, or run from a source checkout.",
         ),
         _e(
+            "ARC-MCP-001",
+            "Unknown MCP host",
+            "'arcavex mcp install --target' was given a name that is not a host this command knows "
+            "how to register with. The hosts are fixed because each has its own registration "
+            "mechanism — Claude Code's and Codex's CLIs, Claude Desktop's config file — and a name "
+            "outside that set has none.",
+            "Use claude-code, claude-desktop, or codex ('desktop' and 'chatgpt' are aliases). For "
+            "any other MCP client, 'arcavex mcp install --print' shows the command line to "
+            "register as a stdio server.",
+        ),
+        _e(
+            "ARC-MCP-002",
+            "MCP host not found on this machine",
+            "The host is not installed here: 'claude' or 'codex' is not on PATH, or Claude "
+            "Desktop's config directory does not exist. Nothing was written. In a default run (no "
+            "--target) this is an informational notice, because a machine with only one assistant "
+            "on it has done everything it can; for a host named with --target it is an error, and "
+            "the hint carries the exact snippet to paste by hand.",
+            "Install the host and run 'arcavex mcp install' again, or register by hand with the "
+            "snippet from 'arcavex mcp install --print'.",
+        ),
+        _e(
+            "ARC-MCP-003",
+            "MCP server already registered with this host",
+            "The host already has a server named 'arcavex'. Registration stops rather than "
+            "replacing it, because it may point at a different engine on purpose — a frozen build, "
+            "another virtual environment — or carry settings a person added.",
+            "Pass '--force' to replace it with this engine's command; '--list' shows which hosts "
+            "are registered.",
+        ),
+        _e(
+            "ARC-MCP-004",
+            "Could not register the MCP server",
+            "Either the host's CLI ('claude mcp add', 'codex mcp add') exited with an error, or "
+            "the host's config file could not be updated: it is not valid JSON/TOML, its top "
+            "level is not the expected shape, the existing 'arcavex' entry is written in a "
+            "layout this command cannot rewrite safely, or the write itself failed. The message "
+            "carries what the CLI or the OS said. A file is only ever replaced atomically with "
+            "its previous content kept beside it as '.bak', so a failure leaves it as it was.",
+            "Fix what the message reports — repair the file, or move it aside — and run again; or "
+            "paste the snippet from 'arcavex mcp install --print' into the file yourself.",
+        ),
+        _e(
             "ARC-EDT-001",
             "Project is locked by another writer",
             "A semantic edit could not acquire the project mutation lock: another Arcavex "

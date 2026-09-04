@@ -29,6 +29,7 @@ from arcavex.kernel.api import (
     Facade,
     FontListReport,
     LayoutReport,
+    McpInstallReport,
     PatchOp,
     PreviewResult,
     ProjectStatusReport,
@@ -116,7 +117,8 @@ EXIT_INTERNAL = 5
 # ARC-AST-* = missing/undecodable asset; MISSING_FONT_CODE = font family not loaded;
 # ARC-RND-030 = the file 'font add' was pointed at does not exist, which is the same
 # "a named input is not there" class as a missing asset and so shares its exit code.
-_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE, "ARC-RND-030"}
+# ARC-MCP-002 = an AI host named with --target is not installed on this machine: the same class.
+_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE, "ARC-RND-030", "ARC-MCP-002"}
 _MISSING_PREFIXES = ("ARC-AST",)
 # Resource-limit codes that map to exit 4: the expression budget, the repeat iteration cap, and
 # the per-render surface budgets (dimension/pixels/memory/wall-clock, spec §8.3).
@@ -1756,6 +1758,115 @@ def mcp_tools(
         for tool in tool_catalog(build_mcp_server()):
             console.print(f"[cyan]{_esc(tool['name'])}[/cyan] — {_esc(tool['description'])}")
     raise typer.Exit(EXIT_OK)
+
+
+@mcp_app.command("install")
+def mcp_install(
+    target: list[str] = typer.Option(
+        [],
+        "--target",
+        "-t",
+        help="Host to register with: claude-code, claude-desktop, codex ('desktop' and 'chatgpt' "
+        "are aliases). Repeatable. Default: every host present on this machine.",
+    ),
+    list_only: bool = typer.Option(
+        False,
+        "--list",
+        help="Show every host and whether the server is registered there; write nothing.",
+    ),
+    print_only: bool = typer.Option(
+        False, "--print", help="Print the snippet to paste for each host; write nothing."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Replace an existing 'arcavex' registration."
+    ),
+    command: Path | None = typer.Option(
+        None,
+        "--command",
+        help="Register this executable instead of the running engine; the host runs it as "
+        "'<PATH> mcp serve'.",
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Register the MCP server with Claude Code, Claude Desktop, or Codex."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    if list_only or print_only:
+        report = facade.list_mcp_targets(command)
+    else:
+        report = facade.install_mcp(list(target) or None, command, force)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_mcp_report(console, report, list_only=list_only, print_only=print_only)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+# What a host needs after registering: each reads its configuration when it starts.
+_MCP_NEXT_STEP = {
+    "claude-code": "open a new Claude Code session",
+    "claude-desktop": "quit and reopen Claude Desktop",
+    "codex": "start a new Codex session",
+}
+
+
+def _join_command(argv: list[str]) -> str:
+    """Show a command line as a person would type it (double quotes work in every shell)."""
+    return " ".join(f'"{arg}"' if any(ch.isspace() for ch in arg) else arg for arg in argv)
+
+
+def _print_mcp_report(
+    console: Console, report: McpInstallReport, *, list_only: bool, print_only: bool
+) -> None:
+    """Print each host's state and what was registered, ending with what to do next."""
+    if print_only:
+        # The snippets go through echo, not Rich: a wrapped or markup-mangled path is not
+        # something a person can paste.
+        for entry in report.targets:
+            console.print(
+                f"[bold]{_esc(entry.label)}[/bold]  [dim]{_esc(entry.location)}[/dim]",
+                soft_wrap=True,
+            )
+            if entry.note:
+                console.print(f"[dim]{_esc(entry.note)}[/dim]", soft_wrap=True)
+            typer.echo(entry.snippet.rstrip("\n"))
+            typer.echo()
+        typer.echo(f"command: {_join_command(report.command)}")
+        return
+    if report.targets:
+        table = Table(box=None, pad_edge=False)
+        table.add_column("target", style="bold", no_wrap=True)
+        # A path folded onto two lines can still be opened; one cut with an ellipsis cannot.
+        table.add_column("location", overflow="fold")
+        table.add_column("state", no_wrap=True)
+        for entry in report.targets:
+            if not entry.available:
+                state = "host not found"
+            elif entry.registered:
+                state = "registered"
+            else:
+                state = "not registered"
+            table.add_row(entry.label, entry.location, state)
+        console.print(table)
+    if report.command:
+        typer.echo(f"command: {_join_command(report.command)}")
+    _print_diagnostics(console, report.diagnostics, quiet=False)
+    if report.installed:
+        labels = {entry.key: entry.label for entry in report.targets}
+        console.print(
+            f"Registered the Arcavex MCP server with {len(report.installed)} host(s):"
+        )
+        for key in report.installed:
+            console.print(f"  {_esc(labels.get(key, key))}")
+        steps = [_MCP_NEXT_STEP[key] for key in report.installed if key in _MCP_NEXT_STEP]
+        if steps:
+            console.print("Next: " + "; ".join(steps) + ".")
+    elif not list_only and report.ok:
+        console.print("Nothing to do.")
 
 
 @ext_app.command("scaffold")

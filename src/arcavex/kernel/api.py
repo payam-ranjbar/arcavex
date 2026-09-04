@@ -496,6 +496,62 @@ class SkillServiceProtocol(Protocol):
     ) -> SkillInstallReport: ...
 
 
+class McpTargetInfo(BaseModel):
+    """One AI host ``arcavex mcp install`` can register the MCP server with.
+
+    ``location`` is where the registration lives — the config file this command edits, or the
+    host CLI that owns it — and ``snippet`` is what a person would paste to make the same
+    registration by hand, so ``--print`` and a host-not-found diagnostic can show the manual
+    route. ``available`` says whether the host is present on this machine at all.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    label: str
+    location: str
+    available: bool
+    registered: bool
+    snippet: str
+    note: str | None = None
+
+
+class McpInstallReport(BaseModel):
+    """The result of ``arcavex mcp install`` / ``--list`` / ``--print``.
+
+    ``command`` is the exact command line registered (or that would be) — absolute paths, so it
+    works from any working directory the host starts it in. ``targets`` describes every host
+    considered and ``installed`` names, by key, the ones written this run, so a no-op (already
+    registered, no ``--force``) is distinguishable from a write.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    command: list[str] = Field(default_factory=list)
+    targets: list[McpTargetInfo] = Field(default_factory=list)
+    installed: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class McpHostServiceProtocol(Protocol):
+    """The MCP host registrar injected by bootstrap.
+
+    Returns versioned kernel result models and does not raise across the facade boundary.
+    """
+
+    def list_targets(self, *, command: Path | None) -> McpInstallReport: ...
+
+    def install(
+        self,
+        *,
+        targets: list[str] | None,
+        command: Path | None,
+        force: bool,
+    ) -> McpInstallReport: ...
+
+
 class FontServiceProtocol(Protocol):
     """The font install/inspect service injected by bootstrap (spec §4.3).
 
@@ -1969,6 +2025,7 @@ class Facade:
         extension_load_diagnostics: list[Diagnostic] | None = None,
         fonts: FontServiceProtocol | None = None,
         skills: SkillServiceProtocol | None = None,
+        mcp_hosts: McpHostServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
         desktop: DesktopServiceProtocol | None = None,
@@ -2002,6 +2059,7 @@ class Facade:
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
         self._fonts = fonts
         self._skills = skills
+        self._mcp_hosts = mcp_hosts
         self._budget = budget
         self._engine_version = engine_version
         self._desktop = desktop
@@ -2736,6 +2794,42 @@ class Facade:
                 skill="",
                 source="",
                 diagnostics=[internal_error("skill install failed", detail=repr(exc))],
+            )
+
+    # ------------------------------------------------------------------------ mcp install
+    def list_mcp_targets(self, command: Path | None = None) -> McpInstallReport:
+        """Describe every AI host the MCP server can be registered with. Never raises."""
+        if self._mcp_hosts is None:  # pragma: no cover - always wired in production
+            return McpInstallReport(ok=False, diagnostics=[_unwired("mcp hosts")])
+        try:
+            return self._mcp_hosts.list_targets(
+                command=None if command is None else Path(command)
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return McpInstallReport(
+                ok=False,
+                diagnostics=[internal_error("mcp target list failed", detail=repr(exc))],
+            )
+
+    def install_mcp(
+        self,
+        targets: list[str] | None = None,
+        command: Path | None = None,
+        force: bool = False,
+    ) -> McpInstallReport:
+        """Register the MCP server with one or more AI hosts. Never raises."""
+        if self._mcp_hosts is None:  # pragma: no cover - always wired in production
+            return McpInstallReport(ok=False, diagnostics=[_unwired("mcp hosts")])
+        try:
+            return self._mcp_hosts.install(
+                targets=targets,
+                command=None if command is None else Path(command),
+                force=force,
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return McpInstallReport(
+                ok=False,
+                diagnostics=[internal_error("mcp install failed", detail=repr(exc))],
             )
 
     def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:
