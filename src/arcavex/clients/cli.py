@@ -329,7 +329,12 @@ def render(
         _report_inferences(console, remaining, quiet)
         _print_diagnostics(console, result.diagnostics, quiet)
         if result.ok and not quiet:
-            console.print(f"[green]Rendered[/green] {result.output_path}")
+            # The structured output_path is absolute for readers elsewhere; a person at the
+            # prompt is told the name they typed, or the inferred name they were just shown.
+            shown = str(output) if output is not None else result.inferred.get("output")
+            console.print(
+                f"[green]Rendered[/green] {_esc(shown or result.output_path)}", soft_wrap=True
+            )
     raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
 
 

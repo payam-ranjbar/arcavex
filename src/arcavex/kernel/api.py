@@ -590,7 +590,14 @@ class FontServiceProtocol(Protocol):
 
 
 class RenderResult(BaseModel):
-    """The result of a render request."""
+    """The result of a render request.
+
+    ``output_path`` is the absolute path of the written file: the CLI's ``--json`` and the MCP
+    render tool are read by an assistant that may have run the command from another directory,
+    where a path relative to the engine's working directory opens nothing. ``inferred["output"]``
+    is different in kind — the default *name* the engine chose when no output was given,
+    relative to the working directory exactly as the human ``inferred:`` line reports it.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -2390,7 +2397,8 @@ class Facade:
 
         return RenderResult(
             ok=True,
-            output_path=report.path,
+            # Absolute, so the path means the same thing to a reader in any working directory.
+            output_path=str(Path(report.path).resolve()),
             diagnostics=diagnostics,
             content_sha256=report.content_sha256,
             inferred=inferred,
