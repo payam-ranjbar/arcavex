@@ -1,49 +1,105 @@
 # Arcavex
 
-Local-first, headless, deterministic, template-driven rendering engine built on skia-python.
+Arcavex turns a YAML template plus a data file into a finished poster: a PNG, JPG, WebP, or PDF
+that comes out byte-identical every time the same inputs are rendered. It is built for two readers
+at once. A person who wants a poster, a social tile, a flyer, or an event graphic and does not want
+to learn a design tool. And the AI assistant they ask to make it — Claude Code, Codex CLI, Claude
+Desktop, or anything else with a shell or an [MCP](https://modelcontextprotocol.io) client. The
+engine runs locally and headless, with no account and no network on the render path. It ships as a
+CLI, an MCP server, and a design skill that teaches the assistant the craft: art direction first,
+one design across several aspect ratios and languages, and looking at the picture rather than
+trusting a clean validation.
 
-A one-file YAML template plus data renders to an image or PDF with no project or configuration
-required.
-
-Arcavex is the substrate a designer — human or AI — works *on*: byte-reproducible output, an
-inspectable layout model, coded diagnostics, and recorded provenance, reachable from a CLI and an
-MCP server. It checks that a design is well-formed; it does not judge whether it is any good, and
+Arcavex checks that a design is well-formed; it does not judge whether it is any good, and
 [says so plainly](docs/known-limitations.md#validation-checks-geometry-not-design). Something still
 has to look at the picture.
+
+From a clone of this repository, the first render is one command:
 
 ```bash
 arcavex render examples/hello-poster/template.yaml \
     --data examples/hello-poster/data.yaml --format square -o out.png
 ```
 
-## Install, and teach your assistant to use it
+## Get it working
+
+This section is written to be followed top to bottom, by you or by your assistant. Paste it to the
+assistant with "set this up and make me a poster" and it has everything it needs.
+
+**If the computer has neither Python nor uv** (a fresh Windows PC, typically), install
+[uv](https://docs.astral.sh/uv/) first, then open a new terminal so it is on PATH. The install line
+below asks uv for Python 3.12, the reference platform, and uv downloads a managed copy by itself if
+the machine has none; nothing else needs installing.
+
+- Windows: `winget install --id=astral-sh.uv -e`
+- macOS or Linux: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+Then:
 
 ```bash
-uv pip install arcavex     # or: uv pip install -e ".[dev]" from a clone
-arcavex doctor             # confirm skia, ICU, fonts, exporters
+# 1. Install. This gives a global `arcavex` command; there is no virtual environment to activate.
+uv tool install --python 3.12 git+https://github.com/payam-ranjbar/arcavex
+arcavex doctor                     # every row should read ok
+
+# 2. Teach the assistant the craft, then restart it (a host reads its skills at start-up).
+arcavex skill install
+
+# 3. Optional, for an MCP host (Claude Desktop, Claude Code, Codex): register the server,
+#    then start a new session so the host connects to it.
+arcavex mcp install
+
+# 4. A first poster: scaffold a template and render it with its built-in sample data.
+arcavex template new my-first-poster
+arcavex render my-first-poster/template.yaml --format square -o first.png
 ```
 
-Releases also attach the wheel to the
-[GitHub release page](https://github.com/payam-ranjbar/arcavex/releases).
+The last command prints `inferred: data=preview_data` and then `Rendered first.png`. Open
+`first.png` so the person can see it (`start first.png` on Windows, `open first.png` on macOS,
+`xdg-open first.png` on Linux) and tell them its absolute path. To change the words, edit
+`my-first-poster/data.yaml` and render again; `my-first-poster/README.md` explains the file.
 
-Then install the bundled design skill so an AI assistant knows the workflow rather than
-rediscovering it:
+Notes on the install:
 
-```bash
-arcavex skill install            # Claude Code + Codex/ChatGPT; --list previews, --force overwrites
-arcavex skill install --project  # into this repo instead, so it travels with a clone
-```
+- If uv warns that its tool directory `is not on your PATH`, run `uv tool update-shell` and open a
+  new terminal. To update later, run the install command again with `--reinstall`.
+- From a clone, `uv tool install <path-to-clone>` gives the same global command. A development
+  install is `uv venv` then `uv pip install -e ".[dev]"`; the command is then
+  `.venv/Scripts/arcavex.exe` (Windows) or `.venv/bin/arcavex` (elsewhere), or `uv run arcavex …`.
+  Everything else — pip, ICU, fonts, the configuration home — is in [docs/install.md](docs/install.md).
+- Once the package is published to PyPI, `uv tool install arcavex` will be the whole install. It is
+  not published yet, and there are no GitHub releases yet; the repository URL is the install today.
+- `arcavex skill install` writes the skill to `~/.claude/skills` (Claude Code) and
+  `~/.agents/skills` (Codex and the ChatGPT desktop app). `--target` selects one (`claude-code`,
+  `agents`; `codex` and `chatgpt` are aliases for `agents`), `--path DIR` covers anything else,
+  `--project` installs into the current repository so it travels with a clone, and `--list` shows
+  every destination without writing. The skill follows the [Agent Skills](https://agentskills.io)
+  open standard, which fixes the `SKILL.md` format but not where a host looks for it.
+- `arcavex mcp install` registers `arcavex mcp serve` as a stdio server with Claude Code, Claude
+  Desktop, or Codex; `--print` shows the snippet for hand-editing any other host's configuration.
+  Details in [docs/cli.md#mcp](docs/cli.md#mcp).
 
-The skill follows the [Agent Skills](https://agentskills.io) open standard, which fixes the
-`SKILL.md` format but not where a host looks for it — so the installer writes to each tool's own
-location: `~/.claude/skills` for Claude Code, `~/.agents/skills` for Codex and the ChatGPT desktop
-app. `--target` selects one (`claude-code`, `agents`; `codex` and `chatgpt` are accepted aliases for
-the same destination), and `--path DIR` covers anything else.
+**New here?** [Install](docs/install.md) → [Quick start](docs/quick-start.md) (a 10-minute path
+from a first render to exports, locales, and provenance) → [Tutorials](docs/tutorials/).
 
-The skill gives the assistant the role of a senior designer: establish the art direction before
-composing, treat every aspect ratio as its own problem, check for overlaps and tight margins rather
-than trusting a clean validation — and, when the built-in vocabulary cannot express a style,
-**author the missing effect** instead of dropping it:
+## Working with an assistant
+
+An assistant reaches the engine in one of two ways.
+
+- **Through a shell**, as the CLI: Claude Code, Codex CLI, Cursor, or anything with code execution.
+  This is the only route with the whole surface, including extension authoring and the
+  project/provenance commands.
+- **Through an MCP host** (Claude Desktop, or Claude Code and Codex once registered): the same
+  operations as tools over stdio, plus the design skill served as resources under
+  `skill://arcavex-design-studio/`, so the assistant learns the template grammar and the authoring
+  loop from the engine it is connected to rather than reconstructing them from validation errors.
+
+The loop is the same on both routes: inspect the template's contract, edit it (a path-addressed
+patch or a data change), validate, preview and look at the picture, inspect the resolved layout for
+overlaps, then render the final files. The skill gives the assistant the role of a senior designer
+around that loop: establish the art direction before composing, treat every aspect ratio as its own
+problem, check for overlaps and tight margins rather than trusting a clean validation — and, when
+the built-in vocabulary cannot express a style, **author the missing effect** instead of dropping
+it:
 
 ```bash
 arcavex ext scaffold effect ./my-effect --name grain-warp   # a working effect, not a stub
@@ -51,33 +107,28 @@ arcavex ext validate ./my-effect && arcavex ext test ./my-effect
 arcavex ext add ./my-effect && arcavex ext enable grain-warp
 ```
 
-That loop needs a shell, so it works from Claude Code, Codex, Cursor, or any assistant with code
-execution. The MCP server is the higher-level surface — authoring, previewing, rendering — and does
-not expose extension authoring.
+That loop needs a shell; the MCP server does not expose extension authoring.
 
-The output extension selects the format — `.png`, `.jpg`/`.jpeg`, `.webp`, or `.pdf`. `--quality`
-sets the lossy encoder quality (JPEG, lossy WebP) and `--lossless` selects lossless WebP. PDF is
-raster-embedded RGB at the target DPI with the correct physical page size and trim/bleed boxes, so
-`A4 + bleed` prints correctly. Every format is deterministic: identical inputs produce
-byte-identical files, with no embedded timestamps or run ids.
+**Show the person the result.** A render is a file on disk, and the person will not go looking
+for it. Open it for them — `start out.png` on Windows (`Invoke-Item out.png` in PowerShell),
+`open out.png` on macOS, `xdg-open out.png` on Linux — and state its absolute path. Over MCP,
+`arcavex_render_preview` returns the PNG as image content, so the host shows it inline.
 
-Rendering without `-o` writes a deterministic default file,
-`<template-stem>.<format>[.<locale>].png`, in the current directory and reports the chosen name
-before rendering (on failure too, so you always learn what would have been written). The
-`.<locale>` segment is present only when `--locale` is applied, so a `fa` render never
-overwrites the `en` one. When a template declares exactly one format, or when no `--data` is
-passed and `preview_data` exists, Arcavex infers the value and reports it (human output and the
-`inferred` object in `--json`).
-
-**New here?** [Install](docs/install.md) → [Quick start](docs/quick-start.md) (a 10-minute path
-from a first render to exports, locales, and provenance) → [Tutorials](docs/tutorials/).
+Every CLI call pays about a second of process start-up. When iterating on a design, `arcavex
+preview TEMPLATE --watch` keeps the engine loaded and re-renders on every save, and an MCP
+session keeps it loaded between tool calls.
 
 ## Arcavex Desktop
 
-The Windows desktop application is the same engine with a window on it: it runs a pinned, frozen
-copy of the engine as a sidecar and talks to it over MCP, so what the window renders is what
-`arcavex render` renders. It shows the layer tree the engine reports, the measurements the engine
-computed, and the proof it produced — no second layout implementation.
+Arcavex Desktop is not yet distributed: there is no installer to download, and no release has been
+cut. It is built from source in [`apps/desktop`](apps/desktop/) (Tauri and React, targeting
+Windows); the release lane that will publish a signed installer exists but has not shipped one.
+What follows describes the application as built.
+
+It is the same engine with a window on it: it runs a pinned, frozen copy of the engine as a sidecar
+and talks to it over MCP, so what the window renders is what `arcavex render` renders. It shows the
+layer tree the engine reports, the measurements the engine computed, and the proof it produced — no
+second layout implementation.
 
 It also **edits**, and it edits the project's source files rather than a document model of its own.
 A gesture becomes one semantic transaction; the engine rewrites `template.yaml` preserving
@@ -93,9 +144,10 @@ Everything below is reachable within two clicks from this index.
 
 | Doc | What it covers |
 |---|---|
-| [Install](docs/install.md) | From-source and packaged-wheel install, ICU/fonts, `doctor`. |
+| [Install](docs/install.md) | Global command, from-source and wheel installs, ICU/fonts, `doctor`. |
 | [Quick start](docs/quick-start.md) | Render → change data → new format → locale → export → provenance. |
 | [Tutorials](docs/tutorials/) | Build a template from scratch · a bilingual template · using/writing extensions. |
+| [Connecting an assistant](docs/cli.md#skill) | `skill install` and, one section down, [`mcp`](docs/cli.md#mcp): serving and registering the MCP server. |
 | [Template authoring reference](docs/template-schema.md) | Every section, node kind, constraint, size, expression, locale, patch, and effect. |
 | [CLI reference](docs/cli.md) | Every command, its flags, and a verified example. |
 | [Diagnostics](docs/diagnostics.md) | The coded-diagnostic catalog, exit codes, and `explain`. |
@@ -115,7 +167,8 @@ The shipped examples live under [`examples/`](examples/): `hello-poster` (the tw
 asset-free template the quick start renders first), `future-archive-poster` (a multi-format
 bilingual system with a custom raster extension), `graphic-style-lab` (four art directions across
 announcement, product ad, movie poster and video thumbnail), and `extensions/` (a minimal
-extension with its golden fixture).
+extension with its golden fixture). A `uv tool install` from the repository URL does not include
+them; clone the repository, or start from `arcavex template new`.
 
 The Future Archive poster uses an effect that ships *with the example*, not with the engine, so
 add and enable that extension once before rendering it — without those two commands the render
@@ -166,7 +219,6 @@ This example was tested through the real MCP server:
 | Normal + boundary content | 16/16 passed |
 | Ratios | 4 |
 | Locales | English + Farsi |
-| MCP tools discovered | 24 |
 | Effects discovered | 16, including `archive-print` |
 | Validation, preview, layout inspection, render | All passed |
 | Warnings and diagnostics | 0 |
@@ -199,6 +251,22 @@ passed with no warnings or diagnostics, and the repeat render was byte-identical
 [`style-lab-filters`](examples/graphic-style-lab/extensions/style-lab-filters/) extension and
 [`MCP report`](examples/graphic-style-lab/output/mcp-report.json).
 
+## Output files
+
+The output extension selects the format — `.png`, `.jpg`/`.jpeg`, `.webp`, or `.pdf`. `--quality`
+sets the lossy encoder quality (JPEG, lossy WebP) and `--lossless` selects lossless WebP. PDF is
+raster-embedded RGB at the target DPI with the correct physical page size and trim/bleed boxes, so
+`A4 + bleed` prints correctly. Every format is deterministic: identical inputs produce
+byte-identical files, with no embedded timestamps or run ids.
+
+Rendering without `-o` writes a deterministic default file,
+`<template-stem>.<format>[.<locale>].png`, in the current directory and reports the chosen name
+before rendering (on failure too, so you always learn what would have been written). The
+`.<locale>` segment is present only when `--locale` is applied, so a `fa` render never
+overwrites the `en` one. When a template declares exactly one format, or when no `--data` is
+passed and `preview_data` exists, Arcavex infers the value and reports it (human output and the
+`inferred` object in `--json`).
+
 ## Commands
 
 Full flags and verified examples are in the [CLI reference](docs/cli.md); this is the overview.
@@ -224,6 +292,7 @@ Full flags and verified examples are in the [CLI reference](docs/cli.md); this i
 | `font list [--json]` | List every resolvable font family, marking bundled vs installed, and name the install directory. |
 | `font add PATH [--license PATH]` | Install a `.ttf` into `$ARCAVEX_HOME/fonts` and report the family name templates must use. |
 | `font remove FAMILY [--json]` | Remove an installed font family; a family bundled with the engine is refused. |
+| `skill install [--target T …] [--path DIR] [--project] [--force] [--list]` | Install the bundled design skill into each assistant's skill directory; restart the assistant afterwards. |
 | `doctor [--json]` | Check the environment (Python, Skia, ICU, fonts, exporters, cache, temp dir, paths, config) and engine version. |
 | `explain ARC-XXX-NNN [--json]` | Explain a diagnostic code and its typical fix. |
 
@@ -314,28 +383,37 @@ to resize the derived-image cache:
 
 ## MCP authoring surface (§6.2)
 
-Arcavex ships an optional [MCP](https://modelcontextprotocol.io) server so an AI agent can author
-templates and projects through the same service API the CLI uses — never a second engine. Every
-tool is a thin wrapper over one facade method and returns the **same** versioned pydantic result
-the CLI's `--json` returns, with structured, coded, located diagnostics (never scraped text). The
-transport is stdio only (no network).
+Arcavex ships an [MCP](https://modelcontextprotocol.io) server with every install, so an AI agent
+can author templates and projects through the same service API the CLI uses — never a second
+engine. Every tool is a thin wrapper over one facade method and returns the **same** versioned
+pydantic result the CLI's `--json` returns, with structured, coded, located diagnostics (never
+scraped text). The transport is stdio only (no network).
 
 | Command | Purpose |
 |---|---|
 | `mcp serve` | Start the stdio MCP authoring server (blocks until the client disconnects). |
 | `mcp tools [--json]` | Print the tool catalog (names, descriptions, and input/output JSON schemas) for discovery. |
+| `mcp install [--print]` | Register the server with Claude Code, Claude Desktop, or Codex; `--print` shows the configuration snippet for any other host. |
 
-Wire it into an MCP client (e.g. Claude Desktop) as a stdio server running `arcavex mcp serve`.
-The catalog (25 tools) mirrors the CLI: `arcavex_template_list`/`_inspect`/`_validate`/`_patch`,
-`arcavex_template_new`/`_publish` (scaffold a template from nothing, then put it in the library),
-`arcavex_project_create`/`_list`/`_status`/`_clone`/`_render`, `arcavex_render_record`,
-`arcavex_data_set`/`_import`, `arcavex_asset_add`/`_annotate`,
-`arcavex_style_list`/`_inspect`/`arcavex_effects_list`/`arcavex_font_list`,
-`arcavex_render_preview` (returns the PNG as image content, `debug=true` overlays the layout),
-`arcavex_layout_inspect`, `arcavex_render`, `arcavex_run_list`/`_diff`/`_rerun`, and
-`arcavex_diagnostic_explain`. Every tool delegates to a facade method that is also reachable from
-the CLI/Python API, so MCP adds no exclusive capability (a linted boundary, spec §12.18). The
-parity model is in [architecture.md](docs/architecture.md#mcp-parity).
+Register it with `arcavex mcp install`, or wire it into any MCP client by hand as a stdio server
+running `arcavex mcp serve` ([docs/cli.md#mcp](docs/cli.md#mcp)). The catalog mirrors the CLI in
+families; `arcavex mcp tools` lists the live set:
+
+- **Templates** — list, inspect, validate, patch, scaffold (`_new`), publish, detach.
+- **Projects** — create, list, status, clone, render, and the recorded-run tools (`_run_list`,
+  `_run_diff`, `_run_rerun`).
+- **Content** — data set/import, asset add/annotate.
+- **Vocabulary** — styles, effects, and fonts, listed and inspected.
+- **Seeing** — `arcavex_render_preview` (returns the PNG as image content; `debug=true` overlays
+  the layout), `arcavex_layout_inspect` (resolved geometry and classified overlaps),
+  `arcavex_render`, `arcavex_render_record`, and `arcavex_diagnostic_explain`.
+- **Editing** — the semantic transactions Arcavex Desktop submits (`arcavex_editor_apply`, undo,
+  redo, history) and the snapshot, layer-tree, hit-test, policy, and proposal tools the desktop
+  reads its window from.
+
+Every tool delegates to a facade method that is also reachable from the CLI/Python API, so MCP adds
+no exclusive capability (a linted boundary, spec §12.18). The parity model is in
+[architecture.md](docs/architecture.md#mcp-parity).
 
 The server also **serves its own manual**: the bundled design skill and its references are MCP
 resources under `skill://arcavex-design-studio/`, so an assistant can learn the template grammar
@@ -370,7 +448,7 @@ RTL), explicit **sizes** (fixed/percent/`fill`/`fit_content`/`aspect`), and **st
 (`layout: hstack|vstack`). `repeat`/`if` expand into siblings; `{{ }}` expressions bind variables and
 call registered functions; text nodes carry **fit policies** (`wrap`/`shrink_to_fit`/`truncate`);
 locales apply direction, digit policy, fonts, a data overlay, and patches; and any node may carry an
-ordered **effects** list (15 built-ins — run `arcavex effects list`).
+ordered **effects** list (`arcavex effects list` names the built-ins).
 
 The complete authoring reference — every section, node kind, constraint, size form, expression
 function, locale/data-layering rule, patch grammar, and effect — is
