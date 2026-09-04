@@ -2228,6 +2228,9 @@ def skill_install(
     if json_out:
         _emit_json(report)
     elif not quiet:
+        # "Already installed, pass --force" is a diagnostic; without this line it reached only
+        # --json readers, and a person re-running the command saw "Nothing to do." and exit 1.
+        _print_diagnostics(console, report.diagnostics, quiet)
         _print_skill_report(console, report, list_only=list_only)
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
