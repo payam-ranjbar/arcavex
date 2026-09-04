@@ -23,6 +23,8 @@ FRONT_DOOR = ("README.md", "docs/install.md", "docs/quick-start.md", "docs/cli.m
 _EXAMPLE_PATH = re.compile(r"examples/[A-Za-z0-9_./-]*[A-Za-z0-9]")
 _CONSOLE_BLOCK = re.compile(r"```console\n(.*?)\n```", re.DOTALL)
 _CLAIM = re.compile(r"^(inferred: \S+|(?:ERROR|WARNING) ARC-[A-Z]+-\d+)", re.MULTILINE)
+# "25 tools", "24-tool catalog": a number the MCP catalog drifts from by the next release.
+_TOOL_COUNT = re.compile(r"\b\d+[ -]tools?\b", re.IGNORECASE)
 
 runner = CliRunner()
 
@@ -39,6 +41,13 @@ def _documented_example_paths() -> dict[str, set[str]]:
 def test_every_example_path_the_document_names_exists(doc: str) -> None:
     missing = sorted(p for p in _documented_example_paths()[doc] if not (REPO / p).exists())
     assert not missing, f"{doc} names example paths that do not exist: {missing}"
+
+
+@pytest.mark.parametrize("doc", FRONT_DOOR)
+def test_no_front_door_document_states_a_tool_count(doc: str) -> None:
+    """The README once said "25 tools" while the server exposed 46. Name families, not numbers."""
+    stated = sorted(set(_TOOL_COUNT.findall((REPO / doc).read_text(encoding="utf-8"))))
+    assert not stated, f"{doc} states an MCP tool count the catalog will drift from: {stated}"
 
 
 def test_the_readme_opening_command_renders(tmp_path: Path, arcavex_home: Path) -> None:
