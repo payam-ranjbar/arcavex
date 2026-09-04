@@ -18,7 +18,9 @@ cell.
 ## Per cell
 
 1. `validate` — clean
-2. **Look at the pixels** — full resolution, not a thumbnail
+2. **Look at the pixels** — iterate at `--dpi 96` (MCP: `dpi=96` on `arcavex_render_preview`),
+   then check full resolution once before delivery. A print-DPI A2 preview is a multi-megabyte
+   image you gain nothing from while composing.
 3. `layout inspect` — resolved geometry
 4. Render
 
