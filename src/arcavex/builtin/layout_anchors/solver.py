@@ -28,6 +28,7 @@ from arcavex.kernel.ir.models import (
     CompiledGroup,
     CompiledImage,
     CompiledNode,
+    CompiledPath,
     CompiledShape,
     CompiledText,
     EffectSpec,
@@ -36,6 +37,7 @@ from arcavex.kernel.ir.models import (
     OverflowState,
     ResolvedContent,
     ResolvedImage,
+    ResolvedPath,
     ResolvedRun,
     ResolvedShape,
     ResolvedText,
@@ -692,6 +694,18 @@ class AnchorLayoutSolver(LayoutSolver):
                     corner_radius_pt=node.style.corner_radius_pt,
                     generator=node.generator,
                     generator_params=node.generator_params,
+                ),
+                OverflowState(),
+            )
+        if isinstance(node, CompiledPath):
+            # Commands are already in points relative to the box origin; the backend translates
+            # them into place, so a path carries the same paint contract as a shape.
+            return (
+                ResolvedPath(
+                    commands=node.commands,
+                    fill=node.style.fill,
+                    stroke=node.style.stroke,
+                    stroke_width_pt=node.style.stroke_width_pt,
                 ),
                 OverflowState(),
             )

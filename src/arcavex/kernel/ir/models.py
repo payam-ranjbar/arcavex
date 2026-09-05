@@ -14,6 +14,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from arcavex.kernel.diagnostics import Diagnostic
+from arcavex.kernel.ir.svgpath import PathCommand
 from arcavex.kernel.ir.units import Matrix3, Rect
 
 RGBA = tuple[float, float, float, float]
@@ -327,10 +328,17 @@ class CompiledShape(_CompiledNodeBase):
 
 
 class CompiledPath(_CompiledNodeBase):
-    """A path node (minimal in Phase 0)."""
+    """A path node: authored SVG path data plus its parsed, point-unit commands.
+
+    ``d`` is the authored data (pixels from the node box's top-left, like every other bare-px
+    length); ``commands`` is the same geometry parsed, made absolute, and scaled to points at
+    the canvas dpi, still relative to the box origin. The renderer translates it into place
+    and paints it with the node's ``style`` fill and stroke, exactly as it paints a shape.
+    """
 
     type: Literal["path"] = "path"
     d: str = ""
+    commands: tuple[PathCommand, ...] = ()
 
 
 CompiledNode = Annotated[
@@ -459,7 +467,18 @@ class ResolvedShape(BaseModel):
     generator_params: dict[str, object] = Field(default_factory=dict)
 
 
-ResolvedContent = ResolvedText | ResolvedImage | ResolvedShape | None
+class ResolvedPath(BaseModel):
+    """Resolved path content: point-unit commands relative to the node box, plus its paint."""
+
+    model_config = ConfigDict(frozen=True)
+
+    commands: tuple[PathCommand, ...]
+    fill: RGBA | None
+    stroke: RGBA | None
+    stroke_width_pt: float
+
+
+ResolvedContent = ResolvedText | ResolvedImage | ResolvedShape | ResolvedPath | None
 
 
 class LayoutNode(BaseModel):

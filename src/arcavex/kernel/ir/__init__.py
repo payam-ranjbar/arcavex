@@ -26,12 +26,14 @@ from arcavex.kernel.ir.models import (
     ResolvedCanvas,
     ResolvedContent,
     ResolvedImage,
+    ResolvedPath,
     ResolvedShape,
     ResolvedText,
     SizeSpec,
     Style,
     Transform,
 )
+from arcavex.kernel.ir.svgpath import PathCommand, SvgPathError, parse_svg_path
 from arcavex.kernel.ir.units import Dim, Insets, Matrix3, Rect, Unit
 
 __all__ = [
@@ -56,17 +58,21 @@ __all__ = [
     "LayoutNode",
     "MaskSpec",
     "Matrix3",
+    "PathCommand",
     "Rect",
     "ResolvedCanvas",
     "ResolvedContent",
     "ResolvedImage",
+    "ResolvedPath",
     "ResolvedShape",
     "ResolvedText",
     "SizeSpec",
     "Style",
+    "SvgPathError",
     "Transform",
     "Unit",
     "canonical_bytes",
     "canonical_hash",
     "canonicalize",
+    "parse_svg_path",
 ]

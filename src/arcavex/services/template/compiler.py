@@ -54,7 +54,8 @@ from arcavex.kernel.ir.models import (
     TextRun,
     Transform,
 )
-from arcavex.kernel.ir.units import Dim
+from arcavex.kernel.ir.svgpath import END_OF_DATA, SvgPathError, parse_svg_path
+from arcavex.kernel.ir.units import Dim, px_to_pt
 from arcavex.services.assets.advice import padding_warning
 from arcavex.services.template.expressions import (
     BudgetError,
@@ -1609,7 +1610,68 @@ class Compiler:
                 )
             return CompiledShape(**common, shape=shape)
         # path
-        return CompiledPath(**common, d=str(raw.get("d", "")))
+        return self._build_path(raw, common, context, canvas, template, node_id, keypath)
+
+    def _build_path(
+        self,
+        raw: dict[str, Any],
+        common: dict[str, Any],
+        context: dict[str, Any],
+        canvas: CanvasSpec,
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> CompiledPath:
+        """Parse a path node's SVG ``d`` into point-unit commands (ARC-TPL-042 when malformed).
+
+        ``d`` coordinates are pixels from the node box's top-left, so they convert to points at
+        the canvas dpi like every other bare-px length. skia-python exposes no SVG path parser,
+        so the kernel's strict one runs here, at validation time: a malformed ``d`` is a located
+        error quoting the offending token, never a render-time exception or a silent blank.
+        """
+        line = line_of(raw, "d")
+        d_raw = raw.get("d")
+        if d_raw is None or (isinstance(d_raw, str) and not d_raw.strip()):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-042",
+                    f"Path node {node_id!r} has no path data",
+                    file=str(template),
+                    keypath=f"{keypath}.d",
+                    line=line if line is not None else node_line(raw),
+                    hint=(
+                        "Add 'd:' with SVG path data such as 'M 0 0 L 100 0 L 100 100 Z'; "
+                        "coordinates are pixels from the node's top-left corner."
+                    ),
+                )
+            )
+        d = self._resolve_text(str(d_raw), context, template, node_id, f"{keypath}.d", line)
+        try:
+            commands = parse_svg_path(d)
+        except SvgPathError as exc:
+            where = (
+                "at the end of the data"
+                if exc.token == END_OF_DATA
+                else f"near {exc.token!r} (offset {exc.index})"
+            )
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-042",
+                    f"Path node {node_id!r} has malformed path data: {exc.reason}",
+                    file=str(template),
+                    keypath=f"{keypath}.d",
+                    line=line,
+                    hint=(
+                        f"Fix 'd' {where}. Commands are M L H V C S Q T A Z (upper-case "
+                        "absolute, lower-case relative), each followed by its numbers; an arc's "
+                        "two flags are 0 or 1."
+                    ),
+                )
+            ) from exc
+        factor = px_to_pt(1.0, canvas.dpi)
+        return CompiledPath(
+            **common, d=d, commands=tuple(command.scaled(factor) for command in commands)
+        )
 
     # --------------------------------------------------------------- structural constructs
     def _expand_child(

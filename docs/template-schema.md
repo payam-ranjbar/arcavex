@@ -111,7 +111,7 @@ Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`,
 | `text` | Live shaped text (`text:` or a `runs:` list). Supports [`style`](#style-keys), [`paragraph`](#paragraph), and `fit` policies. |
 | `image` | References an `asset:` (template-relative path). `fit:` is `fill`/`contain`/`cover`. |
 | `shape` | `rect`, `rrect`, or `circle`; or a [`generator:`](#shape-generator-parameters) (`starburst`, `speech_bubble`, `qr_code`). Painted by the `style` [paint keys](#style-keys). |
-| `path` | A vector path. Geometry effects (e.g. `torn-paper`) apply to `shape`/`path` nodes only. |
+| `path` | A vector path: `d` holds SVG path data (`M L H V C S Q T A Z`, absolute or relative, with implicit repeats) whose coordinates are **pixels from the node box's top-left**, converted to points at the format's dpi like any bare-px length — the box positions the drawing and does not scale or clip it. Painted by the `style` [paint keys](#style-keys) (`fill`, `stroke`, `stroke_width`). Malformed or missing `d` is `ARC-TPL-042`, quoting the offending token. Geometry effects (e.g. `torn-paper`) apply to `shape`/`path` nodes only. |
 
 Common fields on any node: `visible: true|false` (a hidden node and its subtree are not rendered),
 `z` (draw order within siblings), `style`, `style_role`, `constraints`, `transform`
@@ -139,7 +139,7 @@ Writing any of them at node level is a located error whose hint names the real h
 
 `style:` is one vocabulary shared by every node kind — these thirteen keys are the only ones
 accepted, and a typo is `ARC-TPL-051` with the valid list in its hint. Paint keys draw only on a
-`shape`; typography keys are read only by a `text` node. A paint key on a `group`, `text`, or
+`shape` or `path`; typography keys are read only by a `text` node. A paint key on a `group`, `text`, or
 `image` warns (`ARC-TPL-104` — the render is unchanged); a typography key on a `shape` or `image`
 validates and does nothing. Lengths take `px` (a bare number), `pt`, or `mm` — not `%` — and are
 converted to points at the format's dpi; colors are as in [Units and colors](#units-and-colors).
@@ -148,9 +148,9 @@ weights, and `opacity` are literals — vary them per format with a [patch](#pat
 
 | Key | Applies to | Type / units | Default | Notes |
 |---|---|---|---|---|
-| `fill` | `shape` | color | none (no fill) | The interior paint. |
-| `stroke` | `shape` | color | none (no outline) | Drawn only when `stroke_width` is above `0`. |
-| `stroke_width` | `shape` | length | `0` | `0` disables the stroke even when `stroke` is set. |
+| `fill` | `shape`, `path` | color | none (no fill) | The interior paint. |
+| `stroke` | `shape`, `path` | color | none (no outline) | Drawn only when `stroke_width` is above `0`. |
+| `stroke_width` | `shape`, `path` | length | `0` | `0` disables the stroke even when `stroke` is set; the stroke is centred on the outline. |
 | `corner_radius` | `shape` | length | `0` | Rounds `rect` and `rrect`; `circle` and generators ignore it. |
 | `opacity` | `shape`, `image` | number `0`–`1` | `1` | Multiplies the node's own paint; `0` hides any node and its subtree. Text, and a plain group's children, ignore it unless the node carries `effects:` (the element then composites as one layer). |
 | `font` | `text` | family name, or a list in fallback order | `Inter` | Must be in the bundled font DB (`ARC-RND-010`, exit 3, lists the families; `arcavex font add` installs more). |
@@ -165,8 +165,8 @@ weights, and `opacity` are literals — vary them per format with a [patch](#pat
 `line_height` is recognised but unsupported in this build: writing it is `ARC-TPL-053`, not a
 silent no-op (see [known-limitations.md](known-limitations.md)). A `runs:` entry is a string or a
 mapping of `text` plus any of `font`, `font_size`, `font_weight`, `italic`, `color`, and
-`letter_spacing`, each overriding the node's `style` for that run. A `path` node accepts the paint
-keys, but its `d` is not painted in this build, so they have no visible effect there.
+`letter_spacing`, each overriding the node's `style` for that run. A `path` node takes the same
+paint keys as a `shape` (`corner_radius` excepted) and paints its `d` with them.
 
 ### `paragraph`
 

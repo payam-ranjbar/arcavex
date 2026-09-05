@@ -43,6 +43,7 @@ from arcavex.kernel.ir.models import (
     LayoutNode,
     MaskSpec,
     ResolvedImage,
+    ResolvedPath,
     ResolvedShape,
     ResolvedText,
     SourceRef,
@@ -272,8 +273,8 @@ class SkiaBackend(RendererBackend):
     ) -> None:
         """Paint the node's own content (and children) into the element surface, full opacity."""
         content = node.resolved_content
-        if isinstance(content, ResolvedShape) and plan.geometry:
-            self._paint_geometry_shape(ecanvas, node, content, plan)
+        if isinstance(content, (ResolvedShape, ResolvedPath)) and plan.geometry:
+            self._paint_geometry(ecanvas, node, content, plan)
         else:
             self._paint_content(ecanvas, node, 1.0)
         if node.kind == "group" and node.children:
@@ -287,20 +288,26 @@ class SkiaBackend(RendererBackend):
             if did_clip:
                 ecanvas.restore()  # type: ignore[attr-defined]
 
-    def _paint_geometry_shape(
-        self, canvas: object, node: LayoutNode, shape: ResolvedShape, plan: EffectPlan
+    def _paint_geometry(
+        self,
+        canvas: object,
+        node: LayoutNode,
+        content: ResolvedShape | ResolvedPath,
+        plan: EffectPlan,
     ) -> None:
-        """Apply geometry effects to the shape's path pre-raster, then fill/stroke the result."""
-        path = self._shape_path(shape, node.bounds, node.source)
+        """Apply geometry effects to the node's path pre-raster, then fill/stroke the result.
+
+        A shape's path is its primitive or generator outline; a path node's is its authored
+        ``d`` geometry. Both carry the same fill/stroke contract, so one routine serves both.
+        """
+        if isinstance(content, ResolvedShape):
+            path = self._shape_path(content, node.bounds, node.source)
+        else:
+            path = _path_geometry(content, node.bounds)
         for planned in plan.geometry:
             rng = effect_rng(self._seed, node.source_node_id, planned.index)
             path = planned.effect.apply(GeometryContext(path, planned.params, rng, node.bounds))
-        if shape.fill is not None:
-            canvas.drawPath(path, _fill_paint(shape.fill, 1.0))  # type: ignore[attr-defined]
-        if shape.stroke is not None and shape.stroke_width_pt > 0:
-            canvas.drawPath(  # type: ignore[attr-defined]
-                path, _stroke_paint(shape.stroke, shape.stroke_width_pt, 1.0)
-            )
+        _fill_and_stroke(canvas, path, content.fill, content.stroke, content.stroke_width_pt, 1.0)
 
     def _apply_color(self, image: object, color_filter: object) -> object:
         paint = skia.Paint()
@@ -331,6 +338,11 @@ class SkiaBackend(RendererBackend):
         content = node.resolved_content
         if isinstance(content, ResolvedShape):
             self._draw_shape(canvas, node.bounds, content, opacity, node.source)
+        elif isinstance(content, ResolvedPath):
+            path = _path_geometry(content, node.bounds)
+            _fill_and_stroke(
+                canvas, path, content.fill, content.stroke, content.stroke_width_pt, opacity
+            )
         elif isinstance(content, ResolvedText):
             self._draw_text(canvas, node.bounds, content)
         elif isinstance(content, ResolvedImage):
@@ -385,12 +397,9 @@ class SkiaBackend(RendererBackend):
     ) -> None:
         if shape.generator is not None:
             path = self._shape_path(shape, bounds, source)
-            if shape.fill is not None:
-                canvas.drawPath(path, _fill_paint(shape.fill, opacity))  # type: ignore[attr-defined]
-            if shape.stroke is not None and shape.stroke_width_pt > 0:
-                canvas.drawPath(  # type: ignore[attr-defined]
-                    path, _stroke_paint(shape.stroke, shape.stroke_width_pt, opacity)
-                )
+            _fill_and_stroke(
+                canvas, path, shape.fill, shape.stroke, shape.stroke_width_pt, opacity
+            )
             return
         rect = _skrect(bounds)
         if shape.fill is not None:
@@ -677,6 +686,52 @@ def _target_pixels(
 
 def _visible(node: LayoutNode) -> bool:
     return node.visible and node.opacity > 0.0
+
+
+def _path_geometry(content: ResolvedPath, bounds: Rect) -> skia.Path:
+    """Build a path node's Skia path: its point-unit commands translated to the box origin."""
+    ox, oy = bounds.x, bounds.y
+    path = skia.Path()
+    for command in content.commands:
+        a = command.args
+        if command.op == "M":
+            path.moveTo(a[0] + ox, a[1] + oy)
+        elif command.op == "L":
+            path.lineTo(a[0] + ox, a[1] + oy)
+        elif command.op == "C":
+            path.cubicTo(a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy, a[4] + ox, a[5] + oy)
+        elif command.op == "Q":
+            path.quadTo(a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy)
+        elif command.op == "A":
+            # SVG's sweep flag 1 means clockwise, which is skia's kCW (whose int value is 0),
+            # so the flag maps by meaning, not by value.
+            path.arcTo(
+                a[0],
+                a[1],
+                a[2],
+                skia.Path.ArcSize.kLarge_ArcSize if a[3] else skia.Path.ArcSize.kSmall_ArcSize,
+                skia.PathDirection.kCW if a[4] else skia.PathDirection.kCCW,
+                a[5] + ox,
+                a[6] + oy,
+            )
+        else:
+            path.close()
+    return path
+
+
+def _fill_and_stroke(
+    canvas: object,
+    path: object,
+    fill: tuple[float, float, float, float] | None,
+    stroke: tuple[float, float, float, float] | None,
+    stroke_width_pt: float,
+    opacity: float,
+) -> None:
+    """Fill, then stroke, an arbitrary path with the shared shape paint rules."""
+    if fill is not None:
+        canvas.drawPath(path, _fill_paint(fill, opacity))  # type: ignore[attr-defined]
+    if stroke is not None and stroke_width_pt > 0:
+        canvas.drawPath(path, _stroke_paint(stroke, stroke_width_pt, opacity))  # type: ignore[attr-defined]
 
 
 def _skrect(bounds: Rect) -> object:
