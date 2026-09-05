@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arcavex.kernel.diagnostics import has_errors
 from arcavex.kernel.ir.models import CompiledGroup, CompiledShape, CompiledText
 from arcavex.services.template.compiler import Compiler
@@ -518,3 +520,96 @@ def test_list_rooted_data_file_rejected(tmp_path: Path) -> None:
     data.write_text("- 1\n- 2\n", encoding="utf-8")
     result = Compiler().compile(template, data, "square", None, None)
     assert any(d.code == "ARC-TPL-012" for d in result.diagnostics)
+
+
+# ------------------------------------------------------------- basis-free lengths refuse '%'
+_PERCENT_NODE = """
+version: 0.1.0
+formats:
+  square: {canvas: {width: 200px, height: 200px, dpi: 96}}
+root:
+  type: group
+  id: root
+  children:
+    - id: n
+      type: %(kind)s
+%(body)s
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 100px, h: 100px}
+"""
+
+
+def _percent_diag(tmp_path: Path, kind: str, body: str):  # noqa: ANN202
+    template = _write(tmp_path, _PERCENT_NODE % {"kind": kind, "body": body})
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is None
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-011", diag.model_dump()
+    assert diag.source is not None
+    assert "px" in (diag.hint or "") and "pt" in (diag.hint or "") and "mm" in (diag.hint or "")
+    return diag
+
+
+@pytest.mark.parametrize("field", ["stroke_width", "corner_radius", "letter_spacing", "font_size"])
+def test_percentage_style_length_is_a_located_error(tmp_path: Path, field: str) -> None:
+    """A style length has no parent basis, so '5%' is refused at validation, not at render."""
+    diag = _percent_diag(tmp_path, "shape", f"      style: {{fill: '#FF0000', {field}: 5%}}")
+    assert diag.source is not None
+    assert diag.source.keypath == f"root.children[0].style.{field}"
+    assert diag.source.line == 11
+
+
+def test_percentage_run_override_is_a_located_error(tmp_path: Path) -> None:
+    diag = _percent_diag(
+        tmp_path, "text", "      runs:\n        - {text: hi, font_size: 50%}"
+    )
+    assert diag.source is not None and diag.source.keypath == "root.children[0].runs[0].font_size"
+
+
+def test_percentage_fit_min_size_is_a_located_error(tmp_path: Path) -> None:
+    diag = _percent_diag(
+        tmp_path, "text", "      text: hi\n      fit: {policy: shrink_to_fit, min_size: 50%}"
+    )
+    assert diag.source is not None and diag.source.keypath == "root.children[0].fit.min_size"
+
+
+@pytest.mark.parametrize(
+    ("body", "keypath"),
+    [
+        ("      layout: vstack\n      gap: 5%", "root.children[0].gap"),
+        ("      layout: vstack\n      padding: 5%", "root.children[0].padding"),
+        ("      layout: vstack\n      padding: {top: 5%}", "root.children[0].padding.top"),
+    ],
+)
+def test_percentage_stack_spacing_is_a_located_error(
+    tmp_path: Path, body: str, keypath: str
+) -> None:
+    diag = _percent_diag(tmp_path, "group", body)
+    assert diag.source is not None and diag.source.keypath == keypath
+
+
+def test_percentage_size_clamp_is_a_located_error(tmp_path: Path) -> None:
+    template = _write(
+        tmp_path,
+        (_PERCENT_NODE % {"kind": "shape", "body": "      style: {fill: '#FF0000'}"}).replace(
+            "size: {w: 100px, h: 100px}", "size: {w: {value: 50%, min: 10%}, h: 100px}"
+        ),
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-011"
+    assert diag.source is not None
+    assert diag.source.keypath == "root.children[0].constraints.size.w.min"
+
+
+def test_percentage_canvas_dimension_is_a_located_error(tmp_path: Path) -> None:
+    template = _write(
+        tmp_path,
+        "version: 0.1.0\nformats:\n  square: {canvas: {width: 50%, height: 400px, dpi: 96}}\n"
+        "root: {type: group, id: root, children: []}\n",
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-011"
+    assert diag.source is not None and diag.source.keypath == "formats.square.canvas.width"

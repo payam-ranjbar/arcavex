@@ -1346,21 +1346,23 @@ class Compiler:
                     hint="Use a positive integer such as 96 or 300.",
                 )
             )
-        width = _dim(
-            canvas_raw.get("width"), template, f"{base}.width", line_of(canvas_raw, "width")
+        width_pt = _absolute_pt(
+            canvas_raw.get("width"), dpi, template, f"{base}.width", line_of(canvas_raw, "width")
         )
-        height = _dim(
-            canvas_raw.get("height"), template, f"{base}.height", line_of(canvas_raw, "height")
+        height_pt = _absolute_pt(
+            canvas_raw.get("height"), dpi, template, f"{base}.height",
+            line_of(canvas_raw, "height"),
         )
         bleed_pt = 0.0
         if "bleed" in canvas_raw:
-            bleed_pt = _dim(
-                canvas_raw.get("bleed"), template, f"{base}.bleed", line_of(canvas_raw, "bleed")
-            ).to_pt(dpi)
+            bleed_pt = _absolute_pt(
+                canvas_raw.get("bleed"), dpi, template, f"{base}.bleed",
+                line_of(canvas_raw, "bleed"),
+            )
         return (
             CanvasSpec(
-                width_pt=width.to_pt(dpi),
-                height_pt=height.to_pt(dpi),
+                width_pt=width_pt,
+                height_pt=height_pt,
                 dpi=dpi,
                 bleed_pt=bleed_pt,
             ),
@@ -2463,7 +2465,9 @@ class Compiler:
         dpi = canvas.dpi
         gap = 0.0
         if "gap" in raw:
-            gap = _dim(raw.get("gap"), template, f"{keypath}.gap", line_of(raw, "gap")).to_pt(dpi)
+            gap = _absolute_pt(
+                raw.get("gap"), dpi, template, f"{keypath}.gap", line_of(raw, "gap")
+            )
         pt, pr, pb, pl = self._parse_padding(raw.get("padding"), dpi, template, node_id, keypath)
         main_align = raw.get("main_align", "start")
         if main_align not in _MAIN_ALIGNS:
@@ -2520,15 +2524,23 @@ class Compiler:
         if isinstance(value, dict):
             self._reject_unknown_keys(value, _PADDING_KEYS, "padding", template, node_id, kp)
             return (
-                _dim(value.get("top", 0), template, f"{kp}.top").to_pt(dpi),
-                _dim(value.get("right", 0), template, f"{kp}.right").to_pt(dpi),
-                _dim(value.get("bottom", 0), template, f"{kp}.bottom").to_pt(dpi),
-                _dim(value.get("left", 0), template, f"{kp}.left").to_pt(dpi),
+                _absolute_pt(
+                    value.get("top", 0), dpi, template, f"{kp}.top", line_of(value, "top")
+                ),
+                _absolute_pt(
+                    value.get("right", 0), dpi, template, f"{kp}.right", line_of(value, "right")
+                ),
+                _absolute_pt(
+                    value.get("bottom", 0), dpi, template, f"{kp}.bottom", line_of(value, "bottom")
+                ),
+                _absolute_pt(
+                    value.get("left", 0), dpi, template, f"{kp}.left", line_of(value, "left")
+                ),
             )
         if isinstance(value, list) and len(value) == 4:
-            sides = [_dim(v, template, f"{kp}[{i}]").to_pt(dpi) for i, v in enumerate(value)]
+            sides = [_absolute_pt(v, dpi, template, f"{kp}[{i}]") for i, v in enumerate(value)]
             return sides[0], sides[1], sides[2], sides[3]
-        p = _dim(value, template, kp).to_pt(dpi)
+        p = _absolute_pt(value, dpi, template, kp)
         return p, p, p, p
 
     # ----------------------------------------------------------------------- text
@@ -2620,8 +2632,9 @@ class Compiler:
         self._check_fonts(families, template, node_id, keypath, line_of(run_raw, "font"))
         font_size = run_raw.get("font_size")
         size_pt = (
-            _dim(font_size, template, f"{keypath}.font_size", line_of(run_raw, "font_size")).to_pt(
-                canvas.dpi
+            _absolute_pt(
+                font_size, canvas.dpi, template, f"{keypath}.font_size",
+                line_of(run_raw, "font_size"),
             )
             if font_size is not None
             else None
@@ -2640,7 +2653,10 @@ class Compiler:
             italic=bool(run_raw["italic"]) if "italic" in run_raw else None,
             color=color,
             letter_spacing_pt=(
-                _dim(letter_spacing, template, f"{keypath}.letter_spacing").to_pt(canvas.dpi)
+                _absolute_pt(
+                    letter_spacing, canvas.dpi, template, f"{keypath}.letter_spacing",
+                    line_of(run_raw, "letter_spacing"),
+                )
                 if letter_spacing is not None
                 else None
             ),
@@ -2729,8 +2745,8 @@ class Compiler:
             )
         min_size = f.get("min_size")
         min_pt = (
-            _dim(min_size, template, f"{keypath}.fit.min_size", line_of(f, "min_size")).to_pt(
-                canvas.dpi
+            _absolute_pt(
+                min_size, canvas.dpi, template, f"{keypath}.fit.min_size", line_of(f, "min_size")
             )
             if min_size is not None
             else None
@@ -2955,13 +2971,13 @@ class Compiler:
                 f"{keypath}.constraints.size.{axis}",
             )
             if "min" in value:
-                min_pt = _dim(
-                    value.get("min"), template, f"{keypath}.constraints.size.{axis}.min", line
-                ).to_pt(dpi)
+                min_pt = _absolute_pt(
+                    value.get("min"), dpi, template, f"{keypath}.constraints.size.{axis}.min", line
+                )
             if "max" in value:
-                max_pt = _dim(
-                    value.get("max"), template, f"{keypath}.constraints.size.{axis}.max", line
-                ).to_pt(dpi)
+                max_pt = _absolute_pt(
+                    value.get("max"), dpi, template, f"{keypath}.constraints.size.{axis}.max", line
+                )
             if "aspect" in value:
                 aw, ah = _parse_aspect(
                     value.get("aspect"), template, node_id, keypath, axis, line
@@ -3135,7 +3151,7 @@ class Compiler:
         self._check_fonts(families, template, node_id, style_kp, line_of(s, "font"))
         font_size = s.get("font_size")
         font_size_pt = (
-            _dim(font_size, template, f"{style_kp}.font_size", line_of(s, "font_size")).to_pt(dpi)
+            _absolute_pt(font_size, dpi, template, f"{style_kp}.font_size", line_of(s, "font_size"))
             if font_size is not None
             else None
         )
@@ -3168,18 +3184,18 @@ class Compiler:
             fill=fill,
             stroke=stroke,
             stroke_width_pt=(
-                _dim(stroke_width, template, f"{style_kp}.stroke_width", line_of(s, "stroke_width"))
-                .to_pt(dpi)
+                _absolute_pt(
+                    stroke_width, dpi, template, f"{style_kp}.stroke_width",
+                    line_of(s, "stroke_width"),
+                )
                 if stroke_width is not None
                 else 0.0
             ),
             corner_radius_pt=(
-                _dim(
-                    corner_radius,
-                    template,
-                    f"{style_kp}.corner_radius",
+                _absolute_pt(
+                    corner_radius, dpi, template, f"{style_kp}.corner_radius",
                     line_of(s, "corner_radius"),
-                ).to_pt(dpi)
+                )
                 if corner_radius is not None
                 else 0.0
             ),
@@ -3198,10 +3214,10 @@ class Compiler:
             direction=direction,
             line_height=None,
             letter_spacing_pt=(
-                _dim(
-                    letter_spacing, template, f"{style_kp}.letter_spacing",
+                _absolute_pt(
+                    letter_spacing, dpi, template, f"{style_kp}.letter_spacing",
                     line_of(s, "letter_spacing"),
-                ).to_pt(dpi)
+                )
                 if letter_spacing is not None
                 else 0.0
             ),
@@ -3684,6 +3700,37 @@ def _dim(value: Any, template: Path, keypath: str, line: int | None = None) -> D
                 hint="Use a number with an optional unit: px, pt, mm, or %.",
             )
         ) from exc
+
+
+def _absolute_pt(
+    value: Any, dpi: float, template: Path, keypath: str, line: int | None = None
+) -> float:
+    """Resolve a length that has no parent extent to points; a percentage is refused.
+
+    Only a size axis has something to be a percentage *of*. Style lengths (``font_size``,
+    ``stroke_width``, ``corner_radius``, ``letter_spacing``) and run overrides, a stack's ``gap``
+    and ``padding``, a size axis's ``min``/``max`` clamps, a text fit's ``min_size``, and the
+    canvas itself resolve with no basis, and ``Dim.to_pt`` would raise a bare ``ValueError`` for
+    a percentage there — which used to surface at render time as ARC-INT-999. Refusing it here
+    keeps the failure at validation, located, and specific about which units are accepted.
+    """
+    dim = _dim(value, template, keypath, line)
+    if dim.is_relative:
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-011",
+                f"Invalid dimension {value!r} at {keypath}: this length has nothing to be a "
+                "percentage of",
+                file=str(template),
+                keypath=keypath,
+                line=line,
+                hint=(
+                    "Use px (a bare number), pt, or mm here; only a size axis "
+                    "(constraints.size) takes a percentage of its parent."
+                ),
+            )
+        )
+    return dim.to_pt(dpi)
 
 
 def _parse_aspect(

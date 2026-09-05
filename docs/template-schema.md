@@ -141,8 +141,9 @@ Writing any of them at node level is a located error whose hint names the real h
 accepted, and a typo is `ARC-TPL-051` with the valid list in its hint. Paint keys draw only on a
 `shape` or `path`; typography keys are read only by a `text` node. A paint key on a `group`, `text`, or
 `image` warns (`ARC-TPL-104` — the render is unchanged); a typography key on a `shape` or `image`
-validates and does nothing. Lengths take `px` (a bare number), `pt`, or `mm` — not `%` — and are
-converted to points at the format's dpi; colors are as in [Units and colors](#units-and-colors).
+validates and does nothing. Lengths take `px` (a bare number), `pt`, or `mm` — a `%` is
+`ARC-IR-011`, since a style length has nothing to be a percentage of — and are converted to
+points at the format's dpi; colors are as in [Units and colors](#units-and-colors).
 Only the three color keys accept `{{ }}` expressions (a palette entry, a `color` variable); lengths,
 weights, and `opacity` are literals — vary them per format with a [patch](#patches).
 
@@ -339,7 +340,9 @@ Text metrics are paragraph-level and `line_height` is not yet honored — see
 
 ## Units and colors
 
-Bare numbers are pixels; `px`, `pt`, `mm`, and `%` are also accepted (`1080` == `1080px`). The
+Bare numbers are pixels; `px`, `pt`, `mm`, and `%` are also accepted (`1080` == `1080px`), though
+`%` only where a parent extent exists — a size axis. A style length, a stack's `gap`/`padding`, a
+size `min`/`max`, a fit `min_size`, or a canvas dimension written as a percentage is `ARC-IR-011`. The
 exception is component parameters — [effect](#effects) and
 [shape-generator](#shape-generator-parameters) lengths — where a bare number is points. Colors
 are `#RGB`/`#RRGGBB`/`#RRGGBBAA`, `rgb()`/`rgba()` (channels must be in range), or a named CSS basic
