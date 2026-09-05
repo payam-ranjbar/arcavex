@@ -47,9 +47,11 @@ from arcavex.kernel.ir.models import (
     CompiledNode,
     LayoutDocument,
     LayoutNode,
+    ResolvedShape,
+    ResolvedText,
     SourceRef,
 )
-from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Rect
+from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Matrix3, Rect
 from arcavex.kernel.pipeline import layout_and_render
 from arcavex.kernel.registry import Registries
 
@@ -84,6 +86,17 @@ _GEOMETRY_EPS_PT = 10 * GEOMETRY_QUANTUM_PT
 # a thin diagonal strip spanning the region qualifies, a true background at 0.88 does not. An
 # explicit authoring flag would replace it; see docs/backlog.md.
 _BACKDROP_AREA_FRACTION = 0.9
+
+# An intersection no deeper than this on its short side, or smaller than this fraction of the
+# smaller of the two boxes, is a graze and is reported as ``touch`` rather than ``content``. One
+# point is where a correction stops being visible: 1.3px at 96 dpi, inside the anti-aliased edge a
+# rasterizer draws anyway. Two percent of the smaller box's area is the corner-nick regime — along
+# a full edge it is a sliver 2% of that box's depth, at a corner an overlap of ~14% of each side —
+# a nudge, not a re-layout. Both are measured on the collision boxes (``_collision_rect``): a text
+# node's line box is taller than its glyphs, so a graze that only reaches a font's leading still
+# counts by the leading's full depth.
+_TOUCH_MAX_DEPTH_PT = 1.0
+_TOUCH_MAX_AREA_FRACTION = 0.02
 
 # Resolution of the canvas-coverage grid used by `covered_fraction` and `free_regions`. 64x64
 # over the shortest supported canvas edge is a cell of a few points, fine enough to locate an
@@ -1422,16 +1435,28 @@ class LayoutNodeReport(BaseModel):
     children: list[LayoutNodeReport] = Field(default_factory=list)
 
 
+OverlapKind = Literal["content", "touch", "halo"]
+
+
 class SiblingOverlap(BaseModel):
     """Two sibling nodes whose resolved bounds intersect, classified by what collides.
 
     ``kind``:
 
-    - ``content`` — the nodes' layout bounds (post-rotation AABB, no effect growth) intersect.
-      ``rect_pt`` is the colliding area, so its size is the depth to correct.
+    - ``content`` — the nodes' collision boxes intersect: the layout bounds (post-rotation AABB,
+      no effect growth), narrowed for an unrotated text node to its shaped width along the
+      paragraph alignment. ``rect_pt`` is the colliding area, so its size is the depth to correct.
+    - ``touch`` — the collision boxes intersect, but by no more than 1pt on the short side or by
+      under 2% of the smaller box's area: a graze or a corner nick, usually intended. ``rect_pt``
+      is the same content intersection.
     - ``halo`` — only the effect-grown ``paint_bounds`` intersect: the drop-shadow, glow or
       torn-paper amplitude of one node reaches over its neighbour. ``rect_pt`` is then the
       paint intersection, the only one that exists.
+
+    Containment by structure is not reported at all: a group, a backdrop covering ≥90% of the
+    parent region, a stroke-only frame (absent or transparent fill) drawn around the node, or a
+    filled plate painted beneath it. A filled shape painted *over* a sibling it fully covers
+    hides that sibling and is still ``content``.
 
     Scope: pairs are enumerated per group, so two nodes in different groups are never compared.
     An empty list means no sibling collisions, not that nothing on the canvas collides — on the
@@ -1447,7 +1472,7 @@ class SiblingOverlap(BaseModel):
     rect_pt: tuple[float, float, float, float]
     # Additive under response_version 1 and defaulted, so a payload serialised before the field
     # existed still parses and a consumer that ignores it is unaffected (spec §2 rule 5).
-    kind: Literal["content", "halo"] = "content"
+    kind: OverlapKind = "content"
 
 
 class LayoutReport(BaseModel):
@@ -3927,51 +3952,155 @@ def _content_aabb(node: LayoutNode) -> Rect:
     return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
 
 
+def _collision_rects(node: LayoutNode) -> tuple[Rect, Rect]:
+    """The ``(content, paint)`` boxes a node's ink and effects can occupy.
+
+    ``content`` is ``_content_aabb``, narrowed for text to the shaped width. The solver records
+    the widest line's advance width in ``overflow.measured_w_pt`` and the renderer places the
+    paragraph inside its box by the paragraph alignment, so for an unrotated, unscaled text node
+    the horizontal extent of the painted glyphs is known without another measurement pass: a
+    short centred word does not reach its box's ends. That extent is the advance width, which
+    glyph ink can exceed by a side bearing or an italic overhang — about a point, the ``touch``
+    depth. The height stays the line box: nothing measures glyph ink vertically, so a font's
+    leading (Lalezar's line box is ~1.57x its size) still counts as content. A rotated or scaled
+    node keeps its AABB, because the alignment offset is not an axis-aligned quantity there.
+
+    ``paint`` is the effect-grown box. When the content box was narrowed, the same per-side
+    growth is applied to the narrowed box: a glow surrounds the word, not the empty ends of its
+    box, and without this a plain text node would report a ``halo`` against whatever sits under
+    those ends.
+    """
+    content = _content_aabb(node)
+    paint = _canvas_paint_bounds(node)
+    narrowed = _text_extent(node, content)
+    if narrowed is None:
+        return content, paint
+    grown = Rect(
+        narrowed.x - (content.x - paint.x),
+        narrowed.y - (content.y - paint.y),
+        narrowed.w + (paint.w - content.w),
+        narrowed.h + (paint.h - content.h),
+    )
+    return narrowed, grown
+
+
+def _text_extent(node: LayoutNode, rect: Rect) -> Rect | None:
+    """``rect`` narrowed to the node's shaped text width, or ``None`` when that is not known."""
+    text = node.resolved_content
+    if not isinstance(text, ResolvedText):
+        return None
+    width = node.overflow.measured_w_pt
+    if width <= 0.0 or width >= rect.w - _GEOMETRY_EPS_PT:
+        return None
+    if not _is_translation(node.absolute_transform):
+        return None
+    align = _physical_align(text.align, text.direction)
+    if align == "left":
+        offset = 0.0
+    elif align == "right":
+        offset = rect.w - width
+    else:
+        offset = (rect.w - width) / 2.0
+    return Rect(rect.x + offset, rect.y, width, rect.h)
+
+
+def _is_translation(m: Matrix3) -> bool:
+    """Whether the affine map moves points without rotating, scaling or shearing them."""
+    eps = 1e-9
+    return (
+        abs(m.a - 1.0) <= eps and abs(m.b) <= eps and abs(m.c) <= eps and abs(m.d - 1.0) <= eps
+    )
+
+
+def _physical_align(align: str, direction: str) -> str:
+    """Resolve a logical ``start``/``end`` alignment to a side, as the text service lays it out."""
+    if align in ("left", "right", "center"):
+        return align
+    if align == "end":
+        return "left" if direction == "rtl" else "right"
+    return "right" if direction == "rtl" else "left"
+
+
 def _classify_overlap(
     ca: Rect, cb: Rect, pa: Rect, pb: Rect
-) -> tuple[Literal["content", "halo"], tuple[float, float, float, float]] | None:
-    """Classify a sibling pair from its content and paint rects, or ``None`` if they clear.
+) -> tuple[OverlapKind, tuple[float, float, float, float]] | None:
+    """Classify a sibling pair from its collision and paint rects, or ``None`` if they clear.
 
     Content wins when the ink footprints themselves intersect, and the rect reported is then the
     content intersection — so the number an author reads is the real collision depth rather than
-    a blur radius. Otherwise only the effect-grown boxes touch, which is spill.
+    a blur radius; an intersection too shallow or too small to be a collision is a ``touch``.
+    Otherwise only the effect-grown boxes touch, which is spill.
     """
     content = _intersection(ca, cb)
     if content is not None:
-        return "content", content
+        return ("touch" if _is_touch(content, ca, cb) else "content"), content
     halo = _intersection(pa, pb)
     if halo is not None:
         return "halo", halo
     return None
 
 
+def _is_touch(inter: tuple[float, float, float, float], ca: Rect, cb: Rect) -> bool:
+    """Whether an intersection is a graze: ≤1pt on its short side, or <2% of the smaller box."""
+    _, _, w, h = inter
+    if min(w, h) <= _TOUCH_MAX_DEPTH_PT + _GEOMETRY_EPS_PT:
+        return True
+    smaller = min(ca.w * ca.h, cb.w * cb.h)
+    return smaller > 0.0 and w * h < _TOUCH_MAX_AREA_FRACTION * smaller
+
+
 def _collect_overlaps(
     children: tuple[LayoutNode, ...], overlaps: list[SiblingOverlap], region: object
 ) -> None:
-    visible = [(c, _content_aabb(c)) for c in children if c.visible]
+    # ``children`` is in paint order (document order broken by ``z``), so in every pair below
+    # ``a`` is painted beneath ``b``.
+    visible = [(c, *_collision_rects(c)) for c in children if c.visible]
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
-            (a, ca), (b, cb) = visible[i], visible[j]
-            classified = _classify_overlap(
-                ca,
-                cb,
-                _canvas_paint_bounds(a),
-                _canvas_paint_bounds(b),
-            )
+            (a, ca, pa), (b, cb, pb) = visible[i], visible[j]
+            classified = _classify_overlap(ca, cb, pa, pb)
             if classified is None:
                 continue
-            # DX-8/RR2-9: containment is suppressed as noise only when the *container* is a
-            # backdrop — a group, or a full-bleed node covering nearly the whole parent region.
-            # A regular content node that fully swallows a sibling is a genuine bug and is still
-            # reported, rather than hidden just because it happens to enclose the other.
-            if _contains(ca, cb) and _is_backdrop(a, ca, region):
+            # DX-8/RR2-9/BX-42: containment is suppressed as noise only when the *container* is
+            # structure — a backdrop, a stroke-only frame, or a filled plate painted beneath the
+            # node. A filled shape that fully covers a sibling painted before it hides that
+            # sibling, which is a genuine bug and is still reported.
+            if _contains(ca, cb) and _is_structure(a, ca, region, beneath=True):
                 continue
-            if _contains(cb, ca) and _is_backdrop(b, cb, region):
+            if _contains(cb, ca) and _is_structure(b, cb, region, beneath=False):
                 continue
             kind, rect = classified
             overlaps.append(
                 SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect, kind=kind)
             )
+
+
+def _is_structure(node: LayoutNode, content: Rect, region: object, *, beneath: bool) -> bool:
+    """Whether ``node``, which fully contains a sibling, is that sibling's structure.
+
+    Three containers legitimately enclose a sibling: a backdrop (``_is_backdrop``: a group, or a
+    leaf covering nearly the whole parent region); a stroke-only frame, whose fill is absent or
+    transparent so its only ink is the outline drawn *around* the sibling; and a filled plate
+    painted ``beneath`` the sibling — a card or a label panel. A plate painted over the sibling
+    hides it, so that pair stays a reported collision. Containment is judged on boxes: a circle
+    or generator outline that reaches inside its box is not modelled, the same limitation as a
+    rotated node's AABB.
+    """
+    if _is_backdrop(node, content, region):
+        return True
+    shape = node.resolved_content
+    if not isinstance(shape, ResolvedShape):
+        return False
+    return beneath or not _has_fill(shape)
+
+
+def _has_fill(shape: ResolvedShape) -> bool:
+    """Whether the shape paints an interior: a fill that is present and not fully transparent.
+
+    ``fill: none``/``transparent`` and an explicit zero alpha all arrive here as ``None`` or an
+    RGBA with alpha 0, so a stroke-only frame is recognised however it was spelled.
+    """
+    return shape.fill is not None and shape.fill[3] > 0.0
 
 
 def _is_backdrop(node: LayoutNode, content: Rect, region: object) -> bool:

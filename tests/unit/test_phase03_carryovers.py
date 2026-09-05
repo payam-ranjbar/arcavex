@@ -69,8 +69,8 @@ def test_rr2_8_fill_clamp_redistributes(facade, tmp_path) -> None:  # noqa: ANN0
 
 # ------------------------------------------------------------------- RR2-9
 def test_rr2_9_backdrop_containment_suppressed_but_content_reported(facade, tmp_path) -> None:  # noqa: ANN001
-    """A full-bleed backdrop enclosing a node is not an overlap; a content node swallowing a
-    sibling still is."""
+    """A backdrop, or a plate painted beneath a node, is not an overlap; a shape painted *over*
+    a sibling it fully covers still is."""
     template = _write(
         tmp_path,
         "formats: {sq: {canvas: {width: 200px, height: 200px, dpi: 96}}}\n"
@@ -83,7 +83,10 @@ def test_rr2_9_backdrop_containment_suppressed_but_content_reported(facade, tmp_
         "size: {w: 100px, h: 100px}}\n"
         "    - id: swallowed\n      type: shape\n      shape: rect\n      style: {fill: '#0ff'}\n"
         "      constraints: {anchor: {left: parent.left+60px, top: parent.top+60px}, "
-        "size: {w: 40px, h: 40px}}\n",
+        "size: {w: 40px, h: 40px}}\n"
+        "    - id: lid\n      type: shape\n      shape: rect\n      style: {fill: '#ff0'}\n"
+        "      constraints: {anchor: {left: parent.left+40px, top: parent.top+40px}, "
+        "size: {w: 100px, h: 100px}}\n",
     )
     report = facade.inspect_layout(template, format_name="sq")
     assert report.ok, [d.code for d in report.diagnostics]
@@ -91,8 +94,10 @@ def test_rr2_9_backdrop_containment_suppressed_but_content_reported(facade, tmp_
     # The full-bleed backdrop enclosing others is suppressed as noise.
     assert frozenset(("bg", "panel")) not in pairs
     assert frozenset(("bg", "swallowed")) not in pairs
-    # A regular panel fully swallowing a sibling is a genuine bug and is still reported.
-    assert frozenset(("panel", "swallowed")) in pairs
+    # A filled panel painted *beneath* the node it encloses is a card, not a collision (BX-42).
+    assert frozenset(("panel", "swallowed")) not in pairs
+    # The same box painted *over* that node hides it: a genuine bug, and the only pair reported.
+    assert pairs == {frozenset(("lid", "swallowed"))}
 
 
 # ------------------------------------------------------------------- RR2-10

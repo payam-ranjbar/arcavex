@@ -1029,21 +1029,32 @@ def _rect_pt(rect: tuple[float, float, float, float]) -> str:
 
 
 def _print_overlaps(console: Console, report: LayoutReport) -> None:
-    """Print sibling overlaps with effect spill demoted below content collisions.
+    """Print sibling overlaps with grazes and effect spill demoted below content collisions.
 
-    A halo is one node's shadow or tear reaching over its neighbour — usually the intended look.
-    Listing it alongside a real collision is what made the real one impossible to spot, so the
-    ``content`` overlaps get the heading and the ``halo`` ones a dimmed, indented subsection.
+    A touch is two boxes grazing by a point or a corner nick; a halo is one node's shadow or tear
+    reaching over its neighbour. Both are usually the intended look, and listing them alongside
+    a real collision is what made the real one impossible to spot, so the ``content`` overlaps
+    get the heading and the other two kinds a dimmed, indented subsection each.
     """
     content = [ov for ov in report.overlaps if ov.kind == "content"]
+    touch = [ov for ov in report.overlaps if ov.kind == "touch"]
     halo = [ov for ov in report.overlaps if ov.kind == "halo"]
     console.print(
-        f"[bold]overlaps[/bold]: {len(content)} content, {len(halo)} effect spill"
+        f"[bold]overlaps[/bold]: {len(content)} content, {len(touch)} touch, "
+        f"{len(halo)} effect spill"
     )
     for ov in content:
         console.print(f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}")
     if not content:
         console.print("  [dim]no content collisions[/dim]")
+    if touch:
+        console.print(
+            "  [dim]touch (≤1pt deep, or under 2% of the smaller box — usually intended):[/dim]"
+        )
+        for ov in touch:
+            console.print(
+                f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
+            )
     if halo:
         console.print("  [dim]effect spill (paint bounds only — usually intended):[/dim]")
         for ov in halo:

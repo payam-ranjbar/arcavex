@@ -174,9 +174,11 @@ nodes all clear each other, so it prints no `overlaps` section at all.
 
 Each node prints two boxes: `bounds` is the layout box, and `paint` is that box grown by rotation
 and by any effect's declared bounds expansion. Overlaps are split the same way — a `content`
-overlap means the layout boxes really intersect, while *effect spill* means only the grown boxes
-do (a drop-shadow reaching over a neighbour). Fix the first; the second is usually the intended
-look. See [overlap kinds](../cli.md#overlap-kinds).
+overlap means the boxes really intersect, a `touch` is a graze of a point or a corner nick, and
+*effect spill* means only the grown boxes do (a drop-shadow reaching over a neighbour). Fix the
+first; the other two are usually the intended look. A label sitting on the panel painted beneath
+it, or inside a stroke-only frame, is structure and is not listed at all. See
+[overlap kinds](../cli.md#overlap-kinds).
 
 ## Next
 

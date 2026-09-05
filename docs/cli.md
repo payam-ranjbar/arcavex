@@ -284,15 +284,14 @@ root group bounds (0.0, 0.0, 810.0, 810.0)pt
     paint (105.3, 226.8, 599.4, 356.4)pt
     h: center_x = parent.center_x → 405.0pt
   …
-overlaps: 2 content, 0 effect spill
-  accent ∩ title at (145.8, 352.5, 518.4, 69.0)pt
-  accent ∩ subtitle at (145.8, 450.0, 518.4, 31.0)pt
 coverage: 100% of canvas
 ```
 
-Both of those are `content` overlaps and both are intentional — the text is meant to sit on the
-accent panel. `layout inspect` reports geometry; deciding which intersections are by design is
-still the author's call.
+Nothing is listed under `overlaps`, although `title` and `subtitle` both sit inside `accent`: the
+accent panel is a filled shape painted beneath them, which `layout inspect` treats as a plate —
+structure, not a collision (the rules are under *Overlap kinds* below). `layout inspect` reports
+geometry; where a pair does get reported, deciding whether it is by design is still the author's
+call.
 
 ### Overlap kinds
 
@@ -300,19 +299,32 @@ Every overlap carries a `kind` naming what actually collided:
 
 | `kind` | Condition | What to do |
 |---|---|---|
-| `content` | The nodes' layout `bounds` intersect. | A genuine collision. `rect_pt` is the colliding area itself, so its width or height is the correction to apply. |
+| `content` | The nodes' collision boxes intersect by more than a graze. | A genuine collision. `rect_pt` is the colliding area itself, so its width or height is the correction to apply. |
+| `touch` | The collision boxes intersect, but by no more than 1pt on the short side, or by under 2% of the smaller box's area. | A graze or a corner nick — a nudge at most, usually intended. `rect_pt` is the same content intersection. |
 | `halo` | Only the effect-grown `paint` boxes intersect. | Effect spill: one node's shadow, glow or torn-paper amplitude reaches over its neighbour. Usually the intended look. |
 
-Human output lists `content` overlaps first and demotes `halo` ones into a dimmed *effect spill*
-subsection. For a poster whose `strip` casts a drop-shadow across a 10pt gap to `tag`, while
-`venue-2` genuinely bites 4pt into `venue-1`:
+A node's collision box is its layout `bounds` (the post-rotation AABB, without effect growth).
+For an unrotated text node it is narrowed to the shaped text's width, placed by the paragraph
+alignment — the solver already measured that width, so a short centred word does not collide with
+whatever sits under the empty ends of its box. The height is not narrowed: nothing measures glyph
+ink vertically, so a font's leading still counts (Lalezar's line box is about 1.57× its size), and
+two lines set with negative leading are reported as `content` even where their glyphs clear.
+
+Human output lists `content` overlaps first and demotes `touch` and `halo` ones into dimmed
+subsections. For a poster whose `strip` casts a drop-shadow across a 10pt gap to `tag`, where
+`venue-2` genuinely bites 4pt into `venue-1`, and two swatches graze by 1pt:
 
 ```
-overlaps: 1 content, 1 effect spill
-  venue-1 ∩ venue-2 at (20.0, 236.0, 200.0, 4.0)pt
+overlaps: 1 content, 1 touch, 1 effect spill
+  venue-1 ∩ venue-2 at (20.0, 236.0, 100.5, 4.0)pt
+  touch (≤1pt deep, or under 2% of the smaller box — usually intended):
+    nick-1 ∩ nick-2 at (20.0, 339.0, 100.0, 1.0)pt
   effect spill (paint bounds only — usually intended):
     strip ∩ tag at (130.0, 20.0, 50.0, 40.0)pt
 ```
+
+The venue collision is 100.5pt wide, not the 200pt of the boxes: the rect is the intersection of
+the two lines' shaped widths, so it is the real collision, not the boxes'.
 
 `--json` and the `arcavex_layout_inspect` MCP tool carry `kind` on every overlap, so an agent
 filters on it directly rather than re-deriving the distinction from geometry:
@@ -326,10 +338,16 @@ A rotated node contributes its axis-aligned bounding box, not its rotated outlin
 nodes that visually clear each other can therefore still report a `content` overlap; the per-node
 `paint` box is what makes that arithmetic checkable by hand.
 
-Full-bleed backdrops and groups that enclose their siblings are suppressed rather than reported —
-containment by a node covering ≥90% of its parent region, or by a group, is structure, not a
-collision. A node's shadow cannot buy it that exemption: the threshold is measured on the layout
-box, not the paint box.
+**Containment by structure is not reported.** A node fully inside a sibling that is a group, a
+backdrop covering ≥90% of the parent region, a stroke-only frame (its fill absent, `none`,
+`transparent` or alpha 0 — the outline is drawn *around* the node), or a filled plate painted
+beneath it (a card under its label; paint order is document order broken by `z`) is layering, not
+a collision, and the pair is left out. A filled shape painted *over* a sibling it fully covers
+hides that sibling and is still reported as `content`; a frame that only partially overlaps a
+neighbour runs its outline through it and is reported too. A node's shadow cannot buy it the
+backdrop exemption: the 90% threshold is measured on the layout box, not the paint box.
+Containment is judged on boxes, so a circle or generator outline that reaches inside its own box
+is not modelled — the same limitation as a rotated node's AABB.
 
 **Pairs are enumerated within each group.** Two nodes in different groups are never compared, so
 an empty `overlaps` list means no sibling collisions, not that nothing on the canvas collides —
