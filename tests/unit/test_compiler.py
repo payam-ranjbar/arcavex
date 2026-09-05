@@ -679,3 +679,45 @@ def test_opacity_accepts_the_closed_unit_interval(tmp_path: Path, value: str) ->
     result = Compiler().compile(template, None, "square", None, None)
     assert result.document is not None, [d.model_dump() for d in result.diagnostics]
     assert result.document.root.children[0].style.opacity == float(value)
+
+
+def test_missing_size_hint_names_the_span_and_inset_idioms(tmp_path: Path) -> None:
+    """ARC-LAY-032 says how to reach both edges, so an author does not reach for two anchors."""
+    template = _write(
+        tmp_path,
+        """
+version: 0.1.0
+formats:
+  square: {canvas: {width: 100px, height: 100px, dpi: 96}}
+root:
+  type: group
+  id: root
+  children:
+    - id: frame
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+    - id: bar
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {h: 10px}
+""",
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    whole = next(d for d in result.diagnostics if d.code == "ARC-LAY-032")
+    assert whole.hint is not None and "'fill'" in whole.hint and "vstack" in whole.hint
+    # The per-axis form is reached once the first node is fixed.
+    fixed = template.read_text(encoding="utf-8").replace(
+        "        anchor: {top: parent.top, left: parent.left}\n    - id: bar",
+        "        anchor: {top: parent.top, left: parent.left}\n        size: {w: fill, h: fill}"
+        "\n    - id: bar",
+    )
+    template.write_text(fixed, encoding="utf-8")
+    result = Compiler().compile(template, None, "square", None, None)
+    axis = next(d for d in result.diagnostics if d.code == "ARC-LAY-032")
+    assert axis.source is not None and axis.source.keypath is not None
+    assert axis.source.keypath.endswith("constraints.size.w")
+    assert axis.hint is not None and "'fill'" in axis.hint and "inset" in axis.hint

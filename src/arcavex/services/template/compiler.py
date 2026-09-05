@@ -2893,7 +2893,10 @@ class Compiler:
                     line=size_line,
                     hint=(
                         "Add 'size: {w: ..., h: ...}' — each of "
-                        f"{_size_options_for(node_type)}."
+                        f"{_size_options_for(node_type)}. To span the parent on an axis use "
+                        "'fill' with one anchor on that axis; for an inset frame, anchor one "
+                        "edge and use a % of the parent, or wrap the content in a "
+                        "'layout: vstack' group with 'padding' and a fill-sized child."
                     ),
                 )
             )
@@ -2965,7 +2968,11 @@ class Compiler:
                         file=str(template),
                         keypath=f"{keypath}.constraints.size.{axis}",
                         line=line,
-                        hint=f"Give this axis {_size_options_for(node_type)}.",
+                        hint=(
+                            f"Give this axis {_size_options_for(node_type)}. 'fill' spans the "
+                            "parent from the axis's one anchor; a % of the parent makes an "
+                            "inset frame."
+                        ),
                     )
                 )
             return SizeSpec(mode="fill")

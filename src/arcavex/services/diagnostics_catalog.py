@@ -652,8 +652,16 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-LAY-031",
             "Node over-constrained",
-            "A node resolves more than one position on an axis.",
-            "Keep exactly one anchor per axis; size comes from the size spec.",
+            "A node resolves more than one position on an axis — for example both 'left' and "
+            "'right' — because two anchors were given where the engine positions with exactly "
+            "one anchor and one size per axis. Two anchors is almost always a way of saying "
+            "\"reach both edges\", and that is said with the size.",
+            "Keep exactly one anchor per axis; size comes from the size spec. To span the "
+            "parent, anchor one edge and size to it — 'anchor: {left: parent.left}', "
+            "'size: {w: fill}' (or a percentage). For an inset frame, anchor one edge with an "
+            "offset and set that axis to a percentage of the parent, or wrap the content in a "
+            "'layout: vstack' group with 'padding' and give the child 'size: {w: fill, h: "
+            "fill}'.",
         ),
         _e(
             "ARC-LAY-021",
@@ -667,9 +675,28 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-LAY-032",
             "Node missing a size",
-            "A node has constraints but no complete size for one or both axes.",
+            "A node has constraints but no complete size for one or both axes. Anchors only "
+            "position a node; every axis also needs a size, and a second anchor is not a way "
+            "to give one (that is ARC-LAY-031).",
             "Add 'size: {w: ..., h: ...}' — each of fixed (e.g. 100px), a %, 'fill', "
-            "'fit_content', or {aspect: 'W:H'}.",
+            "'fit_content' (text only), or {aspect: 'W:H'}. To span the parent on an axis use "
+            "'fill' with one anchor on that axis; for an inset frame, anchor one edge and use "
+            "a % of the parent, or wrap the content in a 'layout: vstack' group with 'padding' "
+            "and give the child 'size: {w: fill, h: fill}'.",
+        ),
+        _e(
+            "ARC-LAY-033",
+            "Fill-sized node overshoots its parent",
+            "A node sized 'fill' on an axis is anchored with an offset (or to a sibling's "
+            "edge), so the far edge lands past the parent by that amount. 'fill' spans the "
+            "whole parent; it does not shrink to what the anchor leaves. This is a warning, not "
+            "an error: the render succeeds and the overshoot is clipped, which is what an "
+            "author sees as \"the frame is cut off on one side\". The message names the "
+            "overshoot in points.",
+            "For an inset, keep the anchor and size that axis as a percentage of the parent (or "
+            "a fixed length), or wrap the content in a 'layout: vstack' group with 'padding' "
+            "and give the child 'size: {w: fill, h: fill}'. If reaching past the parent is "
+            "intended, the warning can be ignored.",
         ),
         _e(
             "ARC-LAY-050",
