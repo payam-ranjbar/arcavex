@@ -85,7 +85,7 @@ run. What stays shell-only is extension authoring, font installation, and image 
 | Recorded direct render (template + data, with a run manifest) | `arcavex render --record` | `arcavex_render_record` |
 | Recorded, reproducible render of a project | `arcavex render` inside the project, or `arcavex render --project DIR` | `arcavex_project_render` |
 | Recorded runs: list, compare, repeat | `arcavex list-runs`, `arcavex diff`, `arcavex rerun` | `arcavex_run_list`, `arcavex_run_diff`, `arcavex_run_rerun` |
-| Vocabulary | `arcavex effects list`, `arcavex style list`, `arcavex style inspect`, `arcavex font list` | `arcavex_effects_list`, `arcavex_style_list`, `arcavex_style_inspect`, `arcavex_font_list` |
+| Vocabulary | `arcavex effects list`, `arcavex shapes list`, `arcavex style list`, `arcavex style inspect`, `arcavex font list` | `arcavex_effects_list`, `arcavex_shape_list`, `arcavex_style_list`, `arcavex_style_inspect`, `arcavex_font_list` |
 | Explain a diagnostic code | `arcavex explain ARC-…` | `arcavex_diagnostic_explain` |
 | Author an effect | `arcavex ext scaffold`, `arcavex ext validate`, `arcavex ext test`, `arcavex ext add`, `arcavex ext enable` | **not exposed — shell only** |
 | Install a font | `arcavex font add PATH` | **not exposed — shell only** |

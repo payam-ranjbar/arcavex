@@ -80,17 +80,15 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 
 | Prefix | Count | Domain | Representative codes |
 |---|---|---|---|
-| `ARC-TPL` | 66 | Template loading, variables, formats, nodes, constructs, expressions, patches, locales, authoring | `ARC-TPL-014` missing variable, `ARC-TPL-051` unknown sub-block field, `ARC-TPL-064` unknown node field, `ARC-TPL-061` repeat+if, `ARC-TPL-097` section defined twice, `ARC-TPL-100` undeclared locale |
+| `ARC-TPL` | 67 | Template loading, variables, formats, nodes, constructs, expressions, patches, locales, authoring | `ARC-TPL-014` missing variable, `ARC-TPL-051` unknown sub-block field, `ARC-TPL-064` unknown node field, `ARC-TPL-061` repeat+if, `ARC-TPL-097` section defined twice, `ARC-TPL-100` undeclared locale |
 | `ARC-LAY` | 20 | Anchor/layout solver, sizes, stacks, fit policies | `ARC-LAY-030` under-constrained, `ARC-LAY-033` fill overshoots its parent, `ARC-LAY-052` sibling cycle, `ARC-LAY-054` stack child anchors, `ARC-LAY-050` overflow=error, `ARC-LAY-057` max_lines at the shrink floor |
 | `ARC-IR` | 10 | Dimensions, sizes, colors, transforms, duplicate ids, masks, finite coordinates | `ARC-IR-011` invalid dimension, `ARC-IR-015` invalid hit-test coordinate, `ARC-IR-020` duplicate id, `ARC-IR-030` invalid color |
 | `ARC-RND` | 12 | Fonts/glyphs, font installation, resource budgets | `ARC-RND-010` family not found, `ARC-RND-011` missing glyph, `ARC-RND-020..023` budget (exit 4), `ARC-RND-031` unsupported font file |
 | `ARC-FX` | 8 | Effects, masks, shape generators | `ARC-FX-902` invalid params, `ARC-FX-910` unknown effect, `ARC-FX-913` unknown generator |
 <<<<<<< HEAD
 | `ARC-EXT` | 21 | Extension manifest, compat, imports, determinism, golden test | `ARC-EXT-001` duplicate component, `ARC-EXT-030` import surface, `ARC-EXT-050` dishonest bounds, `ARC-EXT-053` test harness I/O |
-| `ARC-PRJ` | 14 | Project manifest, discovery, status, snapshots, metadata, policy, proposals, detach | `ARC-PRJ-001` no project, `ARC-PRJ-008` invalid UI metadata, `ARC-PRJ-014` unsafe working path |
-=======
-| `ARC-EXT` | 20 | Extension manifest, compat, imports, determinism, golden test | `ARC-EXT-001` duplicate component, `ARC-EXT-030` import surface, `ARC-EXT-050` dishonest bounds, `ARC-EXT-053` test harness I/O |
 | `ARC-PRJ` | 15 | Project manifest, discovery, status, snapshots, metadata, policy, proposals, detach | `ARC-PRJ-001` no project, `ARC-PRJ-008` invalid UI metadata, `ARC-PRJ-014` unsafe working path, `ARC-PRJ-015` placeholder copy still in project data |
+=======
 >>>>>>> 7fae19a (feat(engine): warn when project data still holds scaffold placeholders)
 | `ARC-STY` | 4 | Style packs, presets, roles | `ARC-STY-001` unknown pack, `ARC-STY-010` unknown preset |
 | `ARC-AST` | 5 | Asset resolution, decode, guards, traversal, shape advice | `ARC-AST-003` decode guard, `ARC-AST-004` path escape, `ARC-AST-020` mostly-transparent asset under contain/cover |
