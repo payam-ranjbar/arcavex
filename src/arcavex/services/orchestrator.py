@@ -63,6 +63,7 @@ from arcavex.kernel.api import (
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
 from arcavex.kernel.ir.canonical import canonical_hash
 from arcavex.kernel.ir.models import CompiledDocument, CompiledGroup, CompiledImage, CompiledNode
+from arcavex.kernel.pipeline import surface_px
 from arcavex.services.assets import AssetRef, AssetStore
 from arcavex.services.authoring import scaffold_placeholder_diagnostics
 from arcavex.services.config import RuntimeConfig
@@ -411,7 +412,7 @@ class Orchestrator:
         project: Path | None,
         formats: list[str] | None,
         locales: list[str] | None,
-        dpi: int | None,
+        dpi: int | dict[str, int] | None,
     ) -> RunReport:
         proj = self._projects.resolve(start, project)
         template_dir, ref, is_lib = self._projects.resolve_template(proj)
@@ -422,7 +423,7 @@ class Orchestrator:
                 ok=False,
                 diagnostics=[_no_project_formats(proj)],
             )
-        effective_dpi = self._config.resolve_dpi(cli=dpi, project=proj.manifest.dpi).value
+        effective_dpi = self._resolve_project_dpi(proj, targets, dpi)
         report = self._execute_run(
             kind="project",
             project_name=proj.manifest.name,
@@ -446,6 +447,44 @@ class Orchestrator:
                 update={"diagnostics": [*placeholders, *report.diagnostics]}
             )
         return report
+
+    def _resolve_project_dpi(
+        self,
+        proj: Project,
+        targets: list[tuple[str, str | None]],
+        dpi: int | dict[str, int] | None,
+    ) -> int | dict[str, int] | None:
+        """Resolve the dpi a project render applies: one value, or one per rendered format.
+
+        A table is keyed by format name; a format it does not name keeps the default chain
+        (ARCAVEX_DPI, project.yaml, config.toml, else its own declared canvas dpi). Naming a
+        format the project does not declare is refused rather than ignored: a silently dropped
+        entry would look exactly like one that applied.
+        """
+        if not isinstance(dpi, dict):
+            return self._config.resolve_dpi(cli=dpi, project=proj.manifest.dpi).value
+        declared = list(proj.manifest.formats)
+        unknown = sorted(set(dpi) - set(declared))
+        if unknown:
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-022",
+                    "dpi names format(s) "
+                    f"{', '.join(repr(name) for name in unknown)} that the project does not "
+                    "declare",
+                    file=str(proj.project_file),
+                    keypath="formats",
+                    hint=f"Declared formats: {', '.join(declared)}; key the dpi table by these "
+                    "names.",
+                )
+            )
+        default = self._config.resolve_dpi(cli=None, project=proj.manifest.dpi).value
+        table: dict[str, int] = {}
+        for fmt in dict.fromkeys(fmt for fmt, _locale in targets):
+            value = dpi.get(fmt, default)
+            if value is not None:
+                table[fmt] = value
+        return table
 
     def record_render(
         self,
@@ -509,7 +548,7 @@ class Orchestrator:
         targets: list[tuple[str, str | None]],
         patch_ops: list[Any] | None,
         patch_file: Path | None,
-        dpi: int | None,
+        dpi: int | dict[str, int] | None,
         outputs_root: Path,
         resolved_snapshots: dict[str, dict[str, Any]] | None = None,
     ) -> RunReport:
@@ -565,7 +604,7 @@ class Orchestrator:
         targets: list[tuple[str, str | None]],
         patch_ops: list[Any] | None,
         patch_file: Path | None,
-        dpi: int | None,
+        dpi: int | dict[str, int] | None,
         staging: Path,
         resolved_snapshots: dict[str, dict[str, Any]] | None,
     ) -> tuple[list[_Rendered] | None, list[Diagnostic], str, str | None, dict[str, float]]:
@@ -599,11 +638,16 @@ class Orchestrator:
             template_hash = result.template_hash or template_hash
             style_hash = result.style_hash
             name = _output_name(stem, fmt, locale)
+            # A table names the dpi per format; a format it omits renders at its declared dpi.
+            target_dpi = dpi.get(fmt) if isinstance(dpi, dict) else dpi
             render_start = time.perf_counter()
-            report, warnings = self._render(result.document, staging / name, dpi, False)
+            report, warnings = self._render(result.document, staging / name, target_dpi, False)
             timings["render_ms"] += (time.perf_counter() - render_start) * 1000.0
             diags.extend(warnings)
             assets = _collect_assets(result.document, template_dir, store)
+            # The recorded size is the size that was rendered, not the canvas's declared size —
+            # the two differ whenever a dpi override applies.
+            width_px, height_px = surface_px(result.document, target_dpi)
             rendered.append(
                 _Rendered(
                     fmt=fmt,
@@ -611,8 +655,8 @@ class Orchestrator:
                     name=name,
                     staged_path=staging / name,
                     sha256=report.content_sha256,
-                    width=result.document.canvas.width_px,
-                    height=result.document.canvas.height_px,
+                    width=width_px,
+                    height=height_px,
                     bytes=report.bytes_written,
                     seed=result.document.seed,
                     data_hash=result.data_hash or "",
@@ -633,7 +677,7 @@ class Orchestrator:
         style_ref: str | None,
         style_hash: str | None,
         patch: InputRef | None,
-        dpi: int | None,
+        dpi: int | dict[str, int] | None,
         rendered: list[_Rendered],
         outputs_root: Path,
         timings: dict[str, float],

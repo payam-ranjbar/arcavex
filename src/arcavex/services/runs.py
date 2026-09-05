@@ -118,7 +118,9 @@ class RunManifest(BaseModel):
     # patch-only change is a first-class provenance input: diff can attribute it and rerun can
     # name it as a drift cause. ``None`` when the project applied no override (CR-1/DX-2).
     patch: InputRef | None = None
-    dpi: int | None = None
+    # One dpi for every output, a per-format table ``{"<format>": dpi}``, or ``None`` when each
+    # format rendered at its own declared canvas dpi — recorded as given so a rerun reproduces it.
+    dpi: int | dict[str, int] | None = None
     options: dict[str, Any] = Field(default_factory=dict)
     outputs: list[RunOutput] = Field(default_factory=list)
     assets: list[AssetProvenance] = Field(default_factory=list)

@@ -2066,7 +2066,7 @@ class OrchestratorProtocol(Protocol):
         project: Path | None,
         formats: list[str] | None,
         locales: list[str] | None,
-        dpi: int | None,
+        dpi: int | dict[str, int] | None,
     ) -> RunReport: ...
 
     def record_render(
@@ -3456,9 +3456,14 @@ class Facade:
         project: Path | None = None,
         formats: list[str] | None = None,
         locales: list[str] | None = None,
-        dpi: int | None = None,
+        dpi: int | dict[str, int] | None = None,
     ) -> RunReport:
-        """Render the active project's formats × locales into a recorded run. Never raises."""
+        """Render the active project's formats × locales into a recorded run. Never raises.
+
+        ``dpi`` is one integer for every format, a ``{"<format>": dpi}`` table for formats that
+        differ (a social tile and an A2 poster share no sensible dpi), or ``None`` to render each
+        format at its own declared canvas dpi (unless project.yaml or the environment sets one).
+        """
         return self._guard_project(
             lambda o: o.render_project(start, project, formats, locales, dpi), RunReport
         )
