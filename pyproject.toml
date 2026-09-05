@@ -103,7 +103,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# No -q here: it composes with a -q on the command line into -qq, which suppresses the
+# pass/fail count entirely. Three separate agents read a countless run as "did it even
+# work?" and paid for a second full run to find out.
+addopts = ""
 
 [tool.importlinter]
 root_package = "arcavex"
