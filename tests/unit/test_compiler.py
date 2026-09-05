@@ -721,3 +721,32 @@ root:
     assert axis.source is not None and axis.source.keypath is not None
     assert axis.source.keypath.endswith("constraints.size.w")
     assert axis.hint is not None and "'fill'" in axis.hint and "inset" in axis.hint
+
+
+def test_percent_anchor_offset_is_refused_with_the_reason_and_the_idiom(tmp_path: Path) -> None:
+    """ARC-LAY-012 for '+30%' says why (offsets are absolute) and what to write instead."""
+    for offset in ("+30%", "-10%", "+0.3*parent.height"):
+        template = _write(
+            tmp_path,
+            f"""
+version: 0.1.0
+formats:
+  square: {{canvas: {{width: 100px, height: 100px, dpi: 96}}}}
+root:
+  type: group
+  id: root
+  children:
+    - id: box
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {{top: parent.top{offset}, left: parent.left}}
+        size: {{w: 50%, h: 50%}}
+""",
+        )
+        result = Compiler().compile(template, None, "square", None, None)
+        diag = next(d for d in result.diagnostics if d.code == "ARC-LAY-012")
+        assert offset in diag.message
+        assert diag.hint is not None, offset
+        assert "absolute" in diag.hint and "center_y" in diag.hint and "size: {w: 30%}" in diag.hint
+        assert "{{" not in diag.hint  # the expression hint is for a different mistake

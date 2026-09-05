@@ -3938,13 +3938,7 @@ def _parse_anchor_value(
                         file=str(template),
                         keypath=f"{keypath}.constraints.anchor.{key}",
                         line=line,
-                        hint=(
-                            "An unevaluated '{{ }}' expression cannot appear here (expressions "
-                            "are resolved before offset parsing). Offsets look like '+20px', "
-                            "'+20pt', or '-6mm'."
-                            if "{{" in offset_raw
-                            else "Offsets look like '+20px', '+20pt', or '-6mm'."
-                        ),
+                        hint=_offset_hint(offset_raw),
                     )
                 ) from exc
             break
@@ -4054,3 +4048,27 @@ def _size_options_for(node_type: str) -> str:
     if node_type == "text":
         return "fixed (e.g. 100px), a %, 'fill', 'fit_content', or {aspect: 'W:H'}"
     return "fixed (e.g. 100px), a %, 'fill', or {aspect: 'W:H'} (fit_content is text-only)"
+
+
+def _offset_hint(offset_raw: str) -> str:
+    """The ARC-LAY-012 hint, specific to the mistake the offset text reveals.
+
+    A percentage ('+30%') or a share of another node's size ('+0.3*parent.height') is the most
+    common refusal, and a units list answers it with the rule but not the reason: an offset is
+    an absolute length because it has no parent extent to be a fraction of — that extent belongs
+    to the size spec, where '%' is understood. Say so, and say what to write instead.
+    """
+    if "{{" in offset_raw:
+        return (
+            "An unevaluated '{{ }}' expression cannot appear here (expressions are resolved "
+            "before offset parsing). Offsets look like '+20px', '+20pt', or '-6mm'."
+        )
+    if "%" in offset_raw or "parent" in offset_raw or "*" in offset_raw:
+        return (
+            "Anchor offsets are absolute lengths ('+20px', '+20pt', '-6mm'); a percentage or a "
+            "share of another node's size is not one, because an offset has no parent extent "
+            "to be a fraction of. To place a node relative to the parent's size, anchor to "
+            "parent.center_x/parent.center_y or to a sibling's edge (e.g. 'top: "
+            "title.bottom+12pt') and express the size in % ('size: {w: 30%}')."
+        )
+    return "Offsets look like '+20px', '+20pt', or '-6mm'."
