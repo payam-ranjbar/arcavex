@@ -2650,7 +2650,13 @@ class Compiler:
             font_families=families,
             font_size_pt=size_pt,
             font_weight=int(weight) if weight is not None else None,
-            italic=bool(run_raw["italic"]) if "italic" in run_raw else None,
+            italic=(
+                _bool_field(
+                    run_raw["italic"], template, f"{keypath}.italic", line_of(run_raw, "italic")
+                )
+                if "italic" in run_raw
+                else None
+            ),
             color=color,
             letter_spacing_pt=(
                 _absolute_pt(
@@ -3208,7 +3214,9 @@ class Compiler:
                 s.get("font_weight", 400), template, f"{style_kp}.font_weight",
                 line_of(s, "font_weight"),
             ),
-            italic=bool(s.get("italic", False)),
+            italic=_bool_field(
+                s.get("italic", False), template, f"{style_kp}.italic", line_of(s, "italic")
+            ),
             text_color=text_color,
             align=align,
             direction=direction,
@@ -3648,6 +3656,17 @@ def _int_field(value: Any, template: Path, keypath: str, line: int | None) -> in
         return int(value)
     except (TypeError, ValueError) as exc:
         raise _coercion_error(value, template, keypath, line, "an integer") from exc
+
+
+def _bool_field(value: Any, template: Path, keypath: str, line: int | None) -> bool:
+    """Accept only a real YAML boolean, or raise a located ARC-IR diagnostic.
+
+    ``bool()`` coercion made every non-empty string true, so ``italic: "no"`` rendered italic
+    while validating clean. A quoted word is refused by name; only ``true``/``false`` pass.
+    """
+    if not isinstance(value, bool):
+        raise _coercion_error(value, template, keypath, line, "a boolean (true or false)")
+    return value
 
 
 def _float_field(value: Any, template: Path, keypath: str, line: int | None) -> float:

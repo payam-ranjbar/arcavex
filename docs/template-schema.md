@@ -157,7 +157,7 @@ weights, and `opacity` are literals — vary them per format with a [patch](#pat
 | `font` | `text` | family name, or a list in fallback order | `Inter` | Must be in the bundled font DB (`ARC-RND-010`, exit 3, lists the families; `arcavex font add` installs more). |
 | `font_size` | `text` | length | `16pt` | A bare number is px, so `font_size: 96` at 96 dpi is `72pt`. |
 | `font_weight` | `text` | integer, CSS weight `100`–`900` | `400` | `700` is bold; the nearest available face is used. A word such as `bold` is `ARC-IR-014`. |
-| `italic` | `text` | boolean (`true`/`false`) | `false` | |
+| `italic` | `text` | boolean (`true`/`false`) | `false` | Must be a real YAML boolean; a quoted word such as `"no"` is `ARC-IR-014`. |
 | `color` | `text` | color | `#000000` | The text ink. |
 | `align` | `text` | `left`, `right`, `center`, `start`, `end` | `start` | Fallback for [`paragraph.align`](#paragraph); anything else is `ARC-TPL-037`. |
 | `direction` | `text` | `ltr`, `rtl` | none | Fallback for [`paragraph.direction`](#paragraph), which alone accepts `auto`; anything else is `ARC-TPL-038`. |

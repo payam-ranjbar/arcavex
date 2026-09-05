@@ -613,3 +613,47 @@ def test_percentage_canvas_dimension_is_a_located_error(tmp_path: Path) -> None:
     diag = next(d for d in result.diagnostics if d.is_error())
     assert diag.code == "ARC-IR-011"
     assert diag.source is not None and diag.source.keypath == "formats.square.canvas.width"
+
+
+# --------------------------------------------------------------------- italic is a boolean
+def _style_diag(tmp_path: Path, style: str, code: str):  # noqa: ANN202
+    template = _write(
+        tmp_path, _PERCENT_NODE % {"kind": "text", "body": f"      text: hi\n      style: {style}"}
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is None
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == code, diag.model_dump()
+    assert diag.source is not None
+    return diag
+
+
+@pytest.mark.parametrize("value", ['"no"', '"false"', '"yes"', "1", "0"])
+def test_italic_must_be_a_yaml_boolean(tmp_path: Path, value: str) -> None:
+    """A quoted word (or a number) was coerced with bool(), so `italic: "no"` rendered italic."""
+    diag = _style_diag(tmp_path, f"{{italic: {value}}}", "ARC-IR-014")
+    assert diag.source is not None
+    assert diag.source.keypath == "root.children[0].style.italic"
+    assert diag.source.line == 12
+    assert "boolean" in diag.message
+    assert "true or false" in (diag.hint or "")
+
+
+def test_run_italic_must_be_a_yaml_boolean(tmp_path: Path) -> None:
+    template = _write(
+        tmp_path,
+        _PERCENT_NODE % {"kind": "text", "body": '      runs:\n        - {text: hi, italic: "no"}'},
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-014"
+    assert diag.source is not None and diag.source.keypath == "root.children[0].runs[0].italic"
+
+
+@pytest.mark.parametrize(("value", "expected"), [("true", True), ("false", False)])
+def test_italic_accepts_real_booleans(tmp_path: Path, value: str, expected: bool) -> None:
+    body = f"      text: hi\n      style: {{italic: {value}}}"
+    template = _write(tmp_path, _PERCENT_NODE % {"kind": "text", "body": body})
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+    assert result.document.root.children[0].style.italic is expected
