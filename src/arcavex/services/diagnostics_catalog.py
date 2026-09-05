@@ -419,9 +419,11 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "may also address the template's sections: 'formats.<name>', 'variables.<name>', "
             "'preview_data.<key>', 'locales.<name>' (each with an optional field path, list "
             "indexes included) and the whole 'style' value — with set/remove only.",
-            "Fix the patch op: address an existing authored node id (or, from 'template patch', "
-            "a section entry such as 'formats.a3'), use one verb per op, and give inserts a "
-            "'node:' mapping.",
+            "Write the op in one of these shapes: {set: 'nodes.<id>.<field>', value: <v>}, "
+            "{remove: 'nodes.<id>[.<field>]'}, or {insert_before | insert_after: 'nodes.<id>', "
+            "node: {...}} — one verb per op, addressing an existing authored node id. From "
+            "'template patch' a section entry works the same way: "
+            "{set: 'formats.a3', value: {canvas: {...}}}; inserts stay node-only.",
         ),
         _e(
             "ARC-TPL-110",

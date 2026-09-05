@@ -484,6 +484,8 @@ def _patch_error(file: Path, keypath: str, line: int | None, message: str) -> Di
             file=str(file),
             keypath=keypath,
             line=line,
-            hint="Patch ops are set/remove/insert_before/insert_after addressing 'nodes.<id>'.",
+            hint="Op shapes: {set: 'nodes.<id>.<field>', value: <v>} | "
+            "{remove: 'nodes.<id>[.<field>]'} | "
+            "{insert_before|insert_after: 'nodes.<id>', node: {...}}.",
         )
     )

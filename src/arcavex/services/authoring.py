@@ -713,7 +713,10 @@ def _validate_patch_ops(ops: list[PatchOp], template_yaml: Path) -> list[Diagnos
                     f"set/remove/insert_before/insert_after (got: {named})",
                     file=str(template_yaml),
                     keypath=kp,
-                    hint="Split multiple mutations into separate ops; each op does one thing.",
+                    hint="Op shapes: {set: 'nodes.<id>.<field>', value: <v>} | "
+                    "{remove: 'nodes.<id>[.<field>]'} | "
+                    "{insert_before|insert_after: 'nodes.<id>', node: {...}}; one verb per "
+                    "op, so split multiple mutations into separate ops.",
                 )
             )
             continue
