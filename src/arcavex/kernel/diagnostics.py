@@ -31,6 +31,7 @@ NAMESPACES: tuple[str, ...] = (
     "ARC-SKL",  # bundled skill installation
     "ARC-MCP",  # registering the MCP server with an AI host
     "ARC-EDT",  # semantic editor: locking, transactions, history
+    "ARC-MCP",  # MCP transport: the tool-call argument contract
     "ARC-INT",  # internal
 )
 

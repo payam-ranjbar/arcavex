@@ -524,6 +524,16 @@ MCP authoring server (spec §6.2).
 | `tools [--json]` | Print the tool catalog (names, descriptions, input/output schemas). |
 | `install [--target T …] [--list] [--print] [--force] [--command PATH]` | Register the server with every AI host present on this machine, or the named ones: `claude-code`, `claude-desktop`, `codex` (`desktop` and `chatgpt` are aliases). `--list` shows each host's state without writing; `--print` shows the snippet to paste by hand; `--force` replaces an existing `arcavex` entry; `--command` registers another executable. |
 
+Tool arguments are checked before dispatch. An unknown key, a missing required key, or a value of
+the wrong type is refused with the same coded envelope every other refusal uses — `ok: false` and a
+`diagnostics` list carrying `ARC-MCP-010` (unknown argument), `ARC-MCP-011` (missing argument), or
+`ARC-MCP-012` (invalid value), each with a hint naming the tool's accepted arguments — never a
+silent pass and never raw validator text. Every parameter in the catalog's `inputSchema` carries a
+description (units, accepted values, what a path is relative to), and every schema sets
+`additionalProperties: false` so a well-behaved client refuses an unknown key locally.
+`arcavex_project_render` takes `dpi` as one integer or as a `{"<format>": dpi}` table; the CLI's
+`--dpi` remains a single integer.
+
 Every MCP tool is a thin wrapper over one facade method and returns the same versioned pydantic
 result as the CLI's `--json`. See [architecture.md](architecture.md#mcp-parity) and the
 [MCP section of the README](../README.md#mcp-authoring-surface-62).

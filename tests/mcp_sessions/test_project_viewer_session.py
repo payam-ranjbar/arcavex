@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from mcp.types import CallToolResult
+
 from arcavex.clients.mcp_server import ArcavexTools
 from arcavex.kernel.api import CheckResult, PreviewProjectReport
 
@@ -51,15 +53,22 @@ def test_project_validate_returns_the_shared_check_result(
 def test_project_preview_returns_a_serializable_structured_report(
     server, tmp_path: Path
 ) -> None:
-    """Replacing project preview with mixed output would break the viewer contract."""
+    """Losing the structured report from project preview would break the viewer contract.
+
+    The tool now also returns the rendered images as content blocks (for an assistant that
+    cannot open a path), so it answers with a ``CallToolResult``; the viewer reads
+    ``structuredContent``, which must stay the exact report.
+    """
     project = _project(tmp_path)
 
-    _content, structured = asyncio.run(
+    result = asyncio.run(
         server.call_tool(
             "project_preview", {"project": str(project), "formats": ["square"], "dpi": 72}
         )
     )
 
+    assert isinstance(result, CallToolResult) and result.isError is False
+    structured = result.structuredContent
     report = PreviewProjectReport.model_validate(structured)
     assert report.ok
     assert len(report.previews) == 1

@@ -1615,6 +1615,33 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "delete the leftover directory the message names by hand.",
         ),
         _e(
+            "ARC-MCP-010",
+            "Unknown tool argument",
+            "An MCP tool call carried an argument key the tool does not declare (for example "
+            "'format' on arcavex_template_new, or 'scale' on arcavex_render). The call is refused "
+            "before anything runs: an unknown option that was silently dropped would look exactly "
+            "like one that took effect.",
+            "Use only the arguments in the tool's inputSchema ('arcavex mcp tools --json' lists "
+            "them, and the hint names them); the option you meant may belong to another tool.",
+        ),
+        _e(
+            "ARC-MCP-011",
+            "Missing required tool argument",
+            "An MCP tool call omitted an argument the tool requires, so there is nothing to act "
+            "on.",
+            "Pass the named argument; the hint lists the tool's required and optional arguments "
+            "with what each one means.",
+        ),
+        _e(
+            "ARC-MCP-012",
+            "Invalid tool argument value",
+            "An MCP tool call passed a value of the wrong type, or outside the accepted values, "
+            "for an argument (for example dpi: 'high', or a mode that is not one of the listed "
+            "literals).",
+            "Pass a value of the type the hint states; lists and mappings are JSON values, not "
+            "prose.",
+        ),
+        _e(
             "ARC-INT-010",
             "Build commit unavailable",
             "The runtime has no explicit source-commit metadata, so the engine cannot prove "
