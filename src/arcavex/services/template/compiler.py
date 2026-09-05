@@ -3205,7 +3205,7 @@ class Compiler:
                 if corner_radius is not None
                 else 0.0
             ),
-            opacity=_float_field(
+            opacity=_unit_interval_field(
                 s.get("opacity", 1.0), template, f"{style_kp}.opacity", line_of(s, "opacity")
             ),
             font_families=families,
@@ -3677,6 +3677,18 @@ def _float_field(value: Any, template: Path, keypath: str, line: int | None) -> 
         return float(value)
     except (TypeError, ValueError) as exc:
         raise _coercion_error(value, template, keypath, line, "a number") from exc
+
+
+def _unit_interval_field(value: Any, template: Path, keypath: str, line: int | None) -> float:
+    """Coerce an authored value to a float in the closed range 0..1, or raise a located ARC-IR.
+
+    An opacity above 1 used to validate and render fully opaque; below 0 it rendered as hidden.
+    Neither is a meaningful request, so both are refused by range (NaN fails the comparison too).
+    """
+    number = _float_field(value, template, keypath, line)
+    if not 0.0 <= number <= 1.0:
+        raise _coercion_error(value, template, keypath, line, "a number from 0 to 1")
+    return number
 
 
 def _coercion_error(

@@ -657,3 +657,25 @@ def test_italic_accepts_real_booleans(tmp_path: Path, value: str, expected: bool
     result = Compiler().compile(template, None, "square", None, None)
     assert result.document is not None, [d.model_dump() for d in result.diagnostics]
     assert result.document.root.children[0].style.italic is expected
+
+
+# ------------------------------------------------------------------- opacity stays in 0..1
+@pytest.mark.parametrize("value", ["1.5", "-0.1", "2", ".nan"])
+def test_opacity_outside_the_unit_interval_is_a_located_error(tmp_path: Path, value: str) -> None:
+    """`opacity: 1.5` validated and rendered opaque; the range is now checked at validation."""
+    diag = _style_diag(tmp_path, f"{{opacity: {value}}}", "ARC-IR-014")
+    assert diag.source is not None
+    assert diag.source.keypath == "root.children[0].style.opacity"
+    assert diag.source.line == 12
+    assert "0 to 1" in diag.message
+
+
+@pytest.mark.parametrize("value", ["0", "1", "0.5", "1.0"])
+def test_opacity_accepts_the_closed_unit_interval(tmp_path: Path, value: str) -> None:
+    template = _write(
+        tmp_path,
+        _PERCENT_NODE % {"kind": "shape", "body": f"      style: {{fill: red, opacity: {value}}}"},
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+    assert result.document.root.children[0].style.opacity == float(value)

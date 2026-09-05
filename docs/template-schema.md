@@ -153,7 +153,7 @@ weights, and `opacity` are literals — vary them per format with a [patch](#pat
 | `stroke` | `shape`, `path` | color | none (no outline) | Drawn only when `stroke_width` is above `0`. |
 | `stroke_width` | `shape`, `path` | length | `0` | `0` disables the stroke even when `stroke` is set; the stroke is centred on the outline. |
 | `corner_radius` | `shape` | length | `0` | Rounds `rect` and `rrect`; `circle` and generators ignore it. |
-| `opacity` | any node | number `0`–`1` | `1` | `0` hides the node and its subtree. A `shape`, `path`, or `image` multiplies its own paint; a `text` node or a `group` composites as one layer at that opacity (a group fades its whole subtree, so overlapping children do not double up) — exactly as the node renders with `effects:`. |
+| `opacity` | any node | number `0`–`1` | `1` | Outside `0`–`1` is `ARC-IR-014`. `0` hides the node and its subtree. A `shape`, `path`, or `image` multiplies its own paint; a `text` node or a `group` composites as one layer at that opacity (a group fades its whole subtree, so overlapping children do not double up) — exactly as the node renders with `effects:`. |
 | `font` | `text` | family name, or a list in fallback order | `Inter` | Must be in the bundled font DB (`ARC-RND-010`, exit 3, lists the families; `arcavex font add` installs more). |
 | `font_size` | `text` | length | `16pt` | A bare number is px, so `font_size: 96` at 96 dpi is `72pt`. |
 | `font_weight` | `text` | integer, CSS weight `100`–`900` | `400` | `700` is bold; the nearest available face is used. A word such as `bold` is `ARC-IR-014`. |
