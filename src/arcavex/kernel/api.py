@@ -470,6 +470,11 @@ class FontFamilyInfo(BaseModel):
     family: str
     bundled: bool
     installed: bool
+    # ``available`` answers the question a caller is actually asking — "may a template name this
+    # family?" — and is true for every family listed; a bundled family that only said
+    # ``installed: false`` was read as "not usable". ``source`` says where it came from in a word.
+    available: bool
+    source: Literal["bundled", "installed", "bundled+installed"]
     files: list[FontFileInfo] = Field(default_factory=list)
 
 
