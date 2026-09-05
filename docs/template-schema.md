@@ -63,6 +63,22 @@ pixels, not selectable vectors.
 A `formats.<name>.patch` applies path-addressed operations to the node tree for that format — see
 [Patches](#patches).
 
+`arcavex template new --format P` (repeatable; the MCP tool takes `formats: [...]`) declares any of
+these presets. The default scaffold is `square` + `story`; any other canvas is one
+`template patch --set formats.<name>` away.
+
+| Preset | Canvas | Use |
+|---|---|---|
+| `square` | `{width: 1080px, height: 1080px, dpi: 96}` | Social square (1:1). |
+| `story` | `{width: 1080px, height: 1920px, dpi: 96}` | Story / reel (9:16). |
+| `portrait` | `{width: 1080px, height: 1350px, dpi: 96}` | Social portrait (4:5). |
+| `landscape` | `{width: 1920px, height: 1080px, dpi: 96}` | Landscape / slide (16:9). |
+| `a4` | `{width: 210mm, height: 297mm, dpi: 300, bleed: 3mm}` | ISO A4 print, portrait. |
+| `a3` | `{width: 297mm, height: 420mm, dpi: 300, bleed: 3mm}` | ISO A3 print, portrait. |
+| `a2` | `{width: 420mm, height: 594mm, dpi: 300, bleed: 3mm}` | ISO A2 print, portrait. |
+| `letter` | `{width: 215.9mm, height: 279.4mm, dpi: 300, bleed: 3mm}` | US Letter print, portrait. |
+| `tabloid` | `{width: 279.4mm, height: 431.8mm, dpi: 300, bleed: 3mm}` | US Tabloid print, portrait. |
+
 ### `locales`
 
 Per-locale `direction`/`digits`/`fonts`/`data`/`patch`, applied when the locale is requested with

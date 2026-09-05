@@ -715,6 +715,11 @@ def _print_preview_line(
 @template_app.command("new")
 def template_new(
     target: Path = typer.Argument(..., help="Directory to scaffold the template into."),
+    formats: list[str] | None = typer.Option(
+        None, "--format", "-f",
+        help="Canvas preset to declare (repeatable): square, story, portrait, landscape, a4, "
+        "a3, a2, letter, tabloid. Default: square and story.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
@@ -724,7 +729,7 @@ def template_new(
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
-    result = facade.scaffold_template(target.name, target)
+    result = facade.scaffold_template(target.name, target, formats or None)
     if json_out:
         _emit_json(result)
     else:
@@ -732,7 +737,7 @@ def template_new(
         if result.ok and not quiet:
             console.print(
                 f"[green]Created[/green] {result.path} "
-                f"(render with --format {result.format})"
+                f"(formats: {', '.join(result.formats)}; render with --format {result.format})"
             )
     raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
 

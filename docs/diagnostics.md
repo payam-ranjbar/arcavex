@@ -25,7 +25,7 @@ The catalog lives in code at `src/arcavex/services/diagnostics_catalog.py` — o
 (title, summary, fix). The human-browsable `docs/diagnostics/<code>.md` files are **generated** from
 it (`make docs-diagnostics`), and a test (`tests/unit/test_explain.py`) keeps the two in sync while
 a coverage test asserts every code the engine can emit has an entry. As of this build there are
-**193** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
+**194** documented codes, one Markdown file each. Do not hand-edit the `docs/diagnostics/*.md`
 files — edit the catalog and regenerate.
 
 ## Unknown fields are always rejected

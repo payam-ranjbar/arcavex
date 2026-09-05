@@ -397,6 +397,16 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Drop --locale for now; locale files are still parsed for shape.",
         ),
         _e(
+            "ARC-TPL-072",
+            "Unknown format preset",
+            "'template new --format' (or the MCP tool's 'formats' argument) named a canvas "
+            "preset that does not exist. The presets are square, story, portrait, landscape "
+            "(pixels at 96 dpi) and a4, a3, a2, letter, tabloid (millimetres at 300 dpi with a "
+            "3mm bleed). Nothing is written when a name is unknown.",
+            "Use one of the preset names, or scaffold with the defaults and declare the canvas "
+            "you need with 'template patch --set formats.<name> --value {\"canvas\": {...}}'.",
+        ),
+        _e(
             "ARC-TPL-092",
             "Invalid patch operation",
             "A patch op is malformed: it is not a mapping, does not have exactly one of "

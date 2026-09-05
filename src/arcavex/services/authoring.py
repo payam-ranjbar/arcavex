@@ -51,6 +51,11 @@ from arcavex.services.template.overlays import (
     PatchLog,
     apply_patches,
 )
+from arcavex.services.template.presets import (
+    DEFAULT_SCAFFOLD_FORMATS,
+    FORMAT_PRESETS,
+    preset_names,
+)
 
 # Blocks whose fields have a fixed vocabulary the compiler validates at compile time. A patch
 # 'set'/'insert' whose leaf lands in one of these blocks is field-checked before the write, so a
@@ -134,13 +139,9 @@ variables:
   # tests. Set `badge:` in data.yaml to make the footer appear.
   badge: {type: string, required: false, doc: "Optional corner badge; shows the footer when set"}
 
-formats:
-  square:
-    canvas: {width: 1080px, height: 1080px, dpi: 96}
-  story:
-    canvas: {width: 1080px, height: 1920px, dpi: 96}
-
-# Used when no --data file is supplied, so `render <dir> --format square` works immediately.
+__FORMATS__
+# Used when no --data file is supplied, so `render <dir> --format __FIRST_FORMAT__` works
+# immediately.
 preview_data:
   title: "My Card"
 
@@ -195,6 +196,21 @@ root:
           size: {w: 82%, h: fit_content}
 """
 
+def _scaffold_template(formats: list[str]) -> str:
+    """Render the scaffold with a ``formats:`` block built from the chosen presets."""
+    lines = ["formats:"]
+    for name in formats:
+        preset = FORMAT_PRESETS[name]
+        canvas = ", ".join(f"{key}: {value}" for key, value in preset.canvas().items())
+        lines.append(f"  # {preset.doc}")
+        lines.append(f"  {name}:")
+        lines.append(f"    canvas: {{{canvas}}}")
+    block = "\n".join(lines) + "\n"
+    return _SCAFFOLD_TEMPLATE.replace("__FORMATS__\n", block).replace(
+        "__FIRST_FORMAT__", formats[0]
+    )
+
+
 _SCAFFOLD_DATA = """\
 title: "Hello from Arcavex"
 subtitle: "A scaffolded card"
@@ -203,7 +219,7 @@ subtitle: "A scaffolded card"
 """
 
 
-def _scaffold_readme(name: str) -> str:
+def _scaffold_readme(name: str, fmt: str) -> str:
     return f"""\
 # {name}
 
@@ -212,16 +228,16 @@ A scaffolded Arcavex template.
 Render it with the sample data (edit `data.yaml` and re-run to see changes):
 
 ```
-arcavex render {name} --data {name}/data.yaml --format square -o {name}.png
+arcavex render {name} --data {name}/data.yaml --format {fmt} -o {name}.png
 ```
 
 Omitting `--data` renders the `preview_data` baked into `template.yaml` instead, so
-`arcavex render {name} --format square` also works out of the box.
+`arcavex render {name} --format {fmt}` also works out of the box.
 
 Start the save-to-preview loop (re-renders on every save):
 
 ```
-arcavex preview {name}/template.yaml --data {name}/data.yaml --format square --watch
+arcavex preview {name}/template.yaml --data {name}/data.yaml --format {fmt} --watch
 ```
 
 Check it without data, or inspect the machine-readable contract:
@@ -256,9 +272,31 @@ class AuthoringService:
         self._functions = sorted(function_names)
 
     # ---------------------------------------------------------------------- new
-    def scaffold(self, name: str, target: Path) -> ScaffoldResult:
-        """Create a minimal renderable one-file template directory at ``target``."""
+    def scaffold(
+        self, name: str, target: Path, formats: list[str] | None = None
+    ) -> ScaffoldResult:
+        """Create a minimal renderable one-file template directory at ``target``.
+
+        ``formats`` names canvas presets (:data:`FORMAT_PRESETS`) to declare, in order; the
+        default is square + story. An unknown name is a located ``ARC-TPL-072`` listing the
+        presets, reported before anything is written.
+        """
         target = Path(target)
+        chosen = list(formats) if formats else list(DEFAULT_SCAFFOLD_FORMATS)
+        unknown = [f for f in chosen if f not in FORMAT_PRESETS]
+        if unknown:
+            return ScaffoldResult(
+                ok=False,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-TPL-072",
+                        f"Unknown format preset(s): {', '.join(repr(f) for f in unknown)}",
+                        file=str(target),
+                        hint=f"Format presets are: {preset_names()}. Any other canvas can be "
+                        "declared after scaffolding with 'template patch --set formats.<name>'.",
+                    )
+                ],
+            )
         if target.exists() and any(target.iterdir()):
             return ScaffoldResult(
                 ok=False,
@@ -273,13 +311,16 @@ class AuthoringService:
             )
         display_name = target.name or name
         target.mkdir(parents=True, exist_ok=True)
-        (target / "template.yaml").write_text(_SCAFFOLD_TEMPLATE, encoding="utf-8")
+        (target / "template.yaml").write_text(_scaffold_template(chosen), encoding="utf-8")
         (target / "data.yaml").write_text(_SCAFFOLD_DATA, encoding="utf-8")
-        (target / "README.md").write_text(_scaffold_readme(display_name), encoding="utf-8")
+        (target / "README.md").write_text(
+            _scaffold_readme(display_name, chosen[0]), encoding="utf-8"
+        )
         return ScaffoldResult(
             ok=True,
             path=str(target),
-            format="square",
+            format=chosen[0],
+            formats=chosen,
             files=["template.yaml", "data.yaml", "README.md"],
         )
 

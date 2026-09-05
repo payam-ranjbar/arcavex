@@ -139,9 +139,19 @@ class ArcavexTools:
         """Report a template's contract: variables, formats, locales, node ids, functions, data."""
         return self._facade.inspect_template(Path(template))
 
-    def template_new(self, target: str, name: str | None = None) -> ScaffoldResult:
-        """Scaffold a minimal renderable template directory to start a new design from."""
-        return self._facade.scaffold_template(name or Path(target).name, Path(target))
+    def template_new(
+        self, target: str, name: str | None = None, formats: list[str] | None = None
+    ) -> ScaffoldResult:
+        """Scaffold a minimal renderable template directory to start a new design from.
+
+        'formats' names the canvas presets to declare: square, story, portrait, landscape (px at
+        96 dpi) and a4, a3, a2, letter, tabloid (mm at 300 dpi with a 3mm bleed). The default is
+        square + story; any other canvas can be added afterwards with arcavex_template_patch
+        ('set': 'formats.<name>').
+        """
+        return self._facade.scaffold_template(
+            name or Path(target).name, Path(target), formats
+        )
 
     def template_publish(
         self, template: str, name: str, version: str, set_default: bool = True

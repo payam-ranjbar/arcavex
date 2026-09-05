@@ -106,6 +106,26 @@ def test_a_template_can_be_scaffolded_over_mcp(tools: ArcavexTools, tmp_path: Pa
     assert (tmp_path / "seed" / "template.yaml").is_file()
 
 
+def test_a_print_size_can_be_chosen_when_scaffolding_over_mcp(
+    tools: ArcavexTools, tmp_path: Path
+) -> None:
+    """A poster brief usually names a paper size; the scaffold must be able to start there."""
+    report = tools.template_new(target=str(tmp_path / "poster"), formats=["a3", "square"])
+
+    assert report.ok, report.diagnostics
+    assert report.formats == ["a3", "square"] and report.format == "a3"
+    checked = tools.template_validate(template=str(tmp_path / "poster"), format="a3")
+    assert checked.ok, [d.model_dump() for d in checked.diagnostics]
+
+
+def test_an_unknown_preset_names_the_real_ones(tools: ArcavexTools, tmp_path: Path) -> None:
+    report = tools.template_new(target=str(tmp_path / "poster"), formats=["postcard"])
+
+    assert not report.ok
+    diag = report.diagnostics[0]
+    assert diag.code == "ARC-TPL-072" and diag.hint is not None and "tabloid" in diag.hint
+
+
 def test_a_scaffolded_template_validates_and_is_editable(
     tools: ArcavexTools, tmp_path: Path
 ) -> None:

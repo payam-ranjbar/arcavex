@@ -209,7 +209,7 @@ Template authoring commands.
 
 | Subcommand | Purpose |
 |---|---|
-| `new DIR` | Scaffold a minimal renderable template (`template.yaml` + `data.yaml` + README). |
+| `new DIR [--format P …]` | Scaffold a minimal renderable template (`template.yaml` + `data.yaml` + README). `--format` (repeatable) picks the canvases from the preset table: `square`, `story`, `portrait`, `landscape` (px at 96 dpi) and `a4`, `a3`, `a2`, `letter`, `tabloid` (mm at 300 dpi, 3 mm bleed); the default is square + story. An unknown preset is `ARC-TPL-072`. |
 | `check PATH [-f -l --style]` | Validate a template without data (schema + structure + `preview_data`). |
 | `inspect PATH [--json] [--resolved -f -l]` | Report the authored contract; `--resolved` shows the resolved direction/digits and each applied patch with its originating layer. |
 | `split PATH` | Convert a one-file template into a split directory, losslessly. |
@@ -219,7 +219,9 @@ Template authoring commands.
 
 ```console
 $ arcavex template new ./mytpl
-Created ./mytpl (render with --format square)
+Created ./mytpl (formats: square, story; render with --format square)
+$ arcavex template new ./poster --format a3 --format square
+Created ./poster (formats: a3, square; render with --format a3)
 ```
 
 ```console

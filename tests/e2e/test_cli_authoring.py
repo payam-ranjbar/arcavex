@@ -70,6 +70,28 @@ def test_template_new_then_render_then_split(tmp_path: Path) -> None:
     assert again.returncode == 1
 
 
+def test_template_new_declares_the_requested_presets(tmp_path: Path) -> None:
+    target = tmp_path / "poster"
+    new = _run(["template", "new", str(target), "--format", "a4", "--format", "square", "--json"])
+    assert new.returncode == 0, new.stderr
+    payload = json.loads(new.stdout)
+    assert payload["ok"] is True
+    assert payload["formats"] == ["a4", "square"] and payload["format"] == "a4"
+    text = (target / "template.yaml").read_text(encoding="utf-8")
+    assert "width: 210mm, height: 297mm, dpi: 300, bleed: 3mm" in text
+
+
+def test_template_new_unknown_preset_exits_1_and_writes_nothing(tmp_path: Path) -> None:
+    target = tmp_path / "nope"
+    proc = _run(["template", "new", str(target), "--format", "postcard", "--json"])
+    assert proc.returncode == 1
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert payload["diagnostics"][0]["code"] == "ARC-TPL-072"
+    assert "a4" in payload["diagnostics"][0]["hint"]
+    assert not target.exists()
+
+
 def test_template_new_refuses_existing(tmp_path: Path) -> None:
     target = tmp_path / "exists"
     target.mkdir()

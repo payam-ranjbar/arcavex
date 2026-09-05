@@ -1040,7 +1040,11 @@ class TemplateResolvedReport(BaseModel):
 
 
 class ScaffoldResult(BaseModel):
-    """The result of ``arcavex template new``."""
+    """The result of ``arcavex template new``.
+
+    ``format`` is the first declared format (the one the human line says to render with);
+    ``formats`` lists every canvas the scaffold declared, in preset order.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -1048,6 +1052,7 @@ class ScaffoldResult(BaseModel):
     ok: bool
     path: str | None = None
     format: str | None = None
+    formats: list[str] = Field(default_factory=list)
     files: list[str] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -1566,8 +1571,10 @@ class HitTestReport(BaseModel):
 class AuthoringProtocol(Protocol):
     """Template authoring operations injected by bootstrap (scaffold/inspect/split)."""
 
-    def scaffold(self, name: str, target: Path) -> ScaffoldResult:
-        """Scaffold a new renderable template directory at ``target``."""
+    def scaffold(
+        self, name: str, target: Path, formats: list[str] | None = None
+    ) -> ScaffoldResult:
+        """Scaffold a new renderable template directory at ``target`` declaring ``formats``."""
         ...
 
     def inspect(self, template: Path) -> TemplateInspectReport:
@@ -2882,12 +2889,19 @@ class Facade:
                 diagnostics=[internal_error("mcp install failed", detail=repr(exc))],
             )
 
-    def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:
-        """Scaffold a new renderable one-file template directory. Never raises."""
+    def scaffold_template(
+        self, name: str, target: Path, formats: list[str] | None = None
+    ) -> ScaffoldResult:
+        """Scaffold a new renderable one-file template directory. Never raises.
+
+        ``formats`` names the canvas presets to declare (``square``, ``story``, ``portrait``,
+        ``landscape``, ``a4``, ``a3``, ``a2``, ``letter``, ``tabloid``); the default is
+        square + story. An unknown preset is a located ``ARC-TPL-072`` listing them.
+        """
         if self._authoring is None:  # pragma: no cover - always wired in production
             return ScaffoldResult(ok=False, diagnostics=[_unwired("authoring")])
         try:
-            return self._authoring.scaffold(name, Path(target))
+            return self._authoring.scaffold(name, Path(target), formats)
         except DiagnosticError as exc:
             return ScaffoldResult(ok=False, diagnostics=list(exc.diagnostics))
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
