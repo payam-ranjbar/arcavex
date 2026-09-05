@@ -1847,21 +1847,19 @@ def _print_mcp_report(
             typer.echo()
         typer.echo(f"command: {_join_command(report.command)}")
         return
-    if report.targets:
-        table = Table(box=None, pad_edge=False)
-        table.add_column("target", style="bold", no_wrap=True)
-        # A path folded onto two lines can still be opened; one cut with an ellipsis cannot.
-        table.add_column("location", overflow="fold")
-        table.add_column("state", no_wrap=True)
-        for entry in report.targets:
-            if not entry.available:
-                state = "host not found"
-            elif entry.registered:
-                state = "registered"
-            else:
-                state = "not registered"
-            table.add_row(entry.label, entry.location, state)
-        console.print(table)
+    for entry in report.targets:
+        if not entry.available:
+            state = "host not found"
+        elif entry.registered:
+            state = "registered"
+        else:
+            state = "not registered"
+        # One block per host, not a table: a config path folded into a table cell interleaves
+        # with the other columns, and the path is what a person came here to read. `skill
+        # install --list` prints its destinations the same way.
+        console.print(f"[bold]{_esc(entry.label)}[/bold]")
+        console.print(f"  {_esc(entry.location)}", soft_wrap=True)
+        console.print(f"  [dim]{state}[/dim]")
     if report.command:
         typer.echo(f"command: {_join_command(report.command)}")
     _print_diagnostics(console, report.diagnostics, quiet=False)
