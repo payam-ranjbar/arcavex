@@ -182,9 +182,9 @@ root:
         anchor: {left: parent.left+64px, top: parent.center_y+70px}
         size: {w: 82%, h: fit_content}
 
-    # Conditional node: included only when `badge` is supplied. `if:` is fully usable today
-    # because this single node has its own distinct anchor. (Laying out a *dynamic* number of
-    # repeated nodes needs layout stacks, which arrive in Phase 2 — see the template README.)
+    # Conditional node: included only when `badge` is supplied. `if:` works here because this
+    # single node has its own distinct anchor. (A *dynamic* number of repeated nodes goes in a
+    # `layout: vstack`/`hstack` group, which positions each child — see the design guide.)
     - if: "{{ badge is not none }}"
       node:
         id: badge
@@ -268,32 +268,61 @@ def scaffold_placeholder_diagnostics(data_path: Path | None) -> list[Diagnostic]
 
 
 def _scaffold_readme(name: str, fmt: str) -> str:
+    """The scaffold's README, written for whichever transport the reader has.
+
+    A person at a terminal runs the commands; an assistant over MCP calls the ``arcavex_*``
+    tool named beside each one. The README used to speak only CLI and to send the reader to
+    "the top-level project README", which an MCP client cannot open — the guide that *is*
+    reachable from every transport is the design skill served as a resource.
+    """
+    a3 = '{{"canvas": {{"width": "297mm", "height": "420mm", "dpi": 300, "bleed": "3mm"}}}}'
     return f"""\
 # {name}
 
-A scaffolded Arcavex template.
+A scaffolded Arcavex template: `template.yaml` (the design), `data.yaml` (placeholder copy),
+and this file. Every step works from a terminal or over the MCP server; the name in
+parentheses is the `arcavex_*` tool an assistant calls for the same thing.
 
-Render it with the sample data (edit `data.yaml` and re-run to see changes):
+1. **Render it** with the sample data (`arcavex_render`):
 
-```
-arcavex render {name} --data {name}/data.yaml --format {fmt} -o {name}.png
-```
+   ```
+   arcavex render {name} --data {name}/data.yaml --format {fmt} -o {name}.png
+   ```
 
-Omitting `--data` renders the `preview_data` baked into `template.yaml` instead, so
-`arcavex render {name} --format {fmt}` also works out of the box.
+   Omitting `--data` renders the `preview_data` baked into `template.yaml`, so
+   `arcavex render {name} --format {fmt}` also works out of the box; `arcavex_render_preview`
+   returns the picture itself.
 
-Start the save-to-preview loop (re-renders on every save):
+2. **Replace the placeholder copy.** `data.yaml` ships `TITLE GOES HERE` and
+   `SUBTITLE GOES HERE`: edit the file, or in a project run
+   `arcavex data set title "..."` (`arcavex_data_set`). A project render warns with
+   `ARC-PRJ-015` while a placeholder is still in place.
 
-```
-arcavex preview {name}/template.yaml --data {name}/data.yaml --format {fmt} --watch
-```
+3. **Edit the design** by addressed node id (`arcavex_template_inspect` for the ids,
+   `arcavex_template_patch` for the edit):
 
-Check it without data, or inspect the machine-readable contract:
+   ```
+   arcavex template inspect {name} --json
+   arcavex template patch {name} --set nodes.title.style.color --value '"#ffcc00"'
+   arcavex template patch {name} --set formats.a3 --value '{a3}'
+   ```
 
-```
-arcavex template check {name}
-arcavex template inspect {name} --json
-```
+   A patch may address `nodes.<id>`, `formats.<name>`, `variables.<name>`,
+   `preview_data.<key>`, `locales.<name>`, or `style`; the result must still compile for every
+   declared format, or the op is rolled back with a located diagnostic.
+
+4. **Check it and read the geometry** (`arcavex_template_validate`, `arcavex_layout_inspect`):
+
+   ```
+   arcavex template check {name}
+   arcavex layout inspect {name} --format {fmt}
+   ```
+
+5. **Watch it change** while editing (terminal only; re-renders on every save):
+
+   ```
+   arcavex preview {name}/template.yaml --data {name}/data.yaml --format {fmt} --watch
+   ```
 
 ## What this template shows
 
@@ -301,8 +330,14 @@ arcavex template inspect {name} --json
 - `if: "{{{{ badge is not none }}}}"` — a conditional node. Set `badge:` in `data.yaml` to
   make the footer appear; leave it out and the node is dropped.
 
-For the full feature set (repeat, all template functions, split layout, `doctor`, `explain`),
-see the top-level project README.
+## Learn the rest
+
+The design guide ships with the engine and is served over MCP as the resource
+`skill://arcavex-design-studio/SKILL.md`; its `references/` cover the authoring loop, art
+direction, multi-format and locale work, and verification. `arcavex explain <code>`
+(`arcavex_diagnostic_explain`) explains any diagnostic, and `arcavex effects list`,
+`shapes list`, `style list`, and `font list` (`arcavex_effects_list`, `arcavex_shape_list`,
+`arcavex_style_list`, `arcavex_font_list`) list the vocabulary a template may use.
 """
 
 
