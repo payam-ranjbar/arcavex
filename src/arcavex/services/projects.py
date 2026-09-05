@@ -125,9 +125,10 @@ class ProjectService:
             raise DiagnosticError(
                 diagnostic(
                     "ARC-PRJ-001",
-                    f"No project.yaml under --project {override}",
+                    f"No project.yaml under the given project directory {override}",
                     file=str(override),
-                    hint="Pass --project pointing at a directory that contains a project.yaml.",
+                    hint="Point the project directory argument (--project <dir> on the CLI, "
+                    "'project' over MCP) at a directory that contains a project.yaml.",
                 )
             )
         here = Path(start) if start is not None else Path.cwd()
@@ -139,8 +140,9 @@ class ProjectService:
             diagnostic(
                 "ARC-PRJ-001",
                 "No project found (no project.yaml in this or any parent directory)",
-                hint="Run inside a project, pass --project <dir>, or create one with "
-                "'arcavex project new'.",
+                hint="Run inside a project directory, pass the project directory explicitly "
+                "(--project <dir> on the CLI, 'project' over MCP), or create one "
+                "(arcavex project new / arcavex_project_create).",
             )
         )
 

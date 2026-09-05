@@ -471,7 +471,8 @@ class Orchestrator:
                         "ARC-TPL-021",
                         "No format specified and the template defines several",
                         file=str(template),
-                        hint=f"Pass --format with one of: {', '.join(formats)}",
+                        hint="Pass a format (--format on the CLI, 'format' over MCP) naming one "
+                        f"of: {', '.join(formats)}",
                     )
                 ],
             )

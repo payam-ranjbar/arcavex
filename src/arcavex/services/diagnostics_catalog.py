@@ -123,7 +123,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-TPL-021",
             "Format is ambiguous",
             "No format was specified and the template defines more than one.",
-            "Pass --format with one of the declared format names.",
+            "Pass a format (--format on the CLI, the 'format' argument over MCP) naming one of "
+            "the declared format names.",
         ),
         _e(
             "ARC-TPL-022",
@@ -394,7 +395,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-TPL-091",
             "Locale application not supported yet",
             "Applying a requested locale (direction, digit policy, overlays) is Phase 2.",
-            "Drop --locale for now; locale files are still parsed for shape.",
+            "Drop the locale option (--locale on the CLI, 'locale' over MCP) for now; locale "
+            "files are still parsed for shape.",
         ),
         _e(
             "ARC-TPL-072",
@@ -452,9 +454,9 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-TPL-100",
             "Undeclared locale",
-            "A locale was requested with --locale that the template does not declare, so its "
-            "direction, digits, fonts, data, and patch are unknown. Arcavex never silently "
-            "ignores a requested locale.",
+            "A requested locale (--locale on the CLI, 'locale' over MCP) is not declared by the "
+            "template, so its direction, digits, fonts, data, and patch are unknown. Arcavex "
+            "never silently ignores a requested locale.",
             "Declare the locale under 'locales:' in the template, or request one the template "
             "already defines.",
         ),
@@ -1213,7 +1215,7 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "range renders reversed while looking entirely normal. Data already written in the "
             "locale's script is the intended use and is not reported.",
             "Pass data written in the locale (a data file, a sibling '<data>.<locale>.yaml' "
-            "overlay, or inline 'locales.<name>.data'), or render without --locale to see the "
+            "overlay, or inline 'locales.<name>.data'), or render without a locale to see the "
             "source direction.",
         ),
         _e(
@@ -1268,9 +1270,11 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-PRJ-001",
             "No project found",
             "No project.yaml was found in the current directory or any parent, and no valid "
-            "--project path was given, so there is no project to act on.",
-            "Run inside a project directory, pass --project <dir>, or create one with "
-            "'arcavex project new'.",
+            "project directory was given (--project on the CLI, the 'project' argument over "
+            "MCP), so there is no project to act on.",
+            "Run inside a project directory, pass the project directory explicitly (--project "
+            "<dir> on the CLI, 'project' over MCP), or create one (arcavex project new / "
+            "arcavex_project_create).",
         ),
         _e(
             "ARC-PRJ-002",

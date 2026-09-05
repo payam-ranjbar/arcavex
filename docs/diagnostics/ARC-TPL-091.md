@@ -2,4 +2,4 @@
 
 Applying a requested locale (direction, digit policy, overlays) is Phase 2.
 
-**Typical fix:** Drop --locale for now; locale files are still parsed for shape.
+**Typical fix:** Drop the locale option (--locale on the CLI, 'locale' over MCP) for now; locale files are still parsed for shape.

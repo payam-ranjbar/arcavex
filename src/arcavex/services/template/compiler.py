@@ -501,7 +501,7 @@ class Compiler:
                             hint=(
                                 f"Pass data written in {locale!r} (a sibling "
                                 f"'<data>.{locale}.yaml', or 'locales.{locale}.data'), or render "
-                                "without --locale."
+                                "without a locale."
                             ),
                         )
                     )
@@ -1307,7 +1307,8 @@ class Compiler:
                         "ARC-TPL-021",
                         "No format specified and the template defines several",
                         file=str(template),
-                        hint=f"Pass --format with one of: {available}",
+                        hint="Pass a format (--format on the CLI, 'format' over MCP) naming "
+                        f"one of: {available}",
                     )
                 )
         if format_name not in formats:
@@ -2205,7 +2206,8 @@ class Compiler:
                         "ARC-STY-010",
                         f"Node {node_id!r} references effect preset {preset!r} but no style is set",
                         file=str(template), keypath=keypath, line=line_of(entry, "preset"),
-                        hint="Add 'style:' to the template (or --style) to use effect presets.",
+                        hint="Add 'style:' to the template (or pass a style: --style on the CLI, "
+                        "'style' over MCP) to use effect presets.",
                     )
                 )
             spec = self._style_pack.preset(
@@ -3261,7 +3263,8 @@ class Compiler:
                     "ARC-STY-011",
                     f"Node {node_id!r} sets style_role {role_name!r} but no style is set",
                     file=str(template), keypath=f"{keypath}.style_role", line=line,
-                    hint="Add 'style:' to the template (or --style) to use style roles.",
+                    hint="Add 'style:' to the template (or pass a style: --style on the CLI, "
+                    "'style' over MCP) to use style roles.",
                 )
             )
         defaults = dict(
@@ -3576,7 +3579,8 @@ def _overlay_hint(data: Path | None) -> str:
             base = Path(data).name[: -len("".join(suffixes[-2:]))] + suffixes[-1]
             return (
                 f" This file looks like a locale overlay ('{Path(data).name}'); pass the base "
-                f"data file ('{base}') with '--locale {locale_tok}' instead."
+                f"data file ('{base}') and request locale '{locale_tok}' (--locale on the CLI, "
+                "'locale' over MCP) instead."
             )
     return ""
 
