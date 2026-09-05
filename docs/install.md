@@ -106,10 +106,25 @@ resource.
 
 Skia's Unicode/ICU support needs `icudtl.dat`. In practice `skia-python` 144 ships the file inside
 its own package directory and locates it there, so an ordinary install resolves ICU with no extra
-step — `arcavex doctor` confirms it (`icu ok — ICU available (skia.Unicode built)`). If a future
-Skia build cannot find it, `doctor` reports the exact remediation (copy `icudtl.dat` beside the base
-interpreter). No ICU data is packaged in the Arcavex wheel; it would only duplicate the dependency's
-copy. Background: [ADR-0001](adr/0001-skia-python-144-platform-baseline.md).
+step — `arcavex doctor` confirms it (`icu ok`).
+
+Skia's loader looks *next to the base interpreter* first, though, and says so out loud when the file
+is not there:
+
+```
+SkIcuLoader: datafile missing: …\cpython-3.12-windows-x86_64-none\icudtl.dat.
+```
+
+That line is printed to stderr on every command — above `doctor`'s own all-ok table, and at the
+start of every `mcp serve` session — and it is **harmless**: Skia then loads the copy inside
+`skia-python`, and shaping, bidi and line breaking all work. Arcavex will not write ten megabytes
+into a shared interpreter to quiet another library, so `doctor` names the line instead and prints
+the one-line remedy for anyone who wants it gone: copy `icudtl.dat` from `site-packages` next to
+the interpreter `doctor` names.
+
+If a future Skia build cannot find the file at all, `doctor` reports that as a failed check with the
+same remediation. No ICU data is packaged in the Arcavex wheel; it would only duplicate the
+dependency's copy. Background: [ADR-0001](adr/0001-skia-python-144-platform-baseline.md).
 
 ## Fonts
 

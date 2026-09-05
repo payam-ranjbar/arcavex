@@ -83,6 +83,10 @@ def _check_skia() -> DoctorCheck:
     return DoctorCheck(name="skia", status="ok", detail=f"skia-python {version}")
 
 
+#: Skia's ICU data file, as named by its loader and by skia-python's wheel.
+_ICU_FILE = "icudtl.dat"
+
+
 def _check_icu() -> DoctorCheck:
     """Probe ICU by constructing a ``skia.Unicode`` (needed for text shaping)."""
     try:
@@ -100,7 +104,46 @@ def _check_icu() -> DoctorCheck:
                 f"the base interpreter at {base_dir} (see ADR-0001)."
             ),
         )
-    return DoctorCheck(name="icu", status="ok", detail="ICU available (skia.Unicode built)")
+    beside_base = _icu_beside_base_interpreter(skia)
+    if beside_base is None:
+        return DoctorCheck(name="icu", status="ok", detail="ICU available (skia.Unicode built)")
+    # ICU works -- the data file ships inside skia-python and is found there -- but Skia's loader
+    # probes next to the base interpreter first and prints "SkIcuLoader: datafile missing: ..." to
+    # stderr when it is not there. It says that on every command, above doctor's own all-ok table,
+    # and an MCP host shows it at the start of every session. The engine will not write ten
+    # megabytes into a shared interpreter to quiet a third party, so it explains the line instead.
+    return DoctorCheck(
+        name="icu",
+        status="ok",
+        detail=(
+            "ICU available (skia.Unicode built, data from the skia-python package). Skia also "
+            "prints 'SkIcuLoader: datafile missing' to stderr on every command because the file "
+            f"is not next to the base interpreter at {beside_base[1]}; shaping is unaffected."
+        ),
+        hint=(
+            f"To silence it, copy {beside_base[0]} to {beside_base[1]} "
+            "(about 10 MB, and only affects that interpreter)."
+        ),
+    )
+
+
+def _icu_beside_base_interpreter(skia: object) -> tuple[Path, Path] | None:
+    """``(packaged file, directory it is missing from)`` when Skia will print its stderr line.
+
+    ``None`` when there is nothing to say: the file is already beside the base interpreter, or the
+    packaged copy cannot be located and a guess would be worse than silence. Takes the already
+    imported module rather than importing again, so this cannot fail after ICU has been proven.
+    """
+    base_dir = Path(sys.base_prefix)
+    if (base_dir / _ICU_FILE).is_file():
+        return None
+    location = getattr(skia, "__file__", None)
+    if not isinstance(location, str):
+        return None
+    packaged = Path(location).resolve().parent / _ICU_FILE
+    if not packaged.is_file():
+        return None
+    return packaged, base_dir
 
 
 def _check_fonts(text_service: TextService | None) -> DoctorCheck:
