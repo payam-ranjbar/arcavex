@@ -241,6 +241,9 @@ class ProjectInputs:
     patch_ops: list[Any] | None
     patch_file: Path | None
     targets: list[tuple[str, str | None]]
+    #: Project-level findings that hold for every target (e.g. ``ARC-PRJ-015`` placeholder copy
+    #: still in the data file), reported once by validate/preview rather than per target.
+    diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
 @dataclass
@@ -3443,7 +3446,7 @@ class Facade:
             return CheckResult(
                 ok=False, diagnostics=[internal_error("Project validate failed", detail=repr(exc))]
             )
-        diagnostics: list[Diagnostic] = []
+        diagnostics: list[Diagnostic] = list(inputs.diagnostics)
         for fmt, locale in inputs.targets:
             diagnostics.extend(self._validate_project_target(inputs, fmt, locale))
         diagnostics = _dedupe(diagnostics)
@@ -3488,7 +3491,11 @@ class Facade:
             self._preview_project_target(inputs, fmt, locale, dpi)
             for fmt, locale in inputs.targets
         ]
-        return PreviewProjectReport(ok=all(p.ok for p in previews), previews=previews)
+        return PreviewProjectReport(
+            ok=all(p.ok for p in previews),
+            previews=previews,
+            diagnostics=list(inputs.diagnostics),
+        )
 
     def _preview_project_target(
         self, inputs: ProjectInputs, format_name: str | None, locale: str | None, dpi: int | None

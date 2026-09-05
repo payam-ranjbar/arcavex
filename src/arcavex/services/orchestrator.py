@@ -64,6 +64,7 @@ from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, 
 from arcavex.kernel.ir.canonical import canonical_hash
 from arcavex.kernel.ir.models import CompiledDocument, CompiledGroup, CompiledImage, CompiledNode
 from arcavex.services.assets import AssetRef, AssetStore
+from arcavex.services.authoring import scaffold_placeholder_diagnostics
 from arcavex.services.config import RuntimeConfig
 from arcavex.services.fsutil import atomic_write_text, home_dir
 from arcavex.services.imaging import dssim_files
@@ -422,7 +423,7 @@ class Orchestrator:
                 diagnostics=[_no_project_formats(proj)],
             )
         effective_dpi = self._config.resolve_dpi(cli=dpi, project=proj.manifest.dpi).value
-        return self._execute_run(
+        report = self._execute_run(
             kind="project",
             project_name=proj.manifest.name,
             stem=proj.manifest.name,
@@ -437,6 +438,14 @@ class Orchestrator:
             dpi=effective_dpi,
             outputs_root=proj.outputs_dir,
         )
+        # Placeholder copy is a property of the project's data, not of any one target, so it
+        # rides on the run report rather than being repeated per format x locale.
+        placeholders = scaffold_placeholder_diagnostics(proj.data_path)
+        if placeholders:
+            report = report.model_copy(
+                update={"diagnostics": [*placeholders, *report.diagnostics]}
+            )
+        return report
 
     def record_render(
         self,
@@ -755,6 +764,7 @@ class Orchestrator:
             patch_ops=patch_ops,
             patch_file=patch_file,
             targets=targets,
+            diagnostics=scaffold_placeholder_diagnostics(proj.data_path),
         )
 
     def diff(self, run_a: Path, run_b: Path) -> DiffReport:

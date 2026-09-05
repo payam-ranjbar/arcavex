@@ -211,12 +211,60 @@ def _scaffold_template(formats: list[str]) -> str:
     )
 
 
-_SCAFFOLD_DATA = """\
-title: "Hello from Arcavex"
-subtitle: "A scaffolded card"
+#: The placeholder copy the scaffold's ``data.yaml`` ships. ``project new`` seeds a project's
+#: data from that file, so the values must read as placeholders wherever they surface, and the
+#: ``ARC-PRJ-015`` warning names any variable that still holds one at render/preview time —
+#: otherwise "A scaffolded card" prints on a project render while ``render_preview`` (which
+#: uses ``preview_data``) shows something else, and nothing says so.
+SCAFFOLD_PLACEHOLDERS: dict[str, str] = {
+    "title": "TITLE GOES HERE",
+    "subtitle": "SUBTITLE GOES HERE",
+}
+
+_SCAFFOLD_DATA = f"""\
+# Placeholder copy: replace every value before the render is used for real.
+title: "{SCAFFOLD_PLACEHOLDERS["title"]}"
+subtitle: "{SCAFFOLD_PLACEHOLDERS["subtitle"]}"
 # Uncomment to make the conditional footer appear:
 # badge: "NEW"
 """
+
+
+def scaffold_placeholder_diagnostics(data_path: Path | None) -> list[Diagnostic]:
+    """``ARC-PRJ-015`` when a project's data still holds the scaffold's placeholder copy.
+
+    Best effort by design: a missing, unreadable, or non-mapping data file is reported by the
+    compile that follows, not here. Only an exact match counts — an author who typed their own
+    copy over a placeholder is done, even if the copy is short.
+    """
+    if data_path is None or not Path(data_path).is_file():
+        return []
+    try:
+        data = load_yaml(Path(data_path))
+    except DiagnosticError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    stale = sorted(
+        str(key)
+        for key, value in data.items()
+        if isinstance(value, str) and SCAFFOLD_PLACEHOLDERS.get(str(key)) == value
+    )
+    if not stale:
+        return []
+    named = ", ".join(repr(name) for name in stale)
+    return [
+        diagnostic(
+            "ARC-PRJ-015",
+            f"Project data still holds the scaffold's placeholder copy for {named}",
+            severity="warning",
+            file=str(data_path),
+            hint=(
+                f"Set real values before this render is used: 'arcavex data set {stale[0]} "
+                f"\"...\"' (MCP: arcavex_data_set), or edit {Path(data_path).name}."
+            ),
+        )
+    ]
 
 
 def _scaffold_readme(name: str, fmt: str) -> str:
