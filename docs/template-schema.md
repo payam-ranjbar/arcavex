@@ -362,7 +362,8 @@ size `min`/`max`, a fit `min_size`, or a canvas dimension written as a percentag
 exception is component parameters — [effect](#effects) and
 [shape-generator](#shape-generator-parameters) lengths — where a bare number is points. Colors
 are `#RGB`/`#RRGGBB`/`#RRGGBBAA`, `rgb()`/`rgba()` (channels must be in range), or a named CSS basic
-color. An unparseable color is `ARC-IR-030`.
+color. `none` and `transparent` both mean no paint, so a stroke-only shape is `fill: none` with a
+`stroke` and a `stroke_width`. An unparseable color is `ARC-IR-030`.
 
 ## Expressions and functions
 
