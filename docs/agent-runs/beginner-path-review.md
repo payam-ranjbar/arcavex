@@ -79,7 +79,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Make the clone route (`git clone` -> `uv venv` -> `uv pip install -e .`) the primary instruction in README and skill until arcavex 0.1.0 is published to PyPI / a release wheel exists. (`README.md:19-27 (install section) and skills/arcavex-design-studio/references/engine-and-loop.md:16 (mirrored into the bundled skill at build time)`)
 
-**Status: in progress.** README and install docs (agent), skill install text (agent); the working route today is `uv tool install git+https://github.com/payam-ranjbar/arcavex`
+**Status: fixed.** `f640a53`, `d76dd5b` — README and install docs lead with `uv tool install --python 3.12 git+https://github.com/payam-ranjbar/arcavex`, say PyPI is not published yet, and give the Windows-without-Python route; `67079d1` — the skill says the same. Cutting a release stays the maintainer's decision
 
 <sub>Sources: t1:T2-01, t1:T2-02, t7:T7-01, t4:T4-01 (verifier observed registry failure), t2:T2-05 (verifier observed registry failure)</sub>
 
@@ -103,7 +103,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Expose a template-level authoring surface over MCP (formats/canvas, variables, preview_data, formats.<f>.patches — via template_new options or a template-level patch) and reject unknown template_new arguments instead of ignoring them. (`src/arcavex/clients/mcp_server.py (template_new at :129, template_patch at :161) and services/template/overlays.py:161-165`)
 
-**Status: planned.** wave 2: template-level patch paths (formats, variables, preview_data, per-format patches) and `template_new` format options over MCP
+**Status: in progress.** authoring agent: template-level patch paths (`formats.<f>`, `variables.<v>`, `preview_data.<k>`, `formats.<f>.patch`, `locales.<l>`) and `template_new` format presets over CLI and MCP
 
 <sub>Sources: t5:T5-02</sub>
 
@@ -115,7 +115,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add `arcavex ext add examples/future-archive-poster/extensions/archive-print && arcavex ext enable archive-print` immediately before every future-archive render on the beginner path, and make the ARC-FX-910 hint point to `ext add`/`ext enable` when a sibling extensions/<name> matches. (`README.md:120 (Examples code block) and docs/quick-start.md before its first future-archive render; examples/future-archive-poster/README.md:45; ARC-FX-910 hint in the compiler`)
 
-**Status: fixed.** `7249c6d` — README and quick start carry the two `ext` lines; hint extension in progress
+**Status: fixed.** `7249c6d` — README and quick start carry the two `ext` lines; `b1b6ea7` — the ARC-FX-910 hint says how an extension gets an effect registered
 
 <sub>Sources: t1:T2-05, t2:T2-02</sub>
 
@@ -127,7 +127,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Either write format-scoped commands into formats.<name>.patch (and report it in `changed`) or refuse a format-targeted structural command with a coded diagnostic — never return ok with an ignored target. (`src/arcavex/services/editor/service.py (apply path ~line 262 where transaction.target is consumed only for validation); mirror contract in src/arcavex/clients/mcp_server.py:246 and skills/.../engine-and-loop.md:82`)
 
-**Status: in progress.** editor agent: `target` documented as validation/preview context; new `scope: format` writes `formats.<f>.patch`; structural commands under it are refused with a code
+**Status: in progress.** editor agent: `target` documented as the validation/preview context everywhere; new `scope: format` writes `formats.<f>.patch`; structural commands under it are refused with a code
 
 <sub>Sources: t5:T5-01</sub>
 
@@ -139,7 +139,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** State in the README that the desktop app is not yet released (link where the installer will appear, mirroring apps/desktop/CHANGELOG.md:11) and route readers to the CLI/MCP path; later add `arcavex desktop open [PROJECT]`. (`README.md:75-88 ("## Arcavex Desktop" section)`)
 
-**Status: in progress.** README states the desktop is not yet distributed (agent); `arcavex desktop open` deferred
+**Status: fixed.** `f640a53` — the README says plainly that no installer exists yet and routes the reader to the CLI/MCP path; `arcavex desktop open` deferred
 
 <sub>Sources: t6:T6-05, t1:T2-13 (unverified)</sub>
 
@@ -151,7 +151,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add a Windows prerequisites block (install uv, `uv venv --python 3.12`, activate or use `.venv\Scripts\arcavex.exe`, optional `uv tool install` + `uv tool update-shell`) and make README.md:22 read `uv venv && uv pip install -e .` from the clone. (`docs/install.md:5-19 (Windows prerequisites block) and README.md:19-24 (install snippet)`)
 
-**Status: in progress.** README/install rewrite (agent): uv route, Windows-without-Python, PATH note
+**Status: fixed.** `f640a53`, `d76dd5b` — global-command route first, `winget install astral-sh.uv` for a machine without Python, the PATH warning and `uv tool update-shell`, the venv alternative spelled out
 
 <sub>Sources: t1:T2-09, t2:T2-05, t4:T4-01, t1:T2-10 (unverified, PATH part)</sub>
 
@@ -163,7 +163,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add a 'Connect your assistant' section with copy-paste `claude mcp add -s user arcavex -- <abs exe> mcp serve` (plus the Pending-approval note), the claude_desktop_config.json `mcpServers` block with doubled backslashes and quit/reopen, and the `codex mcp add` / [mcp_servers.arcavex] TOML form — and mirror a short version into the skill. (`README.md:321 (replace with a "Connect your assistant" subsection after the skill-install paragraph ~:35-41); skills/arcavex-design-studio/references/engine-and-loop.md:3-17 ("Finding the engine") with SKILL.md:38 pointing at it; docs/install.md:142 link`)
 
-**Status: in progress.** `docs/connect-your-assistant.md` and a `Connecting` block in the skill (agents)
+**Status: fixed.** `0c0bdd8` — `docs/connect-your-assistant.md` and a connecting section in the CLI reference with `--list`/`--print` transcripts; `67079d1` — a Connecting block in the skill
 
 <sub>Sources: t1:T2-08, t2:T2-07, t3:T3-01, t7:T7-03, t3:T3-08</sub>
 
@@ -175,7 +175,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add `arcavex mcp install` that writes the correctly escaped host config (or shells out to `claude mcp add`/`codex mcp add`) using its own absolute exe path, and have `skill install` print 'Next: arcavex mcp install'. (`product: `arcavex mcp install [--target claude-code|claude-desktop|codex] [--list]` mirroring `skill install`, with `skill install` printing it as the next step; minimum doc fallback README.md:321 (BX-08)`)
 
-**Status: in progress.** `arcavex mcp install` (agent): claude-code via `claude mcp add -s user`, claude-desktop JSON, codex TOML, `--list`, `--print`
+**Status: fixed.** `6f508ff` — `arcavex mcp install`: Claude Code via `claude mcp add -s user`, Claude Desktop JSON edited in place with a `.bak`, Codex TOML; `--list`, `--print`, `--force`, `--command`; ARC-MCP-001…004; 51 tests
 
 <sub>Sources: t3:T3-02</sub>
 
@@ -187,7 +187,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Document `skill`, `editor` and `desktop` in docs/cli.md and add 'Restart Claude Code / start a new Codex session so the skill is picked up' after `arcavex skill install` in the README. (`docs/cli.md (add `## skill`, `## editor`, `## desktop` sections and index rows); README.md:29-41 (one-line restart note)`)
 
-**Status: fixed.** `a7c6385` — `editor`, `skill`, `desktop` documented in the CLI reference; README restart note with the README rewrite
+**Status: fixed.** `a7c6385` — `editor`, `skill`, `desktop` in the CLI reference; `f640a53`, `d76dd5b` — restart the host after `skill install`
 
 <sub>Sources: t2:T2-06, t1:T2-11 (unverified), t1:T2-10 (unverified, restart part)</sub>
 
@@ -199,7 +199,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Regenerate the count and tool list from `arcavex mcp tools --json` (listing the authoring and desktop/editor families separately) and assert the documented count against the catalog in the schema-parity test. (`README.md:322-329 (with README.md:162, docs/cli.md:447, docs/architecture.md:166); tests/mcp_sessions/test_schema_parity.py`)
 
-**Status: in progress.** README rewrite replaces counts with tool families (agent); the count assertion is dropped in favour of never stating one
+**Status: fixed.** `f640a53` — tool families instead of counts; `3f9c587` — a test fails on any front-door document stating a tool count
 
 <sub>Sources: t2:T2-04, t3:T3-03, t1:T2-12 (unverified)</sub>
 
@@ -247,7 +247,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Change the CLI cell to `render` (no template) / `render --project DIR`, matching `arcavex render --help`. (`skills/arcavex-design-studio/references/engine-and-loop.md:41 (CLI cell)`)
 
-**Status: in progress.** skill agent
+**Status: fixed.** `67079d1`
 
 <sub>Sources: t7:T7-02</sub>
 
@@ -259,7 +259,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Extend the map with rows for start-from-nothing (template_new, project_create, data_set/import), assets (asset_add/annotate), runs (run_list/diff/rerun) and the editor, and refine the MCP-only 'cannot' cell. (`skills/arcavex-design-studio/references/engine-and-loop.md:30-43 (Command↔MCP map) and SKILL.md:41-44`)
 
-**Status: in progress.** skill agent
+**Status: fixed.** `67079d1`, `8db4fae` — every registered authoring tool is named and the MCP-only row corrected; `b71f8f5` pins the skill's vocabulary to the engine's registries
 
 <sub>Sources: t7:T7-04</sub>
 
@@ -271,7 +271,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add style-key and generator-param tables to template-schema.md, make the ARC-FX-912 hint enumerate valid parameter names, and expose generators with schemas over MCP. (`docs/template-schema.md (Nodes section ~:129-136 for a style-key table; generator paragraph :382 for a params table); ARC-FX-912 hint at src/arcavex/services/template/compiler.py:2271; MCP: extend arcavex_effects_list or add arcavex_generator_list`)
 
-**Status: fixed.** `48d53cb` — style, paragraph and generator tables in template-schema.md, pinned by a drift test; the ARC-FX-912 hint and generator schemas over MCP are wave 2
+**Status: fixed.** `48d53cb` — style, paragraph and generator tables in template-schema.md, pinned by `6875741`; the ARC-FX-912 hint and a generator listing over CLI/MCP are in progress (authoring agent)
 
 <sub>Sources: t5:T5-07, t4:T4-04, t5:T5-12 (unverified)</sub>
 
@@ -283,7 +283,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Make the ARC-LAY-031/032 hints and template-schema.md name the padded-stack inset idiom (or let `fill` mean parent-minus-offset / accept stretch anchors), and warn when a fill-sized node overshoots its parent. (`src/arcavex/builtin/layout_anchors/solver.py (_require_single ARC-LAY-031 hint ~line 665, and the fill overshoot path in _axis_size); docs/template-schema.md 'Sizes'`)
 
-**Status: planned.** wave 2: ARC-LAY-031/032 hints name the padded-stack inset idiom; a fill-sized node that overshoots its parent warns
+**Status: in progress.** authoring agent: ARC-LAY-031/032 hints name the span and inset idioms; a fill-sized node that overshoots its parent warns
 
 <sub>Sources: t5:T5-06</sub>
 
@@ -295,7 +295,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Stop shipping placeholder values that read like real copy in the scaffold's data.yaml (copy only required variables into the project) or emit an ARC-PRJ warning when project data still equals scaffold defaults. (`src/arcavex/services/authoring.py:194-195 (scaffold data.yaml placeholder) and/or src/arcavex/services/projects.py:210-218 (project_create copy)`)
 
-**Status: planned.** wave 2: a project whose data still equals the scaffold's placeholders warns at render
+**Status: in progress.** authoring agent: a project whose data still equals the scaffold's placeholders warns at render; scaffold placeholders read as placeholders
 
 <sub>Sources: t5:T5-05</sub>
 
@@ -307,7 +307,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Put a 4-line 'Start here' block at the top (clone → `uv venv && uv pip install -e .` → `arcavex doctor` → `skill install` + MCP registration → `template new ./card && render ./card --format square -o card.png`) and move the ext loop and encoder details below the fold. (`README.md:1-73; docs/tutorials/README.md:12-13`)
 
-**Status: in progress.** README rewrite (agent): a 'Get it working' block first
+**Status: fixed.** `f640a53` — a 'Get it working' block an assistant can run top to bottom, before anything else
 
 <sub>Sources: t1:T2-14 (unverified), t1:T2-17 (unverified)</sub>
 
@@ -319,7 +319,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Name the engine's likely locations in Step 0 (`.venv\Scripts\arcavex.exe`, uv tool bin dir, desktop sidecar) and add `src/arcavex/__main__.py` delegating to `arcavex.clients.cli:main` so `python -m arcavex` works. (`skills/arcavex-design-studio/SKILL.md:33-34 and references/engine-and-loop.md:8-9; src/arcavex/__main__.py (new)`)
 
-**Status: fixed.** `915c042` — `python -m arcavex`; the skill's Step 0 names it (skill agent adds the engine's likely locations)
+**Status: fixed.** `915c042` — `python -m arcavex`; `67079d1` — Step 0 names the engine's likely locations, including the desktop's bundled sidecar
 
 <sub>Sources: t7:T7-06, t1:T2-16 (unverified)</sub>
 
@@ -331,7 +331,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add a plain-language 'Working with your assistant' paragraph to editor.md/README and a 'Desktop app (when released)' row to the skill's Step 0 table. (`docs/desktop/editor.md (plain-language 'Working with your assistant' intro); README.md "## Arcavex Desktop"; skills/arcavex-design-studio/SKILL.md:41-44`)
 
-**Status: in progress.** README and skill (agents); a plain-language paragraph in `docs/desktop/editor.md` is planned
+**Status: in progress.** `f640a53` — README; `8db4fae` — a Desktop row in the skill's Step 0; a plain-language paragraph in `docs/desktop/editor.md` is still to write
 
 <sub>Sources: t6:T6-06, t7:T7-08</sub>
 
@@ -343,7 +343,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Re-capture the packaged-install transcript from the current lockfile or drop exact-version lines. (`docs/packaged-install.md:41-44`)
 
-**Status: in progress.** packaged-install transcript (README agent)
+**Status: fixed.** `787e74e` — transcript re-captured against the shipped examples; wheel and dev tree verified byte-identical
 
 <sub>Sources: t2:T2-09 (unverified)</sub>
 
@@ -355,7 +355,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Print destinations one per line (label then full path) or set the path column to fold/no-wrap instead of ellipsis. (`src/arcavex/clients/cli.py `_print_skill_report` (`table.add_column("path")` ~line 2088)`)
 
-**Status: in progress.** CLI agent: one destination per line
+**Status: fixed.** `7130563` — one block per destination, the path whole on its own line
 
 <sub>Sources: t2:T2-08, t7:T7-09 (unverified duplicate)</sub>
 
@@ -427,7 +427,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Correct the 'two traps' text (and the two docstrings) to say paragraph.align overrides style.align when both are set, matching compiler.py:2582. (`skills/arcavex-design-studio/references/engine-and-loop.md:119-120; src/arcavex/kernel/api.py:1401-1402; src/arcavex/services/authoring.py:101-102`)
 
-**Status: in progress.** skill agent corrects the text; the two source docstrings follow after the merges
+**Status: fixed.** `67079d1` — paragraph.align primary, style.align an honoured fallback, verified by byte-identical renders; the two source docstrings are corrected once the remaining agents land
 
 <sub>Sources: t4:T4-05, t5:T5-11 (unverified, framing refuted)</sub>
 
@@ -451,7 +451,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Implement `line_height`/`leading` (and `fit.max_lines`) on text nodes; until then document the bundled faces' line-box ratios so the two-node workaround is predictable. (`product: honour `line_height` (src/arcavex/services/template/compiler.py:3033); interim docs/known-limitations.md:36`)
 
-**Status: deferred.** `line_height` needs strut support in the text stack (known limitation ARC-TPL-053); the bundled faces' line-box ratios go into the skill
+**Status: deferred.** `line_height` needs strut support in the text stack (known limitation ARC-TPL-053); the skill now states the bundled faces' line-box ratios
 
 <sub>Sources: t4:T4-06, t5:T5-18 (unverified)</sub>
 
@@ -487,7 +487,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add a deliver step: state the absolute output path and open it for the person (`Invoke-Item` on Windows / `open` / `xdg-open`) or attach it via the host's file mechanism, noting 'inline' only works where the host displays images. (`skills/arcavex-design-studio/SKILL.md Step 9 (line 163) with a matching sentence at references/engine-and-loop.md:45-46; docs/quick-start.md after the first render`)
 
-**Status: in progress.** skill Step 9 and README (agents)
+**Status: fixed.** `8db4fae` — Step 9 opens the file for the person and states its path; `f640a53` — the README says the same
 
 <sub>Sources: t6:T6-01, t7:T7-07, t1:T2-15 (unverified)</sub>
 
@@ -499,7 +499,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Resolve `output_path` (and inferred.output) to an absolute path in the render result so CLI, --json and MCP all report where the file actually is. (`src/arcavex/kernel/api.py (render_file path stringification ~lines 2185, 2259) so CLI --json, cli.py:330 and MCP inherit it`)
 
-**Status: in progress.** CLI agent: absolute `output_path` in JSON and MCP results
+**Status: fixed.** `c9812dc` — absolute `output_path` in JSON and MCP results; the human line stays as typed
 
 <sub>Sources: t6:T6-07</sub>
 
@@ -511,7 +511,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Print the path on its own line with soft-wrap disabled (`soft_wrap=True`/`overflow='ignore'` or plain print), ideally before the timings. (`src/arcavex/clients/cli.py:690-693 (preview) and :330 (render)`)
 
-**Status: in progress.** CLI agent: path first, on its own line, unwrapped
+**Status: fixed.** `8f9b634` — the path first, whole, on its own line
 
 <sub>Sources: t6:T6-02</sub>
 
@@ -535,7 +535,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Tell the assistant to iterate at 96 dpi and check full resolution once before delivery, and add a `max_px`/`scale` bound to render_preview. (`skills/arcavex-design-studio/references/verification.md:21 and engine-and-loop.md; src/arcavex/clients/mcp_server.py render_preview`)
 
-**Status: in progress.** MCP agent adds `max_px` to `render_preview`; skill agent says iterate at 96 dpi
+**Status: in progress.** MCP agent adds `max_px` to `render_preview`; `8db4fae` — verification.md says iterate at 96 dpi
 
 <sub>Sources: t6:T6-09 (unverified)</sub>
 
@@ -547,7 +547,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Document that the preview slot is per template+format and that data/DPI/locale variants overwrite it — or include data path and dpi in the stable-path hash. (`docs/cli.md:113-115; alternatively src/arcavex/kernel/api.py:2859 (Facade.preview_path key)`)
 
-**Status: in progress.** CLI agent: data, locale, dpi and style enter the stable-path key
+**Status: fixed.** `be1d9a2` — data, locale, dpi and style enter the stable-path key; the plain template+format path is unchanged
 
 <sub>Sources: t6:T6-03</sub>
 
@@ -559,7 +559,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add a 'Watch it change' step (start `preview --watch`, open the printed path in a live-reloading viewer, then edit) to quick-start and the skill. (`docs/quick-start.md (add a 'Watch it change' step); skills/arcavex-design-studio/SKILL.md Step 7`)
 
-**Status: in progress.** skill agent; the quick start gains a 'Watch it change' step in this pass
+**Status: fixed.** `3f5819a` — quick start step 6 'Watch it change'; `67079d1` — the skill's live-view paragraph
 
 <sub>Sources: t6:T6-04</sub>
 
@@ -583,7 +583,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Write the full `arcavex_editor_*` names, add 'submit via arcavex_editor_apply (CLI: arcavex editor apply)' above the transaction block, add an editor row to the map, and mention detach-before-edit. (`skills/arcavex-design-studio/references/engine-and-loop.md:77-115 and the map at :30-42`)
 
-**Status: in progress.** skill agent
+**Status: fixed.** `67079d1` — full `arcavex_editor_*` names and the tool that takes the transaction
 
 <sub>Sources: t7:T7-05, t5:T5-16 (unverified)</sub>
 
@@ -607,7 +607,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Note the startup cost in the skill and recommend `preview --watch`/MCP for iteration; consider lazy imports to cut cold start. (`skills/arcavex-design-studio/references/engine-and-loop.md; CLI import path`)
 
-**Status: in progress.** skill agent notes the start-up cost; lazy imports deferred
+**Status: fixed.** `67079d1` — the skill states the ~1 s start-up and steers iteration to `--watch`/MCP; lazy imports deferred
 
 <sub>Sources: t6:T6-10 (unverified)</sub>
 
@@ -622,6 +622,17 @@ last regeneration; commits are on `codex/beginner-ux`.
 **Status: in progress.** MCP agent: per-format dpi mapping; declared canvas dpi by default
 
 <sub>Sources: t5:T5-19 (unverified)</sub>
+
+## Found while fixing
+
+Writing the style-key tables against the engine surfaced defects no tracer had reached, each
+reproduced with pixel checks before being handed to the render-defects agent: a `path` node
+renders nothing at all; `opacity` is ignored on text and on a group's children unless the node
+carries an effect; a `%` on a style length leaks an internal error (ARC-INT-999) instead of a
+located diagnostic; `italic: "no"` renders italic; `opacity: 1.5` validates. The MCP-only trial's
+transcript added `fill: none` refused while `transparent` is accepted, and hints for
+over-constrained axes and percent offsets that state the rule without the idiom — all in the
+authoring agent's scope.
 
 ## Refuted by the verifiers
 
@@ -641,15 +652,16 @@ Tracer claims that did not survive an independent attempt to reproduce them:
 
 | Status | Count |
 |---|---|
-| fixed | 10 |
-| in progress | 28 |
-| planned | 5 |
+| fixed | 29 |
+| in progress | 12 |
+| planned | 2 |
 | deferred | 3 |
 
 Two things are the maintainer's decision rather than a repair: cutting the first release (the
 release workflows exist and have never fired, so PyPI and the Releases page are empty — BX-01), and
 distributing the desktop installer (BX-06). Until then the documented route is a `uv tool install`
-from the repository URL.
+from the repository URL — which installs `main`, so this branch has to land before that route
+gives a reader the MCP server (BX-02) and everything else here.
 
 ## Artefacts
 
