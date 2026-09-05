@@ -7,9 +7,9 @@ layout solver.
 
 A node with no effects takes the direct path: draw its content (and, for a group, its
 children) straight onto the canvas, optionally rotated, masked, and faded — a shape or image
-fades through its paint alpha, a text node through one layer so the whole node composites at
-its opacity exactly as the effects path composites its element. A node **with** effects is
-rendered offscreen: its content (or subtree) is rasterized into a pooled element
+fades through its paint alpha, a text node or a group through one layer so the whole node (and
+subtree) composites at its opacity exactly as the effects path composites its element. A node
+**with** effects is rendered offscreen: its content (or subtree) is rasterized into a pooled element
 surface covering the node's ``render_bounds`` (layout bounds grown by declared effect
 expansion), the category-aware effect plan runs on that raster — geometry rewrites the path
 pre-raster, a fused color filter recolors in one pass, raster passes and composite passes
@@ -80,10 +80,11 @@ _DEBUG_LABEL_PLACEMENT_TRIES = 32
 _DEBUG_LABEL_COLUMN_STEP = 0.5
 _EMPTY_PLAN = EffectPlan()
 # Node kinds whose opacity fades the node as one layer on the plain path. A shape or image
-# multiplies its own paint alpha instead; text is drawn by the shaper with its run colours, so
-# the only way to fade it — and the one that matches the effects path byte-for-byte — is to
-# composite the whole node through a layer carrying the same alpha paint.
-_LAYER_FADED_KINDS = frozenset({"text"})
+# multiplies its own paint alpha instead. Text is drawn by the shaper with its run colours, and a
+# group's opacity belongs to its whole subtree (overlapping children must not double up), so
+# both composite through a layer carrying the same alpha paint the effects path composites its
+# element with — which is what makes the two paths agree byte-for-byte.
+_LAYER_FADED_KINDS = frozenset({"text", "group"})
 
 
 class SkiaBackend(RendererBackend):
