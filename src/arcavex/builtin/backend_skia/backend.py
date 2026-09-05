@@ -6,8 +6,10 @@ measurement in the same unit. Traversal is document order with ``z`` already app
 layout solver.
 
 A node with no effects takes the direct path: draw its content (and, for a group, its
-children) straight onto the canvas, optionally rotated, masked, and faded. A node **with**
-effects is rendered offscreen: its content (or subtree) is rasterized into a pooled element
+children) straight onto the canvas, optionally rotated, masked, and faded — a shape or image
+fades through its paint alpha, a text node through one layer so the whole node composites at
+its opacity exactly as the effects path composites its element. A node **with** effects is
+rendered offscreen: its content (or subtree) is rasterized into a pooled element
 surface covering the node's ``render_bounds`` (layout bounds grown by declared effect
 expansion), the category-aware effect plan runs on that raster — geometry rewrites the path
 pre-raster, a fused color filter recolors in one pass, raster passes and composite passes
@@ -77,6 +79,11 @@ _DEBUG_LABEL_MAX_W_PT = 400.0
 _DEBUG_LABEL_PLACEMENT_TRIES = 32
 _DEBUG_LABEL_COLUMN_STEP = 0.5
 _EMPTY_PLAN = EffectPlan()
+# Node kinds whose opacity fades the node as one layer on the plain path. A shape or image
+# multiplies its own paint alpha instead; text is drawn by the shaper with its run colours, so
+# the only way to fade it — and the one that matches the effects path byte-for-byte — is to
+# composite the whole node through a layer carrying the same alpha paint.
+_LAYER_FADED_KINDS = frozenset({"text"})
 
 
 class SkiaBackend(RendererBackend):
@@ -167,7 +174,7 @@ class SkiaBackend(RendererBackend):
 
     # ------------------------------------------------------------------ plain path
     def _draw_plain(self, canvas: object, node: LayoutNode) -> None:
-        """Draw a node with no effects directly (rotation, mask, content, then children)."""
+        """Draw a node with no effects directly (rotation, mask, layer, content, then children)."""
         saves = 0
         if self._apply_local_transform(canvas, node):
             saves += 1
@@ -177,8 +184,15 @@ class SkiaBackend(RendererBackend):
                 canvas.save()  # type: ignore[attr-defined]
                 canvas.clipPath(path, skia.ClipOp.kIntersect, True)  # type: ignore[attr-defined]
                 saves += 1
+        # Same paint as _composite_back, so a faded node renders identically with or without an
+        # effects list. The layer takes the whole clip (no bounds hint): content may legitimately
+        # paint outside its box, and a hint would clip it.
+        layered = node.opacity < 1.0 and node.kind in _LAYER_FADED_KINDS
+        if layered:
+            canvas.saveLayer(None, _alpha_paint(node.opacity))  # type: ignore[attr-defined]
+            saves += 1
 
-        self._paint_content(canvas, node, node.opacity)
+        self._paint_content(canvas, node, 1.0 if layered else node.opacity)
 
         if node.kind == "group" and node.children:
             did_clip = False
@@ -324,12 +338,9 @@ class SkiaBackend(RendererBackend):
         """Draw the finished element image back onto the parent canvas at ``rb`` (points)."""
         canvas.save()  # type: ignore[attr-defined]
         self._apply_local_transform(canvas, node, save=False)
-        paint = skia.Paint()
-        if node.opacity < 1.0:
-            paint.setAlphaf(node.opacity)
         dst = skia.Rect.MakeXYWH(rb.x, rb.y, rb.w, rb.h)
         canvas.drawImageRect(  # type: ignore[attr-defined]
-            image, dst, skia.SamplingOptions(), paint
+            image, dst, skia.SamplingOptions(), _alpha_paint(node.opacity)
         )
         canvas.restore()  # type: ignore[attr-defined]
 
@@ -736,6 +747,14 @@ def _fill_and_stroke(
 
 def _skrect(bounds: Rect) -> object:
     return skia.Rect.MakeXYWH(bounds.x, bounds.y, bounds.w, bounds.h)
+
+
+def _alpha_paint(opacity: float) -> object:
+    """The paint that composites a whole node (element image or layer) at ``opacity``."""
+    paint = skia.Paint()
+    if opacity < 1.0:
+        paint.setAlphaf(opacity)
+    return paint
 
 
 def _fill_paint(color: tuple[float, float, float, float], opacity: float) -> object:
