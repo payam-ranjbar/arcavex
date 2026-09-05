@@ -406,6 +406,26 @@ base file) is a common mistake; the missing-variable hint calls it out. Full rat
 (`ARC-TPL-092`), never a silent new key. Resolution order is style → template → format patch →
 locale patch → project override, before expressions.
 
+The same grammar drives `arcavex template patch` and the `arcavex_template_patch` MCP tool, which
+edit the template *file* in place. Because that is the top-level operation rather than an embedded
+layer, its paths may also address the template's own sections:
+
+| Path | Addresses |
+|---|---|
+| `nodes.<id>[.<field>…]` | A node, as in an embedded patch (`insert_before`/`insert_after` work here only). |
+| `formats.<name>[.<field>…]` | A whole canvas (`set: formats.a3`, `value: {canvas: {width: 297mm, height: 420mm, dpi: 300, bleed: 3mm}}`), one field of it, or its embedded `patch` list — `formats.a3.patch.0.value` reaches one op. |
+| `variables.<name>[.<field>…]` | A variable declaration or one of its keys. |
+| `preview_data.<key>[.<field>…]` | A preview value. |
+| `locales.<name>[.<field>…]` | A locale (the `locales:` section is created if the template has none). |
+| `style` | The style-pack opt-in, as a whole value. |
+
+`set` creates the named entry when it is absent and replaces it otherwise; `remove` deletes it.
+After every write the template is compiled for each declared format, and an op that introduces an
+error — a canvas that does not parse, a removed value a required variable needs, an unknown style
+pack — is rolled back and refused with that located diagnostic, so a `formats.<name>` you add is one
+you can render. Errors the template already had do not block an unrelated edit. A patch embedded in
+a format or locale stays node-only: `formats.<name>.patch` cannot address `formats.` (`ARC-TPL-092`).
+
 `arcavex template inspect --resolved [--format F] [--locale L]` reports the resolved
 direction/digits and each applied patch with the value it produced and its originating layer (the
 last op on a path is marked effective), so you can answer "where did this value come from?":

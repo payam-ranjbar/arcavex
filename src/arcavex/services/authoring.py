@@ -38,6 +38,7 @@ from arcavex.services.template.compiler import (
 from arcavex.services.template.functions import FUNCTION_SIGNATURES
 from arcavex.services.template.loader import (
     _SIDECARS,
+    TemplateSource,
     dump_yaml,
     line_of,
     load_template,
@@ -45,7 +46,11 @@ from arcavex.services.template.loader import (
     node_line,
     resolve_template_path,
 )
-from arcavex.services.template.overlays import PatchLog, apply_patches
+from arcavex.services.template.overlays import (
+    TEMPLATE_PATCH_ROOTS,
+    PatchLog,
+    apply_patches,
+)
 
 # Blocks whose fields have a fixed vocabulary the compiler validates at compile time. A patch
 # 'set'/'insert' whose leaf lands in one of these blocks is field-checked before the write, so a
@@ -396,17 +401,28 @@ class AuthoringService:
     def patch_template(
         self, template: Path, ops: list[PatchOp], base_sha256: str | None = None
     ) -> PatchTemplateResult:
-        """Apply path-addressed patch ops to a template file on disk, preserving comments.
+        """Apply path-addressed patch ops to a template on disk, preserving comments.
 
         The ops reuse the exact ``set/remove/insert_*`` grammar the override layers use
-        (``services.template.overlays``), applied here to ``template.yaml``'s ``root`` AST and
-        written back through ruamel round-trip so comments and key order survive. An op that does
-        not name exactly one verb (``ARC-TPL-092``, CR-1) or whose leaf field is unknown for a
-        fixed-vocabulary block (``ARC-TPL-051``, DX-4) is rejected *before* the write, so an
-        ambiguous op never applies partially and a typo'd field never silently lands. An unknown
-        addressed path raises a located ``ARC-TPL-092``; a stale ``base_sha256`` (the file changed
-        on disk since the agent read it) is refused with ``ARC-TPL-110`` before anything is
-        written, so a concurrent edit is never overwritten (spec §8.3). Never raises.
+        (``services.template.overlays``) and may address the node tree (``nodes.<id>...``) or,
+        because this is the top-level operation and not an embedded layer, the template's own
+        sections: ``formats.<name>``, ``variables.<name>``, ``preview_data.<key>``,
+        ``locales.<name>`` (each with an optional field path, list indexes included) and the
+        whole ``style`` value. Insert verbs stay node-only. The file is written back through
+        ruamel round-trip so comments and key order survive; on a split template each section
+        is written to the sidecar that holds it.
+
+        An op that does not name exactly one verb (``ARC-TPL-092``, CR-1) or whose leaf field is
+        unknown for a fixed-vocabulary block (``ARC-TPL-051``, DX-4) is rejected *before* the
+        write, so an ambiguous op never applies partially and a typo'd field never silently
+        lands. An unknown addressed path raises a located ``ARC-TPL-092``. After the write the
+        template is compiled for every declared format, and a patch that *introduces* a compile
+        error (a canvas that does not parse, a removed value a required variable needs, an
+        unknown style pack) is rolled back and refused with those located diagnostics — errors
+        the template already had do not block an unrelated edit, so a broken template can still
+        be repaired one op at a time. A stale ``base_sha256`` (the file changed on disk since the
+        agent read it) is refused with ``ARC-TPL-110`` before anything is written, so a
+        concurrent edit is never overwritten (spec §8.3). Never raises.
         """
         try:
             _root_dir, template_yaml = resolve_template_path(template)
@@ -436,8 +452,9 @@ class AuthoringService:
                 ok=False, path=str(template_yaml), sha256=current_sha, diagnostics=op_diags
             )
         try:
-            raw = load_yaml(template_yaml)
-            root_map = raw.get("root") if hasattr(raw, "get") else None
+            source = load_template(template_yaml)
+            raw = source.raw
+            root_map = raw.get("root")
             if not hasattr(root_map, "get"):
                 return PatchTemplateResult(
                     ok=False,
@@ -452,18 +469,94 @@ class AuthoringService:
                         )
                     ],
                 )
+            # Errors the template already has are not the patch's doing: only errors the patch
+            # introduces refuse it, so an author can repair a broken template one op at a time.
+            already = {
+                _diag_key(d)
+                for d in self._compile_errors(template_yaml, _format_names(raw.get("formats")))
+            }
             plain_ops = [op.to_patch_dict() for op in ops]
-            apply_patches(root_map, plain_ops, "patch", template_yaml, "patch", PatchLog())
-            dump_yaml(raw, template_yaml)
+            apply_patches(
+                root_map, plain_ops, "patch", template_yaml, "patch", PatchLog(),
+                allowed_roots=TEMPLATE_PATCH_ROOTS, document=raw,
+            )
         except DiagnosticError as exc:
             return PatchTemplateResult(
                 ok=False, path=str(template_yaml), sha256=current_sha,
                 diagnostics=list(exc.diagnostics),
             )
+        # Read the patched format list before the write: writing a split template moves each
+        # sidecar section out of the merged mapping.
+        formats_after = _format_names(raw.get("formats"))
+        snapshot = {
+            path: path.read_bytes()
+            for path in {template_yaml, *source.section_files.values()}
+        }
+        try:
+            _write_template_source(source)
+            introduced = [
+                d
+                for d in self._compile_errors(template_yaml, formats_after)
+                if _diag_key(d) not in already
+            ]
+        except Exception:
+            _restore_files(snapshot)
+            raise
+        if introduced:
+            _restore_files(snapshot)
+            return PatchTemplateResult(
+                ok=False, path=str(template_yaml), sha256=current_sha, diagnostics=introduced
+            )
         new_sha = sha256_bytes(template_yaml.read_bytes())
         return PatchTemplateResult(
             ok=True, path=str(template_yaml), sha256=new_sha, applied=len(ops)
         )
+
+    def _compile_errors(self, template_yaml: Path, formats: list[str]) -> list[Diagnostic]:
+        """Return the error diagnostics of compiling the template for each declared format.
+
+        With no formats declared the single compile reports that (``ARC-TPL-020``) — a template
+        a patch left without a canvas is as unrenderable as one with a canvas that does not parse.
+        """
+        errors: list[Diagnostic] = []
+        for fmt in formats or [None]:
+            try:
+                result = self._compiler.compile(template_yaml, None, fmt, None, None)
+            except DiagnosticError as exc:
+                errors.extend(d for d in exc.diagnostics if d.is_error())
+                continue
+            errors.extend(d for d in result.diagnostics if d.is_error())
+        return errors
+
+
+def _format_names(formats: Any) -> list[str]:
+    return [str(name) for name in formats] if isinstance(formats, dict) else []
+
+
+def _diag_key(diag: Diagnostic) -> tuple[str, str, str | None]:
+    """The identity of a compile error for before/after comparison: code, message, keypath."""
+    keypath = diag.source.keypath if diag.source is not None else None
+    return diag.code, diag.message, keypath
+
+
+def _write_template_source(source: TemplateSource) -> None:
+    """Write a (possibly split) template back: each sidecar section to its file, the rest inline.
+
+    ``load_template`` merges sidecar sections into the ``template.yaml`` mapping, so they are
+    written out to their own files and removed from the mapping before it is dumped — otherwise
+    a split template would come back with every section defined twice (``ARC-TPL-097``).
+    """
+    raw = source.raw
+    for section, sidecar in source.section_files.items():
+        if section in raw:
+            dump_yaml(raw[section], sidecar)
+            del raw[section]
+    dump_yaml(raw, source.template_path)
+
+
+def _restore_files(snapshot: dict[Path, bytes]) -> None:
+    for path, content in snapshot.items():
+        path.write_bytes(content)
 
 
 def _patch_verbs(op: PatchOp) -> list[str]:

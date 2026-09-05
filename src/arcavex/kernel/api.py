@@ -1203,10 +1203,12 @@ class PatchOp(BaseModel):
     """One path-addressed template mutation (spec §4.1.4), the AI authoring contract.
 
     Exactly one of ``set``/``remove``/``insert_before``/``insert_after`` names the addressed
-    path ``nodes.<id>[.<field>...]``; ``value`` carries a ``set`` payload and ``node`` the
-    mapping an insert introduces. This is the SAME grammar the format/locale/project override
-    layers use, applied here to the template file itself so an agent edits a stable node id
-    rather than a text span.
+    path; ``value`` carries a ``set`` payload and ``node`` the mapping an insert introduces. A
+    path is ``nodes.<id>[.<field>...]`` (the only form inserts take) or, because this is the
+    top-level operation, a template section: ``formats.<name>``, ``variables.<name>``,
+    ``preview_data.<key>``, ``locales.<name>`` (each with an optional field path) or ``style``.
+    This is the SAME grammar the format/locale/project override layers use for nodes, applied
+    here to the template file itself so an agent edits a stable node id rather than a text span.
     """
 
     model_config = ConfigDict(frozen=True)

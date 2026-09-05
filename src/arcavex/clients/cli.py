@@ -891,13 +891,16 @@ def template_split(
 def template_patch(
     template: Path = typer.Argument(..., help="Template file or directory to patch in place."),
     set_path: str | None = typer.Option(
-        None, "--set", help="Set 'nodes.<id>[.<field>]' to --value."
+        None, "--set",
+        help="Set 'nodes.<id>[.<field>]', 'formats.<name>[.<field>]', 'variables.<name>', "
+        "'preview_data.<key>', 'locales.<name>', or 'style' to --value.",
     ),
     value: str | None = typer.Option(
         None, "--value", help="Value for --set (parsed as JSON, else a string)."
     ),
     remove_path: str | None = typer.Option(
-        None, "--remove", help="Remove the node or field at 'nodes.<id>[.<field>]'."
+        None, "--remove",
+        help="Remove the node, field, or section entry at the path (same roots as --set).",
     ),
     insert_before: str | None = typer.Option(
         None, "--insert-before", help="Insert --node before 'nodes.<id>'."
@@ -921,7 +924,9 @@ def template_patch(
     """Apply path-addressed set/remove/insert ops to a template on disk (comment-preserving).
 
     The AI mutation contract (spec §4.1.4), also reachable from the CLI: each op addresses a
-    stable node id. Pass one op via the flags, or a batch via --ops-file.
+    stable node id or, at this top level, a template section (a format, a variable, preview
+    data, a locale, the style pack). Pass one op via the flags, or a batch via --ops-file. The
+    patched template must still compile for every declared format, or the op is rolled back.
     """
     if json_out:
         _force_utf8_stdout()

@@ -80,6 +80,44 @@ def test_preview_failure_returns_structured_diagnostics(
     assert any(d.code == "ARC-IR-030" for d in preview.diagnostics)
 
 
+def test_a_print_format_can_be_declared_over_mcp_and_rendered(
+    tools: ArcavexTools, scaffold: Path
+) -> None:
+    """The scaffold ships square + story; an assistant must be able to add A3 without leaving MCP.
+
+    An assistant restricted to MCP delivered a 9:16 "window poster" because nothing over the
+    protocol could declare a print size: template_patch addressed nodes only. Declaring a format
+    is one addressed op, and the compile guard means what it accepts is what renders.
+    """
+    template = str(scaffold)
+    a3 = {"canvas": {"width": "297mm", "height": "420mm", "dpi": 300, "bleed": "3mm"}}
+    patched = tools.template_patch(template, [PatchOp(set="formats.a3", value=a3)])
+    assert patched.ok, [d.model_dump() for d in patched.diagnostics]
+
+    inspected = tools.template_inspect(template)
+    assert {f.name for f in inspected.formats} == {"square", "story", "a3"}
+    a3_info = next(f for f in inspected.formats if f.name == "a3")
+    assert (a3_info.width, a3_info.height, a3_info.dpi) == ("297mm", "420mm", 300)
+
+    # Rendered at 72 dpi to keep the test quick; the canvas is still 297 x 420 mm.
+    out = scaffold / "a3.png"
+    rendered = tools.render(template, format="a3", output=str(out), dpi=72)
+    assert rendered.ok and out.is_file(), [d.model_dump() for d in rendered.diagnostics]
+
+    # The narrower patch a print size usually needs rides in the same grammar.
+    tuned = tools.template_patch(
+        template,
+        [
+            PatchOp(
+                set="formats.a3.patch",
+                value=[{"set": "nodes.title.style.font_size", "value": "36pt"}],
+            )
+        ],
+    )
+    assert tuned.ok, [d.model_dump() for d in tuned.diagnostics]
+    assert tools.template_validate(template, format="a3").ok
+
+
 def test_data_and_asset_tools_round_trip(tools: ArcavexTools, tmp_path: Path) -> None:
     """set_data / import_data / asset_add / asset_annotate mirror the facade with diagnostics."""
     template = tmp_path / "card"

@@ -241,7 +241,19 @@ functions:
 
 `template patch` takes one of `--set P --value V`, `--remove P`, `--insert-before P --node J`,
 `--insert-after P --node J`, or `--ops-file F`, with an optional `--base-sha256 H` guard that
-refuses the write if the file changed on disk since it was read (`ARC-TPL-110`).
+refuses the write if the file changed on disk since it was read (`ARC-TPL-110`). Paths address a
+node (`nodes.<id>[.<field>…]`) or, at this top level only, a template section: `formats.<name>`,
+`variables.<name>`, `preview_data.<key>`, `locales.<name>` (each with an optional field path) and
+`style` — see [Patches](template-schema.md#patches). The patched template is compiled for every
+declared format before the change is kept; an op that introduces an error is rolled back and
+refused with the located diagnostic.
+
+```console
+$ arcavex template patch ./mytpl --set formats.a3 \
+    --value '{"canvas": {"width": "297mm", "height": "420mm", "dpi": 300, "bleed": "3mm"}}'
+Patched mytpl/template.yaml (1 op(s), sha256 …)
+$ arcavex render ./mytpl --format a3 -o poster-a3.pdf
+```
 
 ## layout inspect
 
