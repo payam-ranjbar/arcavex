@@ -248,7 +248,9 @@ class OverflowState(BaseModel):
 
     ``kind`` is the observed result; ``measured_w_pt``/``measured_h_pt`` are the shaped
     extents, and ``box_w_pt``/``box_h_pt`` are the target extents, so inspection can report by
-    how much text over/underran.
+    how much text over/underran. ``base_size_pt`` is the font size the fit started from and
+    ``resolved_size_pt`` the size actually used, so a ``shrunk`` outcome can be judged from the
+    sizes themselves.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -258,6 +260,7 @@ class OverflowState(BaseModel):
     measured_h_pt: float = 0.0
     box_w_pt: float = 0.0
     box_h_pt: float = 0.0
+    base_size_pt: float | None = None  # the authored font size the fit started from
     resolved_size_pt: float | None = None  # the font size actually used after shrink_to_fit
 
 

@@ -42,7 +42,7 @@ export type LayerSource = { readonly file?: string | null; readonly keypath?: st
 
 export type LayerUIMetadata = { readonly color?: string | null; readonly display_name?: string | null; readonly locked?: boolean; };
 
-export type OverflowReport = { readonly box_h_pt: number; readonly box_w_pt: number; readonly kind: string; readonly measured_h_pt: number; readonly measured_w_pt: number; };
+export type OverflowReport = { readonly base_size_pt?: number | null; readonly box_h_pt: number; readonly box_w_pt: number; readonly kind: string; readonly measured_h_pt: number; readonly measured_w_pt: number; readonly resolved_size_pt?: number | null; };
 
 export type PreviewResult = { readonly changed_file?: string | null; readonly compile_ms?: number | null; readonly content_sha256?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly inferred?: Readonly<Record<string, string>>; readonly ok: boolean; readonly output_path?: string | null; readonly render_ms?: number | null; readonly response_version?: number; };
 
@@ -1730,8 +1730,20 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "type": "object"
       },
       "OverflowReport": {
-        "description": "A node's text-overflow outcome, echoed for inspection.",
+        "description": "A node's text-overflow outcome, echoed for inspection.\n\n``base_size_pt`` is the authored font size the fit started from and ``resolved_size_pt`` the\nsize actually painted, so a ``shrunk`` outcome is judged from the sizes themselves rather\nthan from the box extents. ``kind`` is ``shrunk`` only when the size moved by at least the\nlarger of 1pt and 2% of the base; a smaller move is a fit-search artefact, left at ``none``\nwith the exact resolved size still reported. Both fields are additive under\nresponse_version 1 and default to ``None`` (spec §2 rule 5).",
         "properties": {
+          "base_size_pt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Size Pt"
+          },
           "box_h_pt": {
             "title": "Box H Pt",
             "type": "number"
@@ -1751,6 +1763,18 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
           "measured_w_pt": {
             "title": "Measured W Pt",
             "type": "number"
+          },
+          "resolved_size_pt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resolved Size Pt"
           }
         },
         "required": [
@@ -5444,11 +5468,13 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
           },
           "origin": "repeat",
           "overflow": {
+            "base_size_pt": 48,
             "box_h_pt": 64,
             "box_w_pt": 300,
             "kind": "shrink",
             "measured_h_pt": 70,
-            "measured_w_pt": 310
+            "measured_w_pt": 310,
+            "resolved_size_pt": 44
           },
           "paint_bounds_pt": [
             8,

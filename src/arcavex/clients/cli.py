@@ -1072,11 +1072,23 @@ def _print_layout_node(console: Console, node: object, depth: int) -> None:
         )
     if n.overflow is not None and n.overflow.kind != "none":  # type: ignore[attr-defined]
         o = n.overflow  # type: ignore[attr-defined]
-        console.print(
-            f"{pad}  [yellow]overflow[/yellow]: {o.kind} "
-            f"(measured {o.measured_w_pt:.1f}x{o.measured_h_pt:.1f}pt "
-            f"in {o.box_w_pt:.1f}x{o.box_h_pt:.1f}pt)"
-        )
+        if o.kind == "shrunk" and o.base_size_pt and o.resolved_size_pt:
+            # A shrink names both sizes and the loss. The measured extents are dropped here:
+            # after a shrink the text sits just inside its box by definition, so they read as a
+            # width delta of a point or two and said nothing about how much smaller the type
+            # became — and with them the line wrapped mid-number at 80 columns.
+            loss = o.resolved_size_pt / o.base_size_pt - 1.0
+            console.print(
+                f"{pad}  [yellow]overflow[/yellow]: shrunk {o.base_size_pt:.1f}pt → "
+                f"{o.resolved_size_pt:.1f}pt ({loss:+.1%}) "
+                f"into {o.box_w_pt:.1f}x{o.box_h_pt:.1f}pt"
+            )
+        else:
+            console.print(
+                f"{pad}  [yellow]overflow[/yellow]: {o.kind} "
+                f"(measured {o.measured_w_pt:.1f}x{o.measured_h_pt:.1f}pt "
+                f"in {o.box_w_pt:.1f}x{o.box_h_pt:.1f}pt)"
+            )
     for child in n.children:  # type: ignore[attr-defined]
         _print_layout_node(console, child, depth + 1)
 

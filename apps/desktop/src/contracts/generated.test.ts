@@ -1400,6 +1400,17 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
         "children",
         0,
         "overflow",
+        "base_size_pt"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "root",
+        "children",
+        0,
+        "overflow",
         "box_h_pt"
       ],
       "operation": "delete"
@@ -1484,6 +1495,17 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
         0,
         "overflow",
         "measured_w_pt"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "root",
+        "children",
+        0,
+        "overflow",
+        "resolved_size_pt"
       ],
       "operation": "set",
       "value": "__arcavex_unexpected__-number"

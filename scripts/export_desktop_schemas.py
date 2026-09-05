@@ -131,6 +131,8 @@ _LEAF_LAYER = {
         "measured_h_pt": 70.0,
         "box_w_pt": 300.0,
         "box_h_pt": 64.0,
+        "base_size_pt": 48.0,
+        "resolved_size_pt": 44.0,
     },
     "source": {"file": "template.yaml", "keypath": "layers.title", "line": 42},
     "effects": [

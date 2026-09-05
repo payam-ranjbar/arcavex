@@ -1382,7 +1382,15 @@ class AnchorDerivation(BaseModel):
 
 
 class OverflowReport(BaseModel):
-    """A node's text-overflow outcome, echoed for inspection."""
+    """A node's text-overflow outcome, echoed for inspection.
+
+    ``base_size_pt`` is the authored font size the fit started from and ``resolved_size_pt`` the
+    size actually painted, so a ``shrunk`` outcome is judged from the sizes themselves rather
+    than from the box extents. ``kind`` is ``shrunk`` only when the size moved by at least the
+    larger of 1pt and 2% of the base; a smaller move is a fit-search artefact, left at ``none``
+    with the exact resolved size still reported. Both fields are additive under
+    response_version 1 and default to ``None`` (spec §2 rule 5).
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -1391,6 +1399,8 @@ class OverflowReport(BaseModel):
     measured_h_pt: float
     box_w_pt: float
     box_h_pt: float
+    base_size_pt: float | None = None
+    resolved_size_pt: float | None = None
 
 
 class LayoutNodeReport(BaseModel):
@@ -3811,6 +3821,8 @@ def _build_node_report(
             measured_h_pt=layout.overflow.measured_h_pt,
             box_w_pt=layout.overflow.box_w_pt,
             box_h_pt=layout.overflow.box_h_pt,
+            base_size_pt=layout.overflow.base_size_pt,
+            resolved_size_pt=layout.overflow.resolved_size_pt,
         )
     anchors = _derive_anchors(compiled, layout, group_dir, parent_stack)
 

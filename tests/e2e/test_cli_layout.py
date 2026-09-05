@@ -115,6 +115,29 @@ def test_layout_inspect_json_carries_overlap_kind(tmp_path: Path) -> None:
     }
 
 
+def test_layout_inspect_human_shows_the_sizes_a_shrink_moved_between(tmp_path: Path) -> None:
+    # A flagged shrink names both sizes and the loss, not only the box the text landed in.
+    template = tmp_path / "shrink.yaml"
+    template.write_text(
+        "version: 0.1.0\n"
+        "formats: {sq: {canvas: {width: 400px, height: 400px, dpi: 72}}}\n"
+        "root:\n  type: group\n  id: root\n  children:\n"
+        "    - id: headline\n      type: text\n      text: A headline that must shrink hard\n"
+        "      style: {font: Inter, font_size: 48pt, color: '#000000'}\n"
+        "      fit: {policy: shrink_to_fit, min_size: 10pt, max_lines: 1}\n"
+        "      constraints: {anchor: {top: parent.top+20pt, left: parent.left+20pt}, "
+        "size: {w: 300pt, h: fit_content}}\n",
+        encoding="utf-8",
+    )
+    proc = _run(["layout", "inspect", str(template), "--format", "sq", "--no-color"])
+    assert proc.returncode == 0, proc.stderr
+    (line,) = [ln for ln in proc.stdout.splitlines() if "overflow: shrunk" in ln]
+    assert "overflow: shrunk 48.0pt → " in line
+    assert "%) into 300.0x" in line
+    # Rich wraps at 80 columns when stdout is not a terminal; the line must fit unbroken.
+    assert max(len(ln) for ln in proc.stdout.splitlines()) <= 80
+
+
 def test_render_debug_flag(tmp_path: Path) -> None:
     out = tmp_path / "dbg.png"
     proc = _run(

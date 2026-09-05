@@ -847,6 +847,7 @@ class AnchorLayoutSolver(LayoutSolver):
             measured_h_pt=_q(result.height_pt),
             box_w_pt=bounds.w,
             box_h_pt=bounds.h,
+            base_size_pt=base_size,
             resolved_size_pt=result.resolved_size_pt or base_size,
         )
         return resolved, overflow

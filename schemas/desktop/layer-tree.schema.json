@@ -576,8 +576,20 @@
       "type": "object"
     },
     "OverflowReport": {
-      "description": "A node's text-overflow outcome, echoed for inspection.",
+      "description": "A node's text-overflow outcome, echoed for inspection.\n\n``base_size_pt`` is the authored font size the fit started from and ``resolved_size_pt`` the\nsize actually painted, so a ``shrunk`` outcome is judged from the sizes themselves rather\nthan from the box extents. ``kind`` is ``shrunk`` only when the size moved by at least the\nlarger of 1pt and 2% of the base; a smaller move is a fit-search artefact, left at ``none``\nwith the exact resolved size still reported. Both fields are additive under\nresponse_version 1 and default to ``None`` (spec §2 rule 5).",
       "properties": {
+        "base_size_pt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Size Pt"
+        },
         "box_h_pt": {
           "title": "Box H Pt",
           "type": "number"
@@ -597,6 +609,18 @@
         "measured_w_pt": {
           "title": "Measured W Pt",
           "type": "number"
+        },
+        "resolved_size_pt": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved Size Pt"
         }
       },
       "required": [

@@ -528,11 +528,13 @@
           },
           "origin": "repeat",
           "overflow": {
+            "base_size_pt": 48.0,
             "box_h_pt": 64.0,
             "box_w_pt": 300.0,
             "kind": "shrink",
             "measured_h_pt": 70.0,
-            "measured_w_pt": 310.0
+            "measured_w_pt": 310.0,
+            "resolved_size_pt": 44.0
           },
           "paint_bounds_pt": [
             8.0,

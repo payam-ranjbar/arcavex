@@ -338,6 +338,21 @@ whole-canvas check, compare `bounds_pt` across the tree from `--json`. The reaso
 measured trade-off are in
 [known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
 
+### Shrink outcomes
+
+A text node's `overflow` line names the fit outcome and, for `shrunk`, the sizes it moved between:
+
+```
+name-a text bounds (48.6, 62.0, 712.8, 209.0)pt
+  overflow: shrunk 150.0pt → 133.5pt (-11.0%) into 712.8x209.0pt
+```
+
+The box extents alone read as a width delta of a point or two — the fit search always lands the
+text just inside its box — which said nothing about how much smaller the type became. A shrink is
+flagged only when the size moved by at least the larger of 1pt and 2% of the authored size; a
+smaller move is a search artefact, and the node reports `kind: none` with `base_size_pt` and
+`resolved_size_pt` in `--json` still carrying the exact sizes.
+
 ## style
 
 | Subcommand | Purpose |
