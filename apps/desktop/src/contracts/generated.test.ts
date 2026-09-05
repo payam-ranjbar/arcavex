@@ -1908,6 +1908,24 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
       "path": [
         "previews",
         0,
+        "dpi"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "previews",
+        0,
+        "height_px"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "previews",
+        0,
         "ok"
       ],
       "operation": "delete"
@@ -1935,6 +1953,15 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
         "previews",
         0,
         "response_version"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-number"
+    },
+    {
+      "path": [
+        "previews",
+        0,
+        "width_px"
       ],
       "operation": "set",
       "value": "__arcavex_unexpected__-number"
