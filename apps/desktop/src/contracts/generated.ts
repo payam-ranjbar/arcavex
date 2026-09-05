@@ -44,7 +44,7 @@ export type LayerUIMetadata = { readonly color?: string | null; readonly display
 
 export type OverflowReport = { readonly base_size_pt?: number | null; readonly box_h_pt: number; readonly box_w_pt: number; readonly kind: string; readonly measured_h_pt: number; readonly measured_w_pt: number; readonly resolved_size_pt?: number | null; };
 
-export type PreviewResult = { readonly changed_file?: string | null; readonly compile_ms?: number | null; readonly content_sha256?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly inferred?: Readonly<Record<string, string>>; readonly ok: boolean; readonly output_path?: string | null; readonly render_ms?: number | null; readonly response_version?: number; };
+export type PreviewResult = { readonly changed_file?: string | null; readonly compile_ms?: number | null; readonly content_sha256?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly dpi?: number | null; readonly height_px?: number | null; readonly inferred?: Readonly<Record<string, string>>; readonly ok: boolean; readonly output_path?: string | null; readonly render_ms?: number | null; readonly response_version?: number; readonly width_px?: number | null; };
 
 export type ProjectProposal = { readonly actor: Actor; readonly base_project_revision: string; readonly command_id: string; readonly command_payload: Readonly<Record<string, unknown>>; readonly created_at: string; readonly project_path: string; readonly rejection_reason?: string | null; readonly state?: "pending" | "authorized" | "rejected"; readonly version?: 1; };
 
@@ -2054,6 +2054,30 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             "title": "Diagnostics",
             "type": "array"
           },
+          "dpi": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dpi"
+          },
+          "height_px": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Height Px"
+          },
           "inferred": {
             "additionalProperties": {
               "type": "string"
@@ -2093,6 +2117,18 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             "default": 1,
             "title": "Response Version",
             "type": "integer"
+          },
+          "width_px": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Width Px"
           }
         },
         "required": [
@@ -5571,6 +5607,8 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
             }
           }
         ],
+        "dpi": 150,
+        "height_px": 2480,
         "inferred": {
           "format": "poster-a3",
           "locale": "fa-IR"
@@ -5578,7 +5616,8 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
         "ok": true,
         "output_path": "/fixture/outputs/poster-a3.fa-IR.png",
         "render_ms": 84.25,
-        "response_version": 1
+        "response_version": 1,
+        "width_px": 1754
       }
     ],
     "response_version": 1

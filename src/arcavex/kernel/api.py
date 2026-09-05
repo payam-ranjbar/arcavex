@@ -52,7 +52,7 @@ from arcavex.kernel.ir.models import (
     SourceRef,
 )
 from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Matrix3, Rect
-from arcavex.kernel.pipeline import layout_and_render
+from arcavex.kernel.pipeline import layout_and_render, surface_px
 from arcavex.kernel.registry import Registries
 
 _EXPORTER_BY_EXT: dict[str, str] = {
@@ -185,6 +185,26 @@ def _hit_point(x_pt: float | str, y_pt: float | str) -> tuple[float, float]:
         )
     return point
 
+
+
+def _fit_dpi(document: CompiledDocument, dpi: int | None, max_px: int | None) -> int | None:
+    """Lower ``dpi`` so the longer canvas side fits within ``max_px`` pixels; never raise it.
+
+    ``None`` in means "the declared canvas dpi", and stays ``None`` when the bound does not bite,
+    so a preview without a bound renders exactly as it always has. The floor keeps the rounded
+    pixel size at or under the bound.
+    """
+    if max_px is None:
+        return dpi
+    canvas = document.canvas
+    effective = dpi if dpi is not None else canvas.dpi
+    longest_pt = max(canvas.width_pt, canvas.height_pt)
+    if longest_pt <= 0:
+        return dpi
+    fitted = int((max_px * 72.0) // longest_pt)
+    if fitted >= effective:
+        return dpi
+    return max(1, fitted)
 
 def _dedupe(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
     """Remove duplicate diagnostics while preserving first-seen order."""
@@ -1372,6 +1392,11 @@ class PreviewResult(BaseModel):
     compile_ms: float | None = None
     render_ms: float | None = None
     content_sha256: str | None = None
+    # The dpi the image was rendered at and its pixel size: the declared canvas dpi unless a
+    # ``dpi`` override or a ``max_px`` bound applied, so a caller never has to guess from the file.
+    dpi: int | None = None
+    width_px: int | None = None
+    height_px: int | None = None
     inferred: dict[str, str] = Field(default_factory=dict)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -3145,16 +3170,20 @@ class Facade:
         dpi: int | None = None,
         changed_file: str | None = None,
         debug: bool = False,
+        max_px: int | None = None,
     ) -> PreviewResult:
         """Render to the stable preview path atomically, with compile/render timings.
 
         Never raises and never creates a recorded run. On failure the previous preview file is
         left untouched (the atomic temp+replace only runs on success), so a viewer keeps the
         last good image (spec §6.3). With ``debug`` the preview carries the layout overlay.
+        ``max_px`` bounds the longer image side in pixels by lowering the dpi (never raising
+        it), so iterating on a poster-sized format does not cost a poster-sized image per call;
+        the result reports the ``dpi`` and pixel size actually rendered.
         """
         try:
             return self._render_preview_inner(
-                template, data, format_name, locale, style, dpi, changed_file, debug
+                template, data, format_name, locale, style, dpi, changed_file, debug, max_px
             )
         except DiagnosticError as exc:
             return PreviewResult(
@@ -3178,6 +3207,7 @@ class Facade:
         dpi: int | None,
         changed_file: str | None,
         debug: bool = False,
+        max_px: int | None = None,
     ) -> PreviewResult:
         compile_start = time.perf_counter()
         compiled = self._compiler.compile(template, data, format_name, locale, style)
@@ -3198,11 +3228,13 @@ class Facade:
             template, resolved_format, data=data, locale=locale, dpi=dpi, style=style
         )
 
+        render_dpi = _fit_dpi(compiled.document, dpi, max_px)
         render_start = time.perf_counter()
-        surface, _, warnings = self._layout_and_render(compiled.document, dpi, debug=debug)
+        surface, _, warnings = self._layout_and_render(compiled.document, render_dpi, debug=debug)
         diagnostics.extend(warnings)
-        report = self._export_replace(surface, out_path, dpi)
+        report = self._export_replace(surface, out_path, render_dpi)
         render_ms = (time.perf_counter() - render_start) * 1000.0
+        width_px, height_px = surface_px(compiled.document, render_dpi)
 
         return PreviewResult(
             ok=True,
@@ -3211,6 +3243,9 @@ class Facade:
             compile_ms=compile_ms,
             render_ms=render_ms,
             content_sha256=report.content_sha256,
+            dpi=render_dpi if render_dpi is not None else compiled.document.canvas.dpi,
+            width_px=width_px,
+            height_px=height_px,
             inferred=inferred,
             diagnostics=diagnostics,
         )
@@ -3540,6 +3575,7 @@ class Facade:
     def _preview_project_target(
         self, inputs: ProjectInputs, format_name: str | None, locale: str | None, dpi: int | None
     ) -> PreviewResult:
+        compile_start = time.perf_counter()
         try:
             compiled = self._compiler.compile(
                 inputs.template_dir, inputs.data_path, format_name, locale, inputs.style,
@@ -3547,24 +3583,35 @@ class Facade:
             )
         except DiagnosticError as exc:
             return PreviewResult(ok=False, diagnostics=list(exc.diagnostics))
+        compile_ms = (time.perf_counter() - compile_start) * 1000.0
         diagnostics = list(compiled.diagnostics)
         if compiled.document is None or has_errors(diagnostics):
-            return PreviewResult(ok=False, diagnostics=diagnostics)
+            return PreviewResult(ok=False, compile_ms=compile_ms, diagnostics=diagnostics)
         resolved_format = compiled.format_name or "out"
         key = hashlib.sha256(
             f"{inputs.name}:{inputs.ref}:{resolved_format}:{locale or ''}".encode()
         ).hexdigest()[:16]
         seg = f".{locale}" if locale else ""
         out_path = self._resolve_preview_root() / f"{key}.{resolved_format}{seg}.png"
+        render_start = time.perf_counter()
         try:
             report, warnings = self._render_document(compiled.document, out_path, dpi)
         except DiagnosticError as exc:
-            return PreviewResult(ok=False, diagnostics=diagnostics + list(exc.diagnostics))
+            return PreviewResult(
+                ok=False, compile_ms=compile_ms, diagnostics=diagnostics + list(exc.diagnostics)
+            )
+        render_ms = (time.perf_counter() - render_start) * 1000.0
         diagnostics.extend(warnings)
+        width_px, height_px = surface_px(compiled.document, dpi)
         return PreviewResult(
             ok=True,
             output_path=str(out_path),
+            compile_ms=compile_ms,
+            render_ms=render_ms,
             content_sha256=report.content_sha256,
+            dpi=dpi if dpi is not None else compiled.document.canvas.dpi,
+            width_px=width_px,
+            height_px=height_px,
             inferred=dict(compiled.inferred),
             diagnostics=diagnostics,
         )

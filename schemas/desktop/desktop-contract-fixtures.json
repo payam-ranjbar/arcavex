@@ -657,6 +657,8 @@
             }
           }
         ],
+        "dpi": 150,
+        "height_px": 2480,
         "inferred": {
           "format": "poster-a3",
           "locale": "fa-IR"
@@ -664,7 +666,8 @@
         "ok": true,
         "output_path": "/fixture/outputs/poster-a3.fa-IR.png",
         "render_ms": 84.25,
-        "response_version": 1
+        "response_version": 1,
+        "width_px": 1754
       }
     ],
     "response_version": 1

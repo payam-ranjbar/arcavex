@@ -261,6 +261,9 @@ def _fixture_inputs() -> dict[str, dict[str, Any]]:
                     "compile_ms": 12.5,
                     "render_ms": 84.25,
                     "content_sha256": _SHA256,
+                    "dpi": 150,
+                    "width_px": 1754,
+                    "height_px": 2480,
                     "inferred": {"format": "poster-a3", "locale": "fa-IR"},
                     "diagnostics": [_DIAGNOSTIC],
                 }

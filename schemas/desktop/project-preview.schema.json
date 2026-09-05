@@ -98,6 +98,30 @@
           "title": "Diagnostics",
           "type": "array"
         },
+        "dpi": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dpi"
+        },
+        "height_px": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height Px"
+        },
         "inferred": {
           "additionalProperties": {
             "type": "string"
@@ -137,6 +161,18 @@
           "default": 1,
           "title": "Response Version",
           "type": "integer"
+        },
+        "width_px": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width Px"
         }
       },
       "required": [
