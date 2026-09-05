@@ -204,7 +204,9 @@ apply). `params` is validated against the generator's schema: an unknown name, a
 out-of-range value is `ARC-FX-912` naming every offending field, and an unregistered generator is
 `ARC-FX-913` listing the registered ones. Values may be `{{ }}` expressions (`data: "{{ url }}"`).
 Generator lengths follow the effect-parameter convention, not the `style` one: a bare number is
-**points**, `pt` and `mm` suffixes are accepted, and `px` or `%` is rejected.
+**points**, `pt` and `mm` suffixes are accepted, and `px` or `%` is rejected. `arcavex shapes list`
+(MCP: `arcavex_shape_list`) prints this table from the registered generators, extensions included,
+and an `ARC-FX-912` hint enumerates the offending generator's parameters with their defaults.
 
 | Generator | Parameter | Type / units | Default | Range |
 |---|---|---|---|---|

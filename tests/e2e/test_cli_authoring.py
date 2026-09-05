@@ -182,3 +182,28 @@ def test_preview_one_shot(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["output_path"].endswith(".png")
     assert payload["compile_ms"] is not None and payload["render_ms"] is not None
+
+
+# ------------------------------------------------------------------------ shapes list
+def test_shapes_list_and_inspect() -> None:
+    listed = _run(["shapes", "list", "--json"])
+    assert listed.returncode == 0, listed.stderr
+    payload = json.loads(listed.stdout)
+    assert payload["response_version"] == 1 and payload["ok"] is True
+    names = [s["name"] for s in payload["shapes"]]
+    assert {"starburst", "speech_bubble", "qr_code"} <= set(names)
+    star = next(s for s in payload["shapes"] if s["name"] == "starburst")
+    points = next(p for p in star["params"] if p["name"] == "points")
+    assert points["type"] == "integer" and points["default"] == 12
+    assert points["constraint"] == ">=3, <=120"
+
+    human = _run(["shapes", "list", "--no-color"])
+    assert human.returncode == 0, human.stderr
+    assert "points: integer (default=12) [>=3, <=120]" in human.stdout
+
+    one = _run(["shapes", "inspect", "qr_code", "--json"])
+    assert one.returncode == 0, one.stderr
+    assert json.loads(one.stdout)["name"] == "qr_code"
+
+    unknown = _run(["shapes", "inspect", "sunburst"])
+    assert unknown.returncode == 1

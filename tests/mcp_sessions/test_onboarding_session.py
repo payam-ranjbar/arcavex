@@ -278,3 +278,16 @@ def test_starting_the_server_module_prints_nothing_to_stderr() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stderr.strip() == "", completed.stderr
+
+
+def test_shape_generators_are_listed_over_mcp(tools: ArcavexTools) -> None:
+    """A shape node's 'generator:' vocabulary was learnable only from ARC-FX-912 refusals."""
+    report = tools.shape_list()
+
+    assert report.ok, report.diagnostics
+    by_name = {s.name: s for s in report.shapes}
+    assert {"starburst", "speech_bubble", "qr_code"} <= set(by_name)
+    params = {p.name: p for p in by_name["starburst"].params}
+    assert params["points"].default == 12 and params["points"].constraint == ">=3, <=120"
+    assert "arcavex_shape_list" in _INSTRUCTIONS
+    assert "shape_list" in {method for _name, method in _TOOL_METHODS}

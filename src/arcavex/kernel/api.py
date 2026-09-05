@@ -404,6 +404,32 @@ class EffectListReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class ShapeInfo(BaseModel):
+    """A registered shape generator (``generator:`` on a shape node) and its parameter schema.
+
+    Parameters reuse :class:`EffectParamInfo`: a generator's ``params`` follow the same
+    conventions as an effect's (a bare number is points, lengths take ``pt``/``mm``), so the
+    discovery output reads the same way.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    description: str | None = None
+    params: list[EffectParamInfo] = Field(default_factory=list)
+
+
+class ShapeListReport(BaseModel):
+    """The result of ``arcavex shapes list`` — every registered shape generator and its params."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    shapes: list[ShapeInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 # ----------------------------------------------------------------------------- fonts (§4.3)
 class FontFileInfo(BaseModel):
     """One font file backing a family, and whether it came from the install directory."""
@@ -2663,13 +2689,38 @@ class Facade:
                     EffectInfo(
                         name=name,
                         category=effect.kind.value,
-                        params=_effect_param_infos(effect.param_schema),
+                        params=param_infos(effect.param_schema),
                     )
                 )
             return EffectListReport(ok=True, effects=infos)
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return EffectListReport(
                 ok=False, diagnostics=[internal_error("effects list failed", detail=repr(exc))]
+            )
+
+    def list_shapes(self) -> ShapeListReport:
+        """List every registered shape generator with its parameter schema. Never raises.
+
+        The generator counterpart of :meth:`list_effects`: nothing over the CLI or MCP listed
+        the ``generator:`` names a shape node may use, so an author learned ``starburst``'s
+        parameters from an ``ARC-FX-912`` refusal or from source. Each entry carries the
+        generator's one-line description and its params' names, types, defaults, and ranges.
+        """
+        try:
+            shapes: list[ShapeInfo] = []
+            for name in self._registries.shapes.names():
+                generator = self._registries.shapes.get(name)
+                shapes.append(
+                    ShapeInfo(
+                        name=name,
+                        description=_first_doc_line(generator.__doc__),
+                        params=param_infos(generator.param_schema),
+                    )
+                )
+            return ShapeListReport(ok=True, shapes=shapes)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ShapeListReport(
+                ok=False, diagnostics=[internal_error("shapes list failed", detail=repr(exc))]
             )
 
     # ------------------------------------------------------------------ extensions (§7)
@@ -3617,11 +3668,13 @@ def _unwired(what: str) -> Diagnostic:
     return internal_error(f"{what} service is not wired")
 
 
-def _effect_param_infos(schema: type[BaseModel]) -> list[EffectParamInfo]:
-    """Project a pydantic effect param schema onto reportable field infos (DX-6).
+def param_infos(schema: type[BaseModel]) -> list[EffectParamInfo]:
+    """Project a pydantic component param schema onto reportable field infos (DX-6).
 
-    Type names are author-facing: a length param (points/mm/px) reports ``length`` and a colour
-    param reports ``colour``, detected from the field's ``BeforeValidator`` rather than a raw
+    Shared by ``effects list``, ``shapes list``, and the compiler's ``ARC-FX-912`` hint, so a
+    parameter is described the same way wherever an author meets it. Type names are
+    author-facing: a length param (points/mm/px) reports ``length`` and a colour param reports
+    ``colour``, detected from the field's ``BeforeValidator`` rather than a raw
     ``number``/``array`` so the discovery output tells an author what unit grammar to use.
     """
     out: list[EffectParamInfo] = []
@@ -3679,6 +3732,14 @@ def _plain_default(value: Any) -> Any:
     if isinstance(value, tuple):
         return list(value)
     return value
+
+
+def _first_doc_line(doc: str | None) -> str | None:
+    """The first line of a docstring, as a component's one-line description."""
+    if not doc:
+        return None
+    lines = [line.strip() for line in doc.strip().splitlines()]
+    return lines[0] if lines and lines[0] else None
 
 
 def _style_summary(pack: StylePackProtocol) -> StyleSummary:

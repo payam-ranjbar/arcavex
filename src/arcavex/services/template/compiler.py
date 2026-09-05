@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel
 
-from arcavex.kernel.api import CompileResult, ResolvedPatch, ResolvedResult
+from arcavex.kernel.api import CompileResult, ResolvedPatch, ResolvedResult, param_infos
 from arcavex.kernel.diagnostics import (
     BUDGET_CODE,
     MISSING_FONT_CODE,
@@ -2346,7 +2346,11 @@ class Compiler:
                             f"params: {_all_errors(exc)}",
                             file=str(template), keypath=f"{keypath}.params",
                             line=line_of(raw, "params"),
-                            hint="Check each parameter's name, type, and range for this generator.",
+                            hint=(
+                                f"{_params_summary(generator, schema)}. List every generator "
+                                "and its parameters with 'arcavex shapes list' or the "
+                                "arcavex_shape_list tool."
+                            ),
                         )
                     ) from exc
         return generator, params
@@ -4048,6 +4052,21 @@ def _size_options_for(node_type: str) -> str:
     if node_type == "text":
         return "fixed (e.g. 100px), a %, 'fill', 'fit_content', or {aspect: 'W:H'}"
     return "fixed (e.g. 100px), a %, 'fill', or {aspect: 'W:H'} (fit_content is text-only)"
+
+
+def _params_summary(generator: str, schema: Any) -> str:
+    """One line naming a generator's parameters with type, default (or required), and range.
+
+    An ``ARC-FX-912`` that said only "Extra inputs are not permitted" left an author to guess
+    the valid names; quoting the schema in the hint answers the question the refusal raised.
+    """
+    parts: list[str] = []
+    for info in param_infos(schema):
+        detail = "required" if info.required else f"default {info.default!r}"
+        if info.constraint:
+            detail += f", {info.constraint}"
+        parts.append(f"{info.name} ({info.type}, {detail})")
+    return f"{generator!r} takes: {', '.join(parts) or 'no parameters'}"
 
 
 def _offset_hint(offset_raw: str) -> str:

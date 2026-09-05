@@ -76,6 +76,7 @@ from arcavex.kernel.api import (
     RunListReport,
     RunReport,
     ScaffoldResult,
+    ShapeListReport,
     StyleInspectReport,
     StyleListReport,
     TemplateInspectReport,
@@ -100,8 +101,9 @@ _INSTRUCTIONS = (
     "file. For semantic edits with undo, use arcavex_editor_apply (and _undo / _redo / _history): "
     "it takes a whole transaction, checks the project revision, and writes atomically; submit an "
     "empty transaction to have the engine state the exact shape it wants. "
-    "VOCABULARY — arcavex_style_list, arcavex_effects_list, arcavex_font_list (the only font "
-    "families a template may name). Every tool returns a structured, versioned result with a "
+    "VOCABULARY — arcavex_style_list, arcavex_effects_list, arcavex_shape_list (the 'generator:' "
+    "names a shape node may use, with their params), arcavex_font_list (the only font families "
+    "a template may name). Every tool returns a structured, versioned result with a "
     "'diagnostics' list of coded, located diagnostics; arcavex_diagnostic_explain <code> explains "
     "any code. Tools without the arcavex_ prefix (project_snapshot, layer_tree, hit_test, "
     "project_policy…) serve Arcavex Desktop's live view and are not needed for authoring."
@@ -462,6 +464,14 @@ class ArcavexTools:
         """List every registered effect, its category, and each param's type/default/range."""
         return self._facade.list_effects()
 
+    def shape_list(self) -> ShapeListReport:
+        """List every shape generator a shape node's 'generator:' may name, with its params.
+
+        Each entry carries the generator's description and each param's type, default (or
+        'required'), and range — the schema an ARC-FX-912 refusal validates against.
+        """
+        return self._facade.list_shapes()
+
     def font_list(self) -> FontListReport:
         """List every font family a template may name, marking bundled vs locally installed.
 
@@ -639,6 +649,7 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_style_list", "style_list"),
     ("arcavex_style_inspect", "style_inspect"),
     ("arcavex_effects_list", "effects_list"),
+    ("arcavex_shape_list", "shape_list"),
     ("arcavex_font_list", "font_list"),
     ("arcavex_render_preview", "render_preview"),
     ("arcavex_layout_inspect", "layout_inspect"),

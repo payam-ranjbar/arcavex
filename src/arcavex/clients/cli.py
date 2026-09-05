@@ -60,6 +60,8 @@ style_app = typer.Typer(add_completion=False, help="Style-pack commands.")
 app.add_typer(style_app, name="style")
 effects_app = typer.Typer(add_completion=False, help="Effect catalog commands.")
 app.add_typer(effects_app, name="effects")
+shapes_app = typer.Typer(add_completion=False, help="Shape generator catalog commands.")
+app.add_typer(shapes_app, name="shapes")
 project_app = typer.Typer(add_completion=False, help="Project lifecycle commands.")
 app.add_typer(project_app, name="project")
 data_app = typer.Typer(add_completion=False, help="Project data authoring commands.")
@@ -1209,10 +1211,74 @@ def _print_effect_info(console: Console, effect: object) -> None:
     console.print(
         f"[cyan]{_esc(e.name)}[/cyan] [dim]{e.category}[/dim]"  # type: ignore[attr-defined]
     )
-    for p in e.params:  # type: ignore[attr-defined]
+    _print_param_rows(console, e.params)  # type: ignore[attr-defined]
+
+
+def _print_param_rows(console: Console, params: object) -> None:
+    """One indented row per component parameter: name, type, default/required, range."""
+    for p in params:  # type: ignore[attr-defined]
         req = "required" if p.required else f"default={p.default!r}"
         rng = f" [{p.constraint}]" if p.constraint else ""
         console.print(f"  {_esc(p.name)}: {p.type} ({req}){_esc(rng)}")
+
+
+@shapes_app.command("list")
+def shapes_list(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List the registered shape generators and each param's type/default/range."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_shapes()
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            for shape in report.shapes:
+                _print_shape_info(console, shape)
+    raise typer.Exit(EXIT_OK if report.ok else EXIT_VALIDATION)
+
+
+@shapes_app.command("inspect")
+def shapes_inspect(
+    name: str = typer.Argument(..., help="Generator name, e.g. 'starburst'."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Show one shape generator's description and full parameter schema."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_shapes()
+    match = next((s for s in report.shapes if s.name == name), None)
+    if match is None:
+        if not quiet:
+            available = ", ".join(s.name for s in report.shapes) or "(none)"
+            console.print(
+                f"[red]unknown shape generator[/red] {_esc(name)}\n"
+                f"  [dim]registered generators:[/dim] {_esc(available)}"
+            )
+        raise typer.Exit(EXIT_VALIDATION)
+    if json_out:
+        _emit_json(match)
+    elif not quiet:
+        _print_shape_info(console, match)
+    raise typer.Exit(EXIT_OK)
+
+
+def _print_shape_info(console: Console, shape: object) -> None:
+    s = shape  # ShapeInfo
+    description = f" [dim]{_esc(s.description)}[/dim]" if s.description else ""  # type: ignore[attr-defined]
+    console.print(f"[cyan]{_esc(s.name)}[/cyan]{description}")  # type: ignore[attr-defined]
+    _print_param_rows(console, s.params)  # type: ignore[attr-defined]
 
 
 def _emit_run_report(

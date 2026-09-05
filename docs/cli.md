@@ -45,6 +45,7 @@ arcavex 0.1.0
 | [`layout inspect`](#layout-inspect) | Report resolved geometry, anchors, overlaps. |
 | [`style …`](#style) | List/inspect installed style packs. |
 | [`effects …`](#effects) | List/inspect the registered effects. |
+| [`shapes …`](#shapes) | List/inspect the registered shape generators. |
 | [`font …`](#font) | List the available font families; install or remove a typeface. |
 | [`project …`](#project) | Project lifecycle: new/clone/set-status/upgrade. |
 | [`data …`](#data) | Project data authoring: set/import. |
@@ -370,6 +371,30 @@ drop-shadow composite
 
 The full effect list and its usage notes are in
 [template-schema.md](template-schema.md#effects).
+
+## shapes
+
+| Subcommand | Purpose |
+|---|---|
+| `list [--json]` | List the registered shape generators (`generator:` on a shape node) and each param's type/default/range. |
+| `inspect NAME [--json]` | Show one generator's description and full parameter schema. |
+
+```console
+$ arcavex shapes list
+starburst A star/burst polygon inscribed in the node bounds.
+  points: integer (default=12) [>=3, <=120]
+  inner_ratio: number (default=0.5) [>0, <1]
+speech_bubble A speech-bubble path: rounded body plus a tail on one side.
+  corner: length (default=16.0) [>=0]
+  …
+qr_code A QR-code path (one filled square per dark module), scaled square within bounds.
+  data: string (required)
+  quiet_zone: integer (default=2) [>=0, <=8]
+```
+
+The same listing is the `arcavex_shape_list` MCP tool, and an `ARC-FX-912` refusal quotes the
+offending generator's parameters in its hint. Units and notes are in
+[template-schema.md](template-schema.md#shape-generator-parameters).
 
 ## font
 
