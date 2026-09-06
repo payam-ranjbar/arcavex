@@ -2983,6 +2983,13 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
     },
     {
       "path": [
+        "scope"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-enum"
+    },
+    {
+      "path": [
         "target"
       ],
       "operation": "addKey"
@@ -3191,6 +3198,14 @@ const desktopContractMutations: Readonly<Record<DesktopContractName, ReadonlyArr
         "project_path"
       ],
       "operation": "delete"
+    },
+    {
+      "path": [
+        "inverse",
+        "scope"
+      ],
+      "operation": "set",
+      "value": "__arcavex_unexpected__-enum"
     },
     {
       "path": [

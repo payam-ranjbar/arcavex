@@ -351,7 +351,7 @@ def _fixture_inputs() -> dict[str, dict[str, Any]]:
             "project_revision": _OTHER_SHA256,
             "render_revision": _SHA256,
             "changed": [
-                {"path": "template.yaml", "change": "modified"},
+                {"path": "template.yaml", "change": "modified", "location": "formats.story.patch"},
                 {"path": "overrides/square.patch.yaml", "change": "created"},
                 {"path": "overrides/story.patch.yaml", "change": "deleted"},
             ],

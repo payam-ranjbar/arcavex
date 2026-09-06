@@ -40,14 +40,17 @@
     "changed": [
       {
         "change": "modified",
+        "location": "formats.story.patch",
         "path": "template.yaml"
       },
       {
         "change": "created",
+        "location": null,
         "path": "overrides/square.patch.yaml"
       },
       {
         "change": "deleted",
+        "location": null,
         "path": "overrides/story.patch.yaml"
       }
     ],
@@ -185,6 +188,7 @@
         }
       ],
       "project_path": "<arcavex-fixture-project>",
+      "scope": "shared",
       "target": {
         "format": "poster-a3",
         "locale": "fa-IR"
@@ -310,6 +314,7 @@
       }
     ],
     "project_path": "<arcavex-fixture-project>",
+    "scope": "shared",
     "target": {
       "format": "poster-a3",
       "locale": "fa-IR"

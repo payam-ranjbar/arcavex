@@ -1207,6 +1207,28 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Re-read the project, compose the edit against the current revision, and re-submit.",
         ),
         _e(
+            "ARC-EDT-013",
+            "No usable target format for a format-scoped edit",
+            "The transaction asked for scope 'format' — write each command as an override in "
+            "formats.<name>.patch so only that format changes — but target.format named no "
+            "format, named one the template does not define, or the format's spec is not a "
+            "mapping a patch list can be added to. Nothing was changed.",
+            "Set target: {format: <name>} to a format the template defines, or use scope: "
+            "shared to edit the authored node every format renders.",
+        ),
+        _e(
+            "ARC-EDT-014",
+            "Command cannot be scoped to one format",
+            "Under scope 'format' a command must have a per-format form: a field write the "
+            "engine can express as a 'set' op in formats.<name>.patch. Structural commands "
+            "(reorder, reparent, duplicate, delete, group, splice_children) change the tree "
+            "every format shares, and set_display_name writes project-wide UI metadata, so "
+            "neither can be written for one format alone. Nothing was changed.",
+            "Use scope: shared for structural changes and display names. A per-format structure "
+            "needs a hand-written formats.<name>.patch with insert_before, insert_after, or "
+            "remove ops (arcavex_template_patch).",
+        ),
+        _e(
             "ARC-TPL-102",
             "Locale applied to copy written in another script",
             "A locale whose text direction differs from the source was applied, but none of the "
