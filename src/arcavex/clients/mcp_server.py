@@ -525,30 +525,41 @@ class ArcavexTools:
              "project_path": "<absolute path to the project directory>",
              "base_project_revision": "<project_revision from project_snapshot>",
              "actor": {"id": "<who is editing>"},
-             "target": {"format": "<name>", "locale": "<name or null>"},   # optional
+             "target": {"format": "<name or null>", "locale": "<name or null>"},  # optional
+             "scope": "shared" | "format",                                       # optional
              "commands": [{"kind": "<one of the kinds below>", ...}]}
 
+        ``target`` is what the result is validated and previewed against. It is NOT a write
+        scope: with the default ``scope: "shared"`` every command edits the authored node, which
+        every format and locale renders from, whatever the target says. To change one format
+        only, send ``scope: "format"`` with ``target.format`` set; each command is then written
+        as a ``set`` op into ``formats.<format>.patch`` (the report's ``changed[].location``
+        names it), the inverse undoes exactly that op, and ``set_property`` with ``remove: true``
+        drops the format's override so it falls back to the shared value. Structural commands
+        and set_display_name have no per-format form and are refused under ``scope: "format"``
+        (ARC-EDT-014); a format the template does not define is refused too (ARC-EDT-013).
+
         All geometry is in points (``_pt``), whatever units the template is authored in. Command
-        shapes, with their required fields:
+        shapes, with their fields (``?`` marks an optional field):
 
             set_text          layer_id, text
-            set_property      layer_id, keypath, value            (or remove: true)
+            set_property      layer_id, keypath, value?, remove?
             set_visibility    layer_id, visible
-            set_display_name  layer_id, display_name              (writes project.ui.yaml)
+            set_display_name  layer_id, display_name?               (writes project.ui.yaml)
             translate         layer_ids, dx_pt, dy_pt
-            resize            layer_id, w_pt and/or h_pt
-            rotate            layer_id, deg
+            resize            layer_id, w_pt, h_pt
+            rotate            layer_id, degrees
             reorder           layer_id, parent_id, index
             reparent          layer_id, parent_id, index
             duplicate         layer_id
             delete            layer_ids
             group             layer_ids, group_id
-            splice_children   layer_id, children
-            set_effects       layer_id, effects
+            splice_children   parent_id, index, remove_count?, entries?
+            set_effects       layer_id, effects?
 
         The whole transaction applies or none of it does. A stale ``base_project_revision`` is
         refused as a conflict naming the files that moved; submit an empty transaction to have
-        the engine restate this shape.
+        the engine restate this whole shape, every command included.
         """
         return self._facade.editor_apply(transaction)
 
