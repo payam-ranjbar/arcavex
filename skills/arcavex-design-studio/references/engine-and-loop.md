@@ -156,18 +156,26 @@ set_visibility    layer_id, visible
 set_display_name  layer_id, display_name              (writes project.ui.yaml, not the template)
 translate         layer_ids, dx_pt, dy_pt
 resize            layer_id, w_pt and/or h_pt
-rotate            layer_id, deg
+rotate            layer_id, degrees
 reorder           layer_id, parent_id, index
 reparent          layer_id, parent_id, index
 duplicate         layer_id
 delete            layer_ids
 group             layer_ids, group_id
-splice_children   layer_id, children
+splice_children   parent_id, index, remove_count, entries   (see the note below)
 set_effects       layer_id, effects
 ```
 
 Submit an empty transaction and the engine states the whole shape back, every command kind
 included — the fastest way to check the contract without guessing.
+
+`splice_children` is the engine's own restoration primitive: it is what an `undo` of a `delete`
+or a `group` replays, and its `entries` are raw authored node mappings rather than semantic
+intent. It does work for **adding** a node — the new node lands in the template and in the undo
+history like any other edit — but you are composing authored YAML by hand, so validate and
+preview straight after. For a node that does not exist yet, `arcavex_template_patch` with an
+`insert_after` op is usually the clearer route; note that patching source is outside the editor's
+history, so do it before the edits you want to be able to undo.
 
 `arcavex_editor_undo`, `arcavex_editor_redo`, and `arcavex_editor_history` (CLI: `arcavex editor
 undo`, `arcavex editor redo`, `arcavex editor history`) work on a history stored beside the project

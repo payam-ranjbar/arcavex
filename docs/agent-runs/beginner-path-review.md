@@ -127,7 +127,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Either write format-scoped commands into formats.<name>.patch (and report it in `changed`) or refuse a format-targeted structural command with a coded diagnostic — never return ok with an ignored target. (`src/arcavex/services/editor/service.py (apply path ~line 262 where transaction.target is consumed only for validation); mirror contract in src/arcavex/clients/mcp_server.py:246 and skills/.../engine-and-loop.md:82`)
 
-**Status: in progress.** editor agent: `target` documented as the validation/preview context everywhere; new `scope: format` writes `formats.<f>.patch`; structural commands under it are refused with a code
+**Status: fixed.** `2013aeb` — a transaction carries an explicit `scope`: `shared` (the default, unchanged) or `format`, which writes each command into `formats.<target.format>.patch` so only that format changes, refuses a structural command with a coded diagnostic, and round-trips through undo and redo. `3754865` — `target` is documented as the validation and preview context wherever the transaction shape is stated, which is what an assistant misread
 
 <sub>Sources: t5:T5-01</sub>
 
@@ -595,7 +595,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add an `add_layer`/insert command kind (id, node mapping, parent, index) or record template_patch on a project-owned template into the history chain. (`src/arcavex/services/editor (command kinds) / src/arcavex/kernel/editor.py`)
 
-**Status: planned.** wave 3: an `add_layer` command kind so new nodes do not force a history-branching patch
+**Status: fixed.** **Premise partly refuted.** Adding a node does not force a history-branching patch: a `splice_children` command adds a brand-new node, it lands in the template and the layer tree, and undo and redo round-trip it (verified directly). What is true is narrower — that command is the engine's restoration primitive, documented as one clients normally do not compose, so there is no *intended* add-layer verb. Checking this found a worse problem the drift test could not see: the skill's command table named fields that do not exist (`rotate: deg` for `degrees`, and `splice_children: layer_id, children` for `parent_id, index, remove_count, entries`), so an assistant following it was refused. Both rows are corrected, the skill now explains what that command is and when to reach for a patch instead, and a new test pins every row's fields to the contract. A first-class `add_layer` verb stays on the backlog: it is a decision about the semantic vocabulary, not a defect
 
 <sub>Sources: t5:T5-14 (unverified)</sub>
 
@@ -652,9 +652,7 @@ Tracer claims that did not survive an independent attempt to reproduce them:
 
 | Status | Count |
 |---|---|
-| fixed | 41 |
-| in progress | 1 |
-| planned | 1 |
+| fixed | 43 |
 | deferred | 3 |
 
 Two things are the maintainer's decision rather than a repair: cutting the first release (the
