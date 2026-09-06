@@ -103,7 +103,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Expose a template-level authoring surface over MCP (formats/canvas, variables, preview_data, formats.<f>.patches — via template_new options or a template-level patch) and reject unknown template_new arguments instead of ignoring them. (`src/arcavex/clients/mcp_server.py (template_new at :129, template_patch at :161) and services/template/overlays.py:161-165`)
 
-**Status: in progress.** authoring agent: template-level patch paths (`formats.<f>`, `variables.<v>`, `preview_data.<k>`, `formats.<f>.patch`, `locales.<l>`) and `template_new` format presets over CLI and MCP
+**Status: fixed.** `96b49d9` — `template patch` (CLI and MCP) can set or remove `formats.<name>`, `variables.<name>`, `preview_data.<key>`, `locales.<name>` and `style`, and every patch is compiled for each declared format and rolled back if it introduces an error; `e988859` — nine canvas presets for `template new`. Proved live over MCP: two ops declared A3 and rendered 3508×4961
 
 <sub>Sources: t5:T5-02</sub>
 
@@ -235,7 +235,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Reject unknown argument keys with a coded diagnostic listing the accepted fields (extra='forbid' / additionalProperties:false) and mention `dpi` in the render tool descriptions and skill. (`src/arcavex/clients/mcp_server.py build_mcp_server tool registration (~line 645); arcavex_render/arcavex_project_render docstrings and SKILL.md for dpi`)
 
-**Status: in progress.** MCP agent: unknown argument keys refused with a coded envelope
+**Status: fixed.** `af8ab60` — an unknown key is refused before dispatch with `ARC-MCP-010`, a near-miss suggestion, and no side effect; every tool schema now sets `additionalProperties: false`
 
 <sub>Sources: t5:T5-04</sub>
 
@@ -271,7 +271,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add style-key and generator-param tables to template-schema.md, make the ARC-FX-912 hint enumerate valid parameter names, and expose generators with schemas over MCP. (`docs/template-schema.md (Nodes section ~:129-136 for a style-key table; generator paragraph :382 for a params table); ARC-FX-912 hint at src/arcavex/services/template/compiler.py:2271; MCP: extend arcavex_effects_list or add arcavex_generator_list`)
 
-**Status: fixed.** `48d53cb` — style, paragraph and generator tables in template-schema.md, pinned by `6875741`; the ARC-FX-912 hint and a generator listing over CLI/MCP are in progress (authoring agent)
+**Status: fixed.** `48d53cb` — style, paragraph and generator tables in template-schema.md, pinned by `6875741`; `dcc78db` — `arcavex shapes list` and `arcavex_shape_list`, and ARC-FX-912 now enumerates a generator's valid parameters with their defaults
 
 <sub>Sources: t5:T5-07, t4:T4-04, t5:T5-12 (unverified)</sub>
 
@@ -283,7 +283,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Make the ARC-LAY-031/032 hints and template-schema.md name the padded-stack inset idiom (or let `fill` mean parent-minus-offset / accept stretch anchors), and warn when a fill-sized node overshoots its parent. (`src/arcavex/builtin/layout_anchors/solver.py (_require_single ARC-LAY-031 hint ~line 665, and the fill overshoot path in _axis_size); docs/template-schema.md 'Sizes'`)
 
-**Status: in progress.** authoring agent: ARC-LAY-031/032 hints name the span and inset idioms; a fill-sized node that overshoots its parent warns
+**Status: fixed.** `39ce51a` — the ARC-LAY-031/032 hints name the span and inset idioms, and a new ARC-LAY-033 warns when a fill-sized node overshoots its parent; `35b6219` — ARC-LAY-012 explains why a percent offset is refused and what to write instead
 
 <sub>Sources: t5:T5-06</sub>
 
@@ -295,7 +295,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Stop shipping placeholder values that read like real copy in the scaffold's data.yaml (copy only required variables into the project) or emit an ARC-PRJ warning when project data still equals scaffold defaults. (`src/arcavex/services/authoring.py:194-195 (scaffold data.yaml placeholder) and/or src/arcavex/services/projects.py:210-218 (project_create copy)`)
 
-**Status: in progress.** authoring agent: a project whose data still equals the scaffold's placeholders warns at render; scaffold placeholders read as placeholders
+**Status: fixed.** `7150cb6` — ARC-PRJ-015 names every variable whose value is still the scaffold's placeholder, at render, preview and validate; the scaffold's own data now reads as placeholders
 
 <sub>Sources: t5:T5-05</sub>
 
@@ -331,7 +331,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Add a plain-language 'Working with your assistant' paragraph to editor.md/README and a 'Desktop app (when released)' row to the skill's Step 0 table. (`docs/desktop/editor.md (plain-language 'Working with your assistant' intro); README.md "## Arcavex Desktop"; skills/arcavex-design-studio/SKILL.md:41-44`)
 
-**Status: in progress.** `f640a53` — README; `8db4fae` — a Desktop row in the skill's Step 0; a plain-language paragraph in `docs/desktop/editor.md` is still to write
+**Status: fixed.** `f640a53` in the README and `8db4fae` as a Desktop row in the skill's Step 0; the editor branch adds the plain-language paragraph to `docs/desktop/editor.md`
 
 <sub>Sources: t6:T6-06, t7:T7-08</sub>
 
@@ -367,7 +367,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Filter or fix the warning at server start (warnings filter for that category, model_rebuild, or a pydantic-settings pin) and assert empty stderr on `mcp serve` initialize. (`src/arcavex/clients/mcp_server.py (around line 643 / import at :27); test under tests/mcp_sessions/ asserting empty stderr on initialize`)
 
-**Status: fixed.** `f23cacd` — the SDK warning is silenced at import; a fresh-interpreter test asserts empty stderr
+**Status: fixed.** `f23cacd` silenced the import and `bccbcb3` the construction, which is the one every `mcp serve` actually meets. This was recorded here as fixed after the first commit on the strength of a test that only imported the module; the agent working on the MCP surface caught the half that was still printing
 
 <sub>Sources: t3:T3-07, t7:T7-10 (unverified duplicate)</sub>
 
@@ -415,7 +415,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Wrap argument-validation errors into the coded diagnostic envelope, add per-parameter descriptions (Annotated/Field) to every tool, and give the minimal editor envelope in the skill. (`src/arcavex/clients/mcp_server.py (tool signatures/docstrings ~125-137; FastMCP registration at :643 to wrap validation errors); references/engine-and-loop.md:106-107`)
 
-**Status: in progress.** MCP agent: coded envelope for missing arguments; per-parameter descriptions on every tool
+**Status: fixed.** `af8ab60` — a missing or mistyped argument returns the same coded envelope as every other refusal, listing the tool's required and optional fields; all 47 tools now describe every parameter
 
 <sub>Sources: t5:T5-03, t5:T5-09 (unverified), t5:T5-10 (unverified)</sub>
 
@@ -427,7 +427,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Correct the 'two traps' text (and the two docstrings) to say paragraph.align overrides style.align when both are set, matching compiler.py:2582. (`skills/arcavex-design-studio/references/engine-and-loop.md:119-120; src/arcavex/kernel/api.py:1401-1402; src/arcavex/services/authoring.py:101-102`)
 
-**Status: fixed.** `67079d1` — paragraph.align primary, style.align an honoured fallback, verified by byte-identical renders; the two source docstrings are corrected once the remaining agents land
+**Status: fixed.** `67079d1` — paragraph.align is primary and style.align an honoured fallback, verified by byte-identical renders
 
 <sub>Sources: t4:T4-05, t5:T5-11 (unverified, framing refuted)</sub>
 
@@ -439,7 +439,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Report `available: true` for bundled families (reserve `installed` for ARCAVEX_HOME/fonts) and consider bundling one more Latin display/serif face. (`font_list output model (src/arcavex/services/fonts or kernel/api.py font_list)`)
 
-**Status: in progress.** MCP agent: `available` on every resolvable family
+**Status: fixed.** `206b307` — every resolvable family reports `available`, with `source` naming bundled or installed
 
 <sub>Sources: t5:T5-17 (unverified)</sub>
 
@@ -463,7 +463,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Choose the hint by transport: over MCP say "pass 'project': <absolute dir>, or create one with arcavex_project_create". (`src/arcavex/services/projects.py:126-144 (keep diagnostics_catalog.py:1141-1147 in sync)`)
 
-**Status: in progress.** MCP agent: transport-neutral hints
+**Status: fixed.** `edf34cc` — ARC-PRJ-001, ARC-TPL-021/091/100/102 and the compiler's locale and style hints name the MCP argument beside the CLI flag
 
 <sub>Sources: t5:T5-08</sub>
 
@@ -523,7 +523,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Return image content blocks from project_preview (or a per-target `image: true` flag) and fill compile_ms/render_ms. (`src/arcavex/clients/mcp_server.py project_preview`)
 
-**Status: in progress.** MCP agent: `project_preview` returns image content
+**Status: fixed.** `21ec0d4` — `project_preview` returns one image per rendered target beside its structured report, with real timings
 
 <sub>Sources: t5:T5-13 (unverified)</sub>
 
@@ -535,7 +535,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Tell the assistant to iterate at 96 dpi and check full resolution once before delivery, and add a `max_px`/`scale` bound to render_preview. (`skills/arcavex-design-studio/references/verification.md:21 and engine-and-loop.md; src/arcavex/clients/mcp_server.py render_preview`)
 
-**Status: in progress.** MCP agent adds `max_px` to `render_preview`; `8db4fae` — verification.md says iterate at 96 dpi
+**Status: fixed.** `21ec0d4` — `max_px` bounds a preview by its longest side and reports the dpi and pixel size it actually used; `8db4fae` — the skill says to iterate at 96 dpi
 
 <sub>Sources: t6:T6-09 (unverified)</sub>
 
@@ -571,7 +571,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Suppress overlaps where a transparent-fill/stroke-only sibling fully contains the other or the intersection is below a fraction of the smaller node, report shrink only above a tolerance (e.g. >2% or >1pt font), and soften cli.md:283's 'genuine collision'. (`src/arcavex/kernel/api.py `_is_backdrop` / `_collect_overlaps` (~3685-3730); docs/cli.md:283`)
 
-**Status: planned.** wave 3: overlap classifier treats a stroke-only container as structure and ignores sub-tolerance shrink
+**Status: fixed.** `6bb4f51` — a stroke-only frame, and a filled plate painted beneath what it contains, are structure rather than collisions; a graze under 1pt or 2% of the smaller box is a new `touch` kind; a text node's box narrows to its shaped width. On the bakery poster 11 and 12 collision lines per format became 6 and 6, with the real badge-on-plate collision still reported. `8839045` — a shrink is flagged only when the size moved, and shows both sizes. **Correction to this finding:** the "0.13% shrink" reported above was an artefact of the old output, which printed box extents rather than sizes. Those were real 11%, 27% and 5.5% shrinks and they stay flagged
 
 <sub>Sources: t4:T4-07</sub>
 
@@ -619,7 +619,7 @@ last regeneration; commits are on `codex/beginner-ux`.
 
 **Fix.** Accept a per-format dpi map in project_render (and project.yaml), or default each format to its declared canvas dpi unless overridden by name. (`src/arcavex/clients/mcp_server.py project_render / project.yaml schema`)
 
-**Status: in progress.** MCP agent: per-format dpi mapping; declared canvas dpi by default
+**Status: fixed.** `4c27551` — `arcavex_project_render` takes a per-format dpi table; a format the project does not declare is refused rather than ignored, and the run manifest records the table so a rerun reproduces. A pre-existing defect surfaced with it: a recorded output's width and height stored the canvas's declared pixel size, not the size rendered under a dpi override
 
 <sub>Sources: t5:T5-19 (unverified)</sub>
 
@@ -652,9 +652,9 @@ Tracer claims that did not survive an independent attempt to reproduce them:
 
 | Status | Count |
 |---|---|
-| fixed | 29 |
-| in progress | 12 |
-| planned | 2 |
+| fixed | 41 |
+| in progress | 1 |
+| planned | 1 |
 | deferred | 3 |
 
 Two things are the maintainer's decision rather than a repair: cutting the first release (the
