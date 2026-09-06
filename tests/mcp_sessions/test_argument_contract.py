@@ -84,18 +84,26 @@ def test_an_unknown_argument_is_refused_before_anything_runs(server: Any, tmp_pa
 
 
 @pytest.mark.parametrize(
-    ("tool", "arguments"),
+    ("tool", "paths", "extra"),
     [
         # `formats` on arcavex_template_new was the audit's third case. It is not here because it
         # was answered the better way: the argument now exists and declares those canvases, which
         # test_a_print_size_can_be_chosen_when_scaffolding_over_mcp covers.
-        ("arcavex_project_create", {"target": "post", "template": "seed", "dpi": 300}),
-        ("arcavex_render", {"template": "seed", "scale": 2}),
+        ("arcavex_project_create", {"target": "post", "template": "seed"}, {"dpi": 300}),
+        ("arcavex_render", {"template": "seed"}, {"scale": 2}),
     ],
 )
 def test_every_silent_pass_from_the_audit_is_now_a_refusal(
-    server: Any, tool: str, arguments: dict[str, Any]
+    server: Any, tmp_path: Path, tool: str, paths: dict[str, str], extra: dict[str, Any]
 ) -> None:
+    """The paths are absolute on purpose.
+
+    A relative target is resolved against the working directory, which is the repository when the
+    suite runs there: an argument that stops being unknown would quietly scaffold into the source
+    tree, and one did before `formats` became real.
+    """
+    arguments = {key: str(tmp_path / name) for key, name in paths.items()} | extra
+
     envelope = _refusal(_call(server, tool, arguments))
 
     assert [d["code"] for d in envelope["diagnostics"]] == ["ARC-MCP-010"]
