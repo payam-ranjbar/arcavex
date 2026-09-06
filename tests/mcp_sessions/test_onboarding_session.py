@@ -13,6 +13,7 @@ cannot quietly reopen.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -260,24 +261,42 @@ def test_the_handshake_reports_the_engine_version_not_the_sdk_version() -> None:
     assert options.server_version == __version__
 
 
-def test_starting_the_server_module_prints_nothing_to_stderr() -> None:
+def test_serving_prints_no_library_warning_to_stderr() -> None:
     """A warning on every spawn reads as "broken" to someone typing `arcavex mcp serve` first time.
 
-    Importing the MCP SDK under a recent pydantic-settings emits an IncompleteFieldDefinitionWarning
-    about one of the SDK's own fields. That is the SDK's problem, and the engine keeps it off the
-    user's terminal. A fresh interpreter is the only honest check: this test process has long since
-    imported both modules.
+    pydantic-settings warns about an incomplete field in the MCP SDK's own settings model. The
+    model is built lazily, so the warning is raised when a server is *constructed*, not only when
+    the module is imported -- an earlier version of this test imported the module, passed, and left
+    every real `mcp serve` still printing it. This one spawns the server the way a host does and
+    reads what the host would read.
+
+    The assertion names the warning rather than requiring empty stderr, because Skia may also print
+    its harmless ICU probe line here (see `arcavex doctor`, which explains it).
     """
     completed = subprocess.run(
-        [sys.executable, "-c", "import arcavex.clients.mcp_server"],
+        [sys.executable, "-m", "arcavex", "mcp", "serve"],
+        input=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"},
+                },
+            }
+        )
+        + "\n",
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=120,
+        timeout=180,
     )
 
-    assert completed.returncode == 0, completed.stderr
-    assert completed.stderr.strip() == "", completed.stderr
+    assert '"serverInfo"' in completed.stdout, completed.stdout[:400]
+    assert "IncompleteFieldDefinitionWarning" not in completed.stderr, completed.stderr
+    assert "pydantic_settings" not in completed.stderr, completed.stderr
 
 
 def test_shape_generators_are_listed_over_mcp(tools: ArcavexTools) -> None:

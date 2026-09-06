@@ -32,13 +32,16 @@ from __future__ import annotations
 import difflib
 import json
 import warnings
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-# Importing FastMCP under pydantic-settings >= 2.15 prints a warning about one of the SDK's own
-# settings fields. It is the SDK's to fix; to a person who has just typed `arcavex mcp serve` for
-# the first time, a warning on stderr from every spawn reads as "it is broken", so keep it quiet.
+# pydantic-settings >= 2.15 warns about an incomplete field in FastMCP's own settings model, at
+# import and again every time a server is constructed. It is the SDK's to fix; to a person who has
+# just typed `arcavex mcp serve` for the first time, a warning on stderr at every spawn reads as
+# "it is broken", so keep it off their terminal -- here for the import, and in `build_mcp_server`
+# for the construction, which is the one a person actually meets.
 # Older pydantic-settings has neither the warning nor the class that names it.
 try:
     from pydantic_settings import IncompleteFieldDefinitionWarning as _SettingsWarning
@@ -97,6 +100,16 @@ from arcavex.kernel.api import (
 )
 from arcavex.kernel.diagnostics import Diagnostic, diagnostic, has_errors
 from arcavex.kernel.editor import HistoryReport, TransactionReport
+
+
+@contextmanager
+def _without_the_sdks_settings_warning() -> Iterator[None]:
+    """Suppress that one warning category, and nothing else, for the block."""
+    with warnings.catch_warnings():
+        if _SettingsWarning is not None:
+            warnings.simplefilter("ignore", _SettingsWarning)
+        yield
+
 
 _INSTRUCTIONS = (
     "Arcavex: a deterministic poster/graphic rendering engine. You are talking to it over MCP. "
@@ -1247,7 +1260,8 @@ def build_mcp_server(facade: Facade | None = None) -> FastMCP:
     argument keys (see :func:`_harden_tool`).
     """
     tools = ArcavexTools(facade if facade is not None else build_facade())
-    server = _ArcavexServer("arcavex", instructions=_INSTRUCTIONS)
+    with _without_the_sdks_settings_warning():
+        server = _ArcavexServer("arcavex", instructions=_INSTRUCTIONS)
     # FastMCP has no version parameter, so the handshake would advertise the MCP SDK's version as
     # the server's. A client pinning the engine it talks to needs the engine's own.
     server._mcp_server.version = __version__  # noqa: SLF001
