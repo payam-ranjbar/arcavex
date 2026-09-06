@@ -86,7 +86,9 @@ def test_an_unknown_argument_is_refused_before_anything_runs(server: Any, tmp_pa
 @pytest.mark.parametrize(
     ("tool", "arguments"),
     [
-        ("arcavex_template_new", {"target": "seed", "formats": ["square"]}),
+        # `formats` on arcavex_template_new was the audit's third case. It is not here because it
+        # was answered the better way: the argument now exists and declares those canvases, which
+        # test_a_print_size_can_be_chosen_when_scaffolding_over_mcp covers.
         ("arcavex_project_create", {"target": "post", "template": "seed", "dpi": 300}),
         ("arcavex_render", {"template": "seed", "scale": 2}),
     ],
