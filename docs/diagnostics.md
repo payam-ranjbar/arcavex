@@ -93,11 +93,8 @@ A command's exit code is the coarse category; the diagnostic code is the specifi
 | `ARC-LIB` | 4 | Versioned library publish/resolve | `ARC-LIB-002` version immutable, `ARC-LIB-003` ambiguous bare name |
 | `ARC-RUN` | 2 | Recorded runs, rerun drift | `ARC-RUN-001` run not found, `ARC-RUN-002` input drift |
 | `ARC-SKL` | 4 | Bundled design-skill installation | `ARC-SKL-001` unknown target, `ARC-SKL-003` already installed |
-<<<<<<< HEAD
 | `ARC-MCP` | 7 | Registering the MCP server with an AI host (001-004), and MCP tool-call arguments (010+) | `ARC-MCP-002` host not found, `ARC-MCP-003` already registered, `ARC-MCP-010` unknown argument, `ARC-MCP-011` missing argument, `ARC-MCP-012` invalid value |
 | `ARC-EDT` | 14 | Semantic editor: locking, transactions, structure, policy, history | `ARC-EDT-001` project locked by another writer, `ARC-EDT-005` cycle refused, `ARC-EDT-007` orphaned anchors, `ARC-EDT-009` policy refusal |
-=======
->>>>>>> 2013aeb (feat(editor): add an explicit write scope to semantic transactions)
 | `ARC-INT` | 4 | Engine/build identity and wrapped internal error (exit 5) | `ARC-INT-010` build commit unavailable, `ARC-INT-011` no executable artifact, `ARC-INT-999` internal error |
 
 Browse the full per-code detail under [`docs/diagnostics/`](diagnostics/), or ask the engine with
