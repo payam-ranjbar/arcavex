@@ -86,3 +86,10 @@ def test_an_absolutely_pinned_template_still_resolves(
 
     assert report.ok, [d.model_dump() for d in report.diagnostics]
     assert report.previews and report.previews[0].output_path
+    # The desktop reads a project through these two, and an absolute pin is only reachable at all
+    # since the fix above, so nothing downstream had ever seen one.
+    snapshot = facade.project_snapshot(project=tmp_path / "proj")
+    assert snapshot.ok, [d.model_dump() for d in snapshot.diagnostics]
+    assert snapshot.project_revision
+    tree = facade.layer_tree(tmp_path / "proj", mode="authored")
+    assert tree.ok and tree.root is not None, [d.model_dump() for d in tree.diagnostics]
