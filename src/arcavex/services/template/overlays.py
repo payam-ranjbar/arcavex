@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
+from arcavex.kernel.ir.models import SourceRef
 from arcavex.services.template.loader import line_of, node_line
 
 _DELETE = "!delete"
@@ -47,6 +48,47 @@ class PatchLog:
     def add(self, layer: str, op: str, path: str, value: Any = None) -> None:
         """Append one applied-patch record (``value`` is the value a ``set`` assigned)."""
         self.records.append(PatchRecord(layer=layer, op=op, path=path, value=value))
+
+
+NodeSourceMap = dict[int, SourceRef]
+
+
+def index_node_sources(
+    entry: Any,
+    source_file: Path,
+    keypath: str,
+    source_map: NodeSourceMap,
+) -> None:
+    """Record source provenance for every authored node mapping in ``entry``."""
+    if isinstance(entry, list):
+        for index, child in enumerate(entry):
+            index_node_sources(
+                child,
+                source_file,
+                f"{keypath}[{index}]",
+                source_map,
+            )
+        return
+    node = _node_of(entry)
+    node_keypath = (
+        f"{keypath}.node" if node is not entry else keypath
+    )
+    if not isinstance(node, dict):
+        return
+    source_map[id(node)] = SourceRef(
+        file=str(source_file),
+        keypath=node_keypath,
+        line=line_of(node, "id") or node_line(node),
+    )
+    children = node.get("children")
+    if isinstance(children, list):
+        for index, child in enumerate(children):
+            index_node_sources(
+                child,
+                source_file,
+                f"{node_keypath}.children[{index}]",
+                source_map,
+            )
 
 
 # --------------------------------------------------------------------------- data overlay
@@ -90,6 +132,7 @@ def apply_patches(
     template_file: Path,
     keypath_base: str,
     log: PatchLog,
+    source_map: NodeSourceMap | None = None,
 ) -> None:
     """Apply an ordered patch list to the authored node AST in place.
 
@@ -123,11 +166,16 @@ def apply_patches(
         node_id, segments = _parse_path(path)
         line = line_of(op, verb)
         if verb == "set":
-            _do_set(root_map, node_id, segments, op.get("value"), template_file, kp, line)
+            value = op.get("value")
+            _do_set(root_map, node_id, segments, value, template_file, kp, line)
+            if source_map is not None and segments[-1:] == ["children"]:
+                index_node_sources(value, template_file, f"{kp}.value", source_map)
         elif verb == "remove":
             _do_remove(root_map, node_id, segments, template_file, kp, line)
         else:
             _do_insert(root_map, node_id, op.get("node"), verb, template_file, kp, line)
+            if source_map is not None:
+                index_node_sources(op.get("node"), template_file, f"{kp}.node", source_map)
         log.add(layer, verb, path, op.get("value") if verb == "set" else None)
 
 
@@ -135,6 +183,55 @@ def _parse_path(path: str) -> tuple[str, list[str]]:
     parts = path.split(".")
     # parts[0] == 'nodes'; parts[1] == id; rest is the field path within the node.
     return parts[1], parts[2:]
+
+
+def _step(target: Any, seg: str, file: Path, kp: str, line: int | None) -> Any:
+    """Walk one path segment into a mapping key or a list index.
+
+    A numeric segment addresses a list position, so `nodes.title.effects.0.params.wow` reaches
+    one effect's parameter. Without it, tuning a single effect parameter per locale meant
+    replacing the whole `effects` list, which then clobbered the per-format values that list
+    also carried.
+    """
+    if isinstance(target, list):
+        try:
+            index = int(seg)
+        except ValueError:
+            raise _patch_error(
+                file, kp, line,
+                f"patch path segment {seg!r} addresses a list, so it must be an index",
+            ) from None
+        if not -len(target) <= index < len(target):
+            raise _patch_error(
+                file, kp, line,
+                f"patch path index {index} is out of range for a list of {len(target)}",
+            )
+        return target[index]
+    if isinstance(target, dict) and seg in target:
+        return target[seg]
+    raise _patch_error(file, kp, line, f"unknown patch path segment {seg!r}")
+
+
+def _assign(target: Any, seg: str, value: Any, file: Path, kp: str, line: int | None) -> None:
+    """Write the final segment, into a mapping key or an existing list position."""
+    if isinstance(target, list):
+        try:
+            index = int(seg)
+        except ValueError:
+            raise _patch_error(
+                file, kp, line,
+                f"patch path segment {seg!r} addresses a list, so it must be an index",
+            ) from None
+        if not -len(target) <= index < len(target):
+            raise _patch_error(
+                file, kp, line,
+                f"patch path index {index} is out of range for a list of {len(target)}",
+            )
+        target[index] = value
+        return
+    if not isinstance(target, dict):
+        raise _patch_error(file, kp, line, "patch path does not address a mapping field")
+    target[seg] = value
 
 
 def _do_set(
@@ -147,16 +244,12 @@ def _do_set(
     # Field edits address the node itself, seeing through a repeat/if wrapper (CR-11).
     target = _node_of(entry)
     for seg in segments[:-1]:
-        if not isinstance(target, dict) or seg not in target:
-            raise _patch_error(file, kp, line, f"unknown patch path segment {seg!r}")
-        target = target[seg]
-    if not isinstance(target, dict):
-        raise _patch_error(file, kp, line, "patch path does not address a mapping field")
+        target = _step(target, seg, file, kp, line)
     # RR2-11: 'set' may add a schema-valid optional field the node omitted (e.g. a 'direction'
     # on an undirected group). The final field is created if absent; intermediate segments must
     # still exist (a whole sub-block is not conjured), and the compiler's per-block field
     # validation remains the safety net that rejects a genuinely-unknown field name downstream.
-    target[segments[-1]] = value
+    _assign(target, segments[-1], value, file, kp, line)
 
 
 def _do_remove(
@@ -170,9 +263,11 @@ def _do_remove(
         return
     target = _node_of(entry)
     for seg in segments[:-1]:
-        if not isinstance(target, dict) or seg not in target:
-            raise _patch_error(file, kp, line, f"unknown patch path segment {seg!r}")
-        target = target[seg]
+        target = _step(target, seg, file, kp, line)
+    if isinstance(target, list):
+        _step(target, segments[-1], file, kp, line)  # range-checks, and reports the same way
+        del target[int(segments[-1])]
+        return
     if not isinstance(target, dict) or segments[-1] not in target:
         raise _patch_error(file, kp, line, f"unknown patch path field {segments[-1]!r}")
     del target[segments[-1]]

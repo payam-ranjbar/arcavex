@@ -168,9 +168,7 @@ class SkiaBackend(RendererBackend):
     def _draw_plain(self, canvas: object, node: LayoutNode) -> None:
         """Draw a node with no effects directly (rotation, mask, content, then children)."""
         saves = 0
-        if node.rotate_deg and node.rotate_origin is not None:
-            canvas.save()  # type: ignore[attr-defined]
-            canvas.rotate(node.rotate_deg, node.rotate_origin[0], node.rotate_origin[1])  # type: ignore[attr-defined]
+        if self._apply_local_transform(canvas, node):
             saves += 1
         if node.mask is not None:
             path = self._mask_path(node.mask, node.bounds, node.source)
@@ -194,6 +192,39 @@ class SkiaBackend(RendererBackend):
 
         for _ in range(saves):
             canvas.restore()  # type: ignore[attr-defined]
+
+    def _apply_local_transform(
+        self, canvas: object, node: LayoutNode, *, save: bool = True
+    ) -> bool:
+        """Concatenate the node's local transform: translate ∘ rotate ∘ scale about one pivot.
+
+        Canvas concatenation applies the most recently issued operation to geometry first, so
+        issuing translate, then rotate, then scale reproduces exactly the matrix the layout
+        solver reported — which is what keeps painted pixels, selection bounds, and hit testing
+        in agreement.
+
+        Returns:
+            Whether a save was pushed (the caller restores it).
+        """
+        translated = node.translate != (0.0, 0.0)
+        rotated = bool(node.rotate_deg) and node.rotate_origin is not None
+        scaled = node.scale != (1.0, 1.0) and node.rotate_origin is not None
+        if not (translated or rotated or scaled):
+            return False
+        if save:
+            canvas.save()  # type: ignore[attr-defined]
+        if translated:
+            canvas.translate(node.translate[0], node.translate[1])  # type: ignore[attr-defined]
+        if rotated:
+            assert node.rotate_origin is not None
+            canvas.rotate(node.rotate_deg, node.rotate_origin[0], node.rotate_origin[1])  # type: ignore[attr-defined]
+        if scaled:
+            assert node.rotate_origin is not None
+            ox, oy = node.rotate_origin
+            canvas.translate(ox, oy)  # type: ignore[attr-defined]
+            canvas.scale(node.scale[0], node.scale[1])  # type: ignore[attr-defined]
+            canvas.translate(-ox, -oy)  # type: ignore[attr-defined]
+        return save
 
     # ------------------------------------------------------------------ effect path
     def _draw_with_effects(self, canvas: object, node: LayoutNode, plan: EffectPlan) -> None:
@@ -285,8 +316,7 @@ class SkiaBackend(RendererBackend):
     ) -> None:
         """Draw the finished element image back onto the parent canvas at ``rb`` (points)."""
         canvas.save()  # type: ignore[attr-defined]
-        if node.rotate_deg and node.rotate_origin is not None:
-            canvas.rotate(node.rotate_deg, node.rotate_origin[0], node.rotate_origin[1])  # type: ignore[attr-defined]
+        self._apply_local_transform(canvas, node, save=False)
         paint = skia.Paint()
         if node.opacity < 1.0:
             paint.setAlphaf(node.opacity)

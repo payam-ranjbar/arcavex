@@ -23,23 +23,33 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from arcavex.kernel.api import (
     AssetInfo,
     AssetReport,
+    AutomationMode,
     BatchEntry,
     BatchReport,
     CompileResult,
     DataReport,
     DetachReport,
     DiffReport,
+    ExtensionMode,
+    HitTestReport,
+    LayerTreeReport,
     LibraryTemplateInfo,
     ProjectInputs,
     ProjectListReport,
+    ProjectPolicyReport,
     ProjectResult,
+    ProjectSnapshotReport,
     ProjectStatusReport,
     ProjectSummary,
+    ProjectUIMetadata,
+    ProjectUIMetadataReport,
+    ProposalActionReport,
+    ProposalListReport,
     PublishReport,
     RerunReport,
     RunInfo,
@@ -57,8 +67,13 @@ from arcavex.services.assets import AssetRef, AssetStore
 from arcavex.services.config import RuntimeConfig
 from arcavex.services.fsutil import atomic_write_text, home_dir
 from arcavex.services.imaging import dssim_files
+from arcavex.services.layers import LayerService
 from arcavex.services.library import Library, is_library_ref
+from arcavex.services.project_locking import project_mutation_lock
+from arcavex.services.project_policy import ProjectPolicyService
+from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import Project, ProjectService, template_stem
+from arcavex.services.proposals import ProposalService
 from arcavex.services.runs import (
     AssetProvenance,
     InputRef,
@@ -91,7 +106,18 @@ def _output_name(stem: str, fmt: str, locale: str | None) -> str:
     return f"{stem}.{fmt}{locale_seg}.png"
 
 
+def _no_project_formats(project: Project) -> Diagnostic:
+    """Return the shared diagnosis for a project with no render target formats."""
+    return diagnostic(
+        "ARC-PRJ-002",
+        "Project declares no formats to render",
+        file=str(project.project_file),
+        hint="Add at least one format to 'formats:' in project.yaml.",
+    )
+
+
 @dataclass
+
 class _Rendered:
     """One rendered target staged for a run: its file, target, hashes, and provenance."""
 
@@ -127,6 +153,8 @@ class Orchestrator:
         dssim_fn: Callable[[Path, Path], float | None] = dssim_files,
         batch_worker: BatchWorker | None = None,
         config: RuntimeConfig | None = None,
+        project_snapshots: ProjectSnapshotService | None = None,
+        layers: LayerService | None = None,
     ) -> None:
         """Wire the orchestrator with its compiler, renderer, services, clock, and batch worker."""
         self._compiler = compiler
@@ -134,6 +162,12 @@ class Orchestrator:
         self._engine_version = engine_version
         self._library = library or Library()
         self._projects = projects or ProjectService(self._library)
+        self._project_snapshots = project_snapshots or ProjectSnapshotService(self._projects)
+        self._layers = layers
+        self._project_policies = ProjectPolicyService(
+            self._projects, self._project_snapshots
+        )
+        self._proposals = ProposalService(self._projects, self._project_snapshots)
         self._runs = run_store or RunStore()
         self._asset_root = asset_root if asset_root is not None else home_dir() / "assets"
         self._clock = clock
@@ -175,6 +209,158 @@ class Orchestrator:
     ) -> ProjectStatusReport:
         proj = self._projects.resolve(start, project)
         return self._status_report(proj)
+
+    def project_snapshot(
+        self,
+        start: Path | None,
+        project: Path | None,
+        capabilities: list[str],
+    ) -> ProjectSnapshotReport:
+        """Return the read-only project snapshot used by desktop and MCP clients."""
+        return self._project_snapshots.snapshot(
+            start=start, project=project, capabilities=capabilities
+        )
+
+    def layer_tree(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: Literal["authored", "rendered"],
+        format_name: str | None,
+        locale: str | None,
+    ) -> LayerTreeReport:
+        """Resolve one project target and compose its authoritative layer hierarchy."""
+        if self._layers is None:
+            raise RuntimeError("layer service is not wired")
+        loaded = self._projects.resolve(start, project)
+        template_dir, _ref, _is_library = self._projects.resolve_template(loaded)
+        patch_ops, patch_file = self._projects.load_project_patch(loaded)
+        targets = self._projects.render_targets(
+            loaded,
+            None if format_name is None else [format_name],
+            None if locale is None else [locale],
+        )
+        if not targets:
+            raise DiagnosticError(_no_project_formats(loaded))
+        target_format, target_locale = targets[0]
+        output_dpi = self._config.resolve_dpi(project=loaded.manifest.dpi).value
+        return self._layers.layer_tree(
+            template_dir,
+            loaded.data_path,
+            target_format,
+            target_locale,
+            loaded.manifest.style,
+            mode,
+            self._projects.load_ui_metadata(loaded),
+            output_dpi=output_dpi,
+            project_patch=patch_ops,
+            project_patch_file=patch_file,
+        )
+
+    def hit_test(
+        self,
+        start: Path | None,
+        project: Path | None,
+        point_pt: tuple[float, float],
+        format_name: str | None,
+        locale: str | None,
+    ) -> HitTestReport:
+        """Resolve one project target and hit-test its rendered paint geometry."""
+        if self._layers is None:
+            raise RuntimeError("layer service is not wired")
+        loaded = self._projects.resolve(start, project)
+        template_dir, _ref, _is_library = self._projects.resolve_template(loaded)
+        patch_ops, patch_file = self._projects.load_project_patch(loaded)
+        targets = self._projects.render_targets(
+            loaded,
+            None if format_name is None else [format_name],
+            None if locale is None else [locale],
+        )
+        if not targets:
+            raise DiagnosticError(_no_project_formats(loaded))
+        target_format, target_locale = targets[0]
+        output_dpi = self._config.resolve_dpi(project=loaded.manifest.dpi).value
+        return self._layers.hit_test(
+            template_dir,
+            loaded.data_path,
+            target_format,
+            target_locale,
+            loaded.manifest.style,
+            self._projects.load_ui_metadata(loaded),
+            point_pt,
+            output_dpi=output_dpi,
+            project_patch=patch_ops,
+            project_patch_file=patch_file,
+        )
+
+    def project_ui_metadata(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectUIMetadataReport:
+        loaded = self._projects.resolve(start, project)
+        return self._ui_metadata_report(loaded)
+
+    def set_project_ui_metadata(
+        self,
+        start: Path | None,
+        project: Path | None,
+        metadata: ProjectUIMetadata,
+    ) -> ProjectUIMetadataReport:
+        loaded = self._projects.resolve(start, project)
+        with project_mutation_lock(loaded.root):
+            loaded = self._projects.load(loaded.root)
+            self._projects.save_ui_metadata(loaded, metadata)
+            return self._ui_metadata_report(loaded)
+
+    def project_policy(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectPolicyReport:
+        return self._project_policies.get_policy(start=start, project=project)
+
+    def set_project_policy(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+    ) -> ProjectPolicyReport:
+        return self._project_policies.set_policy(
+            start=start, project=project, mode=mode, extensions=extensions
+        )
+
+    def list_project_proposals(
+        self, start: Path | None, project: Path | None
+    ) -> ProposalListReport:
+        return self._proposals.list_proposals(start=start, project=project)
+
+    def approve_project_proposal(
+        self, start: Path | None, project: Path | None, command_id: str
+    ) -> ProposalActionReport:
+        return self._proposals.approve(
+            start=start, project=project, command_id=command_id
+        )
+
+    def reject_project_proposal(
+        self,
+        start: Path | None,
+        project: Path | None,
+        command_id: str,
+        reason: str,
+    ) -> ProposalActionReport:
+        return self._proposals.reject(
+            start=start, project=project, command_id=command_id, reason=reason
+        )
+
+    def _ui_metadata_report(self, project: Project) -> ProjectUIMetadataReport:
+        metadata = self._projects.load_ui_metadata(project)
+        snapshot = self._project_snapshots.snapshot(project=project.root)
+        return ProjectUIMetadataReport(
+            ok=snapshot.ok,
+            canonical_path=snapshot.canonical_path,
+            metadata=metadata,
+            project_revision=snapshot.project_revision,
+            render_revision=snapshot.render_revision,
+            diagnostics=list(snapshot.diagnostics),
+        )
 
     def clone_project(
         self, start: Path | None, project: Path | None, target: Path, name: str
@@ -233,14 +419,7 @@ class Orchestrator:
         if not targets:
             return RunReport(
                 ok=False,
-                diagnostics=[
-                    diagnostic(
-                        "ARC-PRJ-002",
-                        "Project declares no formats to render",
-                        file=str(proj.project_file),
-                        hint="Add at least one format to 'formats:' in project.yaml.",
-                    )
-                ],
+                diagnostics=[_no_project_formats(proj)],
             )
         effective_dpi = self._config.resolve_dpi(cli=dpi, project=proj.manifest.dpi).value
         return self._execute_run(
@@ -979,23 +1158,48 @@ class Orchestrator:
         )
 
     def detach_template(self, start: Path | None, project: Path | None) -> DetachReport:
+        """Give the project its own copy of whatever template it currently pins.
+
+        A pin is shared whether it names a library version or a directory somewhere else on
+        disk, and both make semantic editing impossible: the editor writes only inside the
+        project it was given. Detach used to cover the library case alone and told a path pin
+        it was "already a local path" -- which a pin like ``../authored`` plainly is not, and
+        which left the one shape ``project new --template <path>`` produces with no way out.
+        """
         proj = self._projects.resolve(start, project)
         ref = proj.manifest.template
-        if not is_library_ref(ref):
+        library = is_library_ref(ref)
+        source = (
+            self._library.resolve(ref).path if library else (proj.root / ref).resolve()
+        )
+        if not library and _is_within(source, proj.root):
             return DetachReport(
                 ok=False,
                 template=ref,
                 diagnostics=[
                     diagnostic(
                         "ARC-PRJ-006",
-                        "Project template is already a local path; nothing to detach",
+                        "Project template already lives inside the project; nothing to detach",
                         file=str(proj.project_file),
-                        hint="Detach applies only to a library 'name@version' pin.",
+                        hint="Detach copies a shared template in; this one is already local.",
                     )
                 ],
             )
-        resolved = self._library.resolve(ref)
-        dest = proj.root / "templates" / resolved.name
+        if not library and not source.exists():
+            return DetachReport(
+                ok=False,
+                template=ref,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-PRJ-006",
+                        f"The pinned template does not exist: {source}",
+                        file=str(proj.project_file),
+                        hint="Fix the 'template:' pin in project.yaml, then detach.",
+                    )
+                ],
+            )
+        name = self._library.resolve(ref).name if library else source.name
+        dest = proj.root / "templates" / name
         if dest.exists():
             return DetachReport(
                 ok=False,
@@ -1009,8 +1213,8 @@ class Orchestrator:
                     )
                 ],
             )
-        shutil.copytree(resolved.path, dest)
-        rel = f"templates/{resolved.name}"
+        shutil.copytree(source, dest)
+        rel = f"templates/{name}"
         updated = proj.manifest.model_copy(update={"template": rel})
         self._projects.save(Project(root=proj.root, manifest=updated))
         return DetachReport(
@@ -1450,3 +1654,12 @@ def _expand_project_globs(globs: list[str]) -> list[Path]:
             if path.is_dir() and (path / "project.yaml").is_file():
                 found[str(path.resolve())] = path
     return [found[k] for k in sorted(found)]
+
+
+def _is_within(candidate: Path, root: Path) -> bool:
+    """True when ``candidate`` is inside ``root`` (or is it)."""
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True

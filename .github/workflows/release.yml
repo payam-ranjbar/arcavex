@@ -1,96 +1,71 @@
 name: release
 
-# Tag-triggered release. Pushing a `v*` tag builds the wheel and sdist, verifies the built wheel
-# installs and renders in a clean environment, and attaches both to a GitHub Release.
+# Release orchestration. Release Please keeps one release pull request per product from
+# Conventional Commits; merging one creates that product's tag and GitHub Release, and this
+# workflow then runs the matching build lane.
 #
-# Publishing to PyPI runs on trusted publishing (OIDC) — no API token in secrets. It requires a
-# configured publisher for this repository on PyPI; until that exists the step is skipped rather
-# than failing the release, so the GitHub Release still carries the artifacts.
+# The lanes are called as reusable workflows rather than triggered by the tag push. A tag created
+# with the built-in GITHUB_TOKEN does not start another workflow run, so an `on: push: tags` lane
+# would silently never fire.
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  # Required for PyPI trusted publishing (OIDC); harmless when the publish step is skipped.
-  id-token: write
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: build and verify
+  prepare:
+    name: release pull requests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      engine_released: ${{ steps.release.outputs['.--release_created'] }}
+      engine_tag: ${{ steps.release.outputs['.--tag_name'] }}
+      desktop_released: ${{ steps.release.outputs['apps/desktop--release_created'] }}
+      desktop_tag: ${{ steps.release.outputs['apps/desktop--tag_name'] }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install skia system libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libglib2.0-0t64 libfontconfig1
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Check the tag matches the packaged version
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
-          echo "tag=$TAG packaged=$PKG"
-          test "$TAG" = "$PKG" || {
-            echo "::error::tag $GITHUB_REF_NAME does not match pyproject version $PKG"
-            exit 1
-          }
-
-      - name: Build wheel and sdist
-        run: uv build
-
-      # A release artifact nobody has installed is a guess. Install the built wheel into a clean
-      # environment and use it, rather than trusting that the repo working tree behaved.
-      - name: Verify the built wheel in a clean environment
-        run: |
-          uv venv /tmp/verify
-          uv pip install --python /tmp/verify dist/*.whl
-          /tmp/verify/bin/arcavex --version
-          /tmp/verify/bin/arcavex doctor
-          # Written here, not taken from examples/: this verifies the wheel, which does not ship
-          # repository content.
-          cat > /tmp/smoke.yaml <<'YAML'
-          version: 0.1.0
-          formats:
-            square: {canvas: {width: 400px, height: 400px, dpi: 96}}
-          preview_data: {}
-          root:
-            type: group
-            id: root
-            children:
-              - id: background
-                type: shape
-                shape: rect
-                style: {fill: "#12131A"}
-                constraints:
-                  anchor: {top: parent.top, left: parent.left}
-                  size: {w: fill, h: fill}
-          YAML
-          /tmp/verify/bin/arcavex render /tmp/smoke.yaml --format square -o /tmp/release-check.png
-          test -s /tmp/release-check.png
-          # The bundled skill must survive packaging, or `skill install` is broken for pip users.
-          /tmp/verify/bin/arcavex skill install --path /tmp/skillcheck
-          test -f /tmp/skillcheck/arcavex-design-studio/SKILL.md
-
-      - name: Publish to PyPI
-        # Trusted publishing uses the workflow-level id-token permission above.
-        continue-on-error: true
-        run: uv publish --trusted-publishing always
-
-      - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4.4.0
+        id: release
         with:
-          files: |
-            dist/*.whl
-            dist/*.tar.gz
-          generate_release_notes: true
-          fail_on_unmatched_files: true
+          config-file: .github/release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  engine:
+    name: engine artifacts
+    needs: prepare
+    if: needs.prepare.outputs.engine_released == 'true'
+    uses: ./.github/workflows/release-engine.yml
+    with:
+      tag: ${{ needs.prepare.outputs.engine_tag }}
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+  desktop:
+    name: desktop artifacts
+    # Ordered after the engine lane rather than independent of it: when both release together the
+    # desktop stages the engine archive the engine lane has just uploaded, so it must exist first.
+    needs: [prepare, engine]
+    if: |
+      always()
+      && needs.prepare.outputs.desktop_released == 'true'
+      && (needs.engine.result == 'success' || needs.engine.result == 'skipped')
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      tag: ${{ needs.prepare.outputs.desktop_tag }}
+    secrets: inherit
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write

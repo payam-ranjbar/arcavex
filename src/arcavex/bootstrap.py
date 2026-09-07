@@ -8,6 +8,7 @@ wired :class:`~arcavex.kernel.api.Facade`. The pure kernel imports nothing from 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -21,19 +22,24 @@ from arcavex.builtin.shapes_core import builtin_shapes
 from arcavex.builtin.template_fns import builtin_template_functions
 from arcavex.kernel.api import Facade
 from arcavex.kernel.contracts.spi import Effect, MaskGenerator, ShapeGenerator
-from arcavex.kernel.diagnostics import Diagnostic
+from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError
 from arcavex.kernel.registry import Registries
+from arcavex.sdk import SDK_VERSION
 from arcavex.services.authoring import AuthoringService
 from arcavex.services.budgets import RenderBudget
 from arcavex.services.cache import DerivedImageCache
 from arcavex.services.config import RuntimeConfig
+from arcavex.services.desktop import DesktopService
 from arcavex.services.doctor import engine_version, run_doctor
 from arcavex.services.explain import explain_code
 from arcavex.services.extensions import ExtensionService, load_enabled_extensions
 from arcavex.services.fonts import FontService
+from arcavex.services.fsutil import home_dir
+from arcavex.services.layers import LayerService
 from arcavex.services.library import Library
-from arcavex.services.orchestrator import Orchestrator
+from arcavex.services.orchestrator import IR_VERSION, Orchestrator
 from arcavex.services.pipeline import render_to_file
+from arcavex.services.project_snapshot import ProjectSnapshotService
 from arcavex.services.projects import ProjectService
 from arcavex.services.runs import RunStore
 from arcavex.services.skills import SkillService
@@ -41,6 +47,9 @@ from arcavex.services.style import StyleResolver
 from arcavex.services.template import Compiler
 from arcavex.services.template.expressions import FunctionTable, UnknownFunctionError, Value
 from arcavex.services.text import TextService
+
+if TYPE_CHECKING:
+    from arcavex.services.editor.service import EditorService
 
 # Default in-process byte budget for the derived-variant cache (spec §4.7); overridable via
 # ``[cache].derived_bytes`` in config.toml.
@@ -118,15 +127,14 @@ def build_function_table(registries: Registries) -> FunctionTable:
     return table
 
 
-def build_facade(font_dirs: list[Path] | None = None) -> Facade:
-    """Build and return the fully wired service facade.
+def build_compiler_stack(
+    font_dirs: list[Path] | None = None,
+) -> tuple[TextService, Registries, list[Diagnostic], StyleResolver, Compiler]:
+    """Build the text service, registries, style resolver, and compiler they feed.
 
-    Args:
-        font_dirs: Optional explicit bundled-font directories (defaults resolved by the
-            text service).
-
-    Returns:
-        The composed :class:`Facade`.
+    Shared by the facade and the editor service so both validate templates with the identical
+    font set, effect vocabulary, and style resolution — a staged edit must be judged by exactly
+    the compiler that will later render it.
     """
     text_service = TextService(font_dirs)
     registries, extension_load_diagnostics = build_registries(text_service)
@@ -157,14 +165,41 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         shape_schema=shape_schema,
         styles=style_resolver,
     )
+    return text_service, registries, extension_load_diagnostics, style_resolver, compiler
+
+
+def build_facade(font_dirs: list[Path] | None = None) -> Facade:
+    """Build and return the fully wired service facade.
+
+    Args:
+        font_dirs: Optional explicit bundled-font directories (defaults resolved by the
+            text service).
+
+    Returns:
+        The composed :class:`Facade`.
+    """
+    text_service, registries, extension_load_diagnostics, style_resolver, compiler = (
+        build_compiler_stack(font_dirs)
+    )
     authoring = AuthoringService(compiler, registries.template_fns.names())
     budget = RenderBudget.from_config(RuntimeConfig.load().raw)
-    orchestrator = _build_orchestrator(registries, compiler, text_service, budget)
+    layers = LayerService(
+        compiler,
+        registries.layouts.get("anchors"),
+        text_service.measure,
+        authoring,
+    )
+    orchestrator = _build_orchestrator(registries, compiler, text_service, budget, layers)
+    version = engine_version()
+
+    def doctor_probe():
+        return run_doctor(text_service)
+
     return Facade(
         registries,
         compiler,
         text_service.measure,
-        doctor_probe=lambda: run_doctor(text_service),
+        doctor_probe=doctor_probe,
         explain_lookup=explain_code,
         authoring=authoring,
         style_provider=style_resolver,
@@ -174,9 +209,20 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         # Font management resolves its directories on every call rather than capturing the ones
         # this engine loaded, so 'font add' always writes to the home currently in effect.
         fonts=FontService(),
+        # The kernel may not import services, so its own fallback is an OS temp directory that
+        # disagrees with the home every other reader uses. Wiring it here is what keeps `doctor`,
+        # the desktop handshake, and the directory previews are actually written to identical.
+        preview_root=home_dir() / "cache" / "preview",
         skills=SkillService(),
         budget=budget,
-        engine_version=engine_version(),
+        engine_version=version,
+        editor=_editor_service(ProjectService(Library()), text_service, compiler),
+        desktop=DesktopService(
+            engine_version=version,
+            ir_version=IR_VERSION,
+            extension_sdk_version=SDK_VERSION,
+            doctor_probe=doctor_probe,
+        ),
     )
 
 
@@ -199,11 +245,72 @@ def _builtin_component_names() -> dict[str, frozenset[str]]:
     }
 
 
+def build_editor_service(
+    library: Library | None = None, font_dirs: list[Path] | None = None
+) -> EditorService:
+    """Build the standalone semantic editor service (its own compiler stack)."""
+    text_service, _registries, _diags, _styles, compiler = build_compiler_stack(font_dirs)
+    return _editor_service(ProjectService(library), text_service, compiler)
+
+
+def _editor_service(
+    projects: ProjectService, text_service: TextService, compiler: Compiler
+) -> EditorService:
+    """Wire the editor over prebuilt pieces so the facade shares one compiler stack with it.
+
+    The staged validator compiles the project as it would look after a transaction — same fonts,
+    effects, and style resolution as rendering — and adds the layout pass, so an edit that would
+    fail at render time is refused before anything is written.
+    """
+    from arcavex.builtin.layout_anchors import AnchorLayoutSolver
+    from arcavex.kernel.diagnostics import has_errors
+    from arcavex.services.editor.service import EditorService
+    from arcavex.services.project_policy import ProjectPolicyService
+    from arcavex.services.project_snapshot import ProjectSnapshotService
+    from arcavex.services.proposals import ProposalService
+
+    snapshots = ProjectSnapshotService(projects)
+    solver = AnchorLayoutSolver()
+
+    def validate_staged(
+        staged_root: Path, format_name: str | None, locale: str | None
+    ) -> list[Diagnostic]:
+        staged_project = projects.load(staged_root)
+        template_dir, _ref, _is_library = projects.resolve_template(staged_project)
+        patch_ops, patch_file = projects.load_project_patch(staged_project)
+        result = compiler.compile(
+            template_dir,
+            staged_project.data_path,
+            format_name,
+            locale,
+            staged_project.manifest.style,
+            project_patch=patch_ops,
+            project_patch_file=patch_file,
+        )
+        diagnostics = list(result.diagnostics)
+        if result.document is not None and not has_errors(diagnostics):
+            try:
+                layout = solver.solve(result.document, text_service.measure)
+                diagnostics.extend(layout.warnings)
+            except DiagnosticError as exc:
+                diagnostics.extend(exc.diagnostics)
+        return diagnostics
+
+    return EditorService(
+        projects=projects,
+        snapshots=snapshots,
+        policies=ProjectPolicyService(projects, snapshots),
+        proposals=ProposalService(projects, snapshots),
+        validate_staged=validate_staged,
+    )
+
+
 def _build_orchestrator(
     registries: Registries,
     compiler: Compiler,
     text_service: TextService,
     budget: RenderBudget,
+    layers: LayerService,
 ) -> Orchestrator:
     """Wire the project/provenance orchestrator over the shared render pipeline.
 
@@ -226,12 +333,15 @@ def _build_orchestrator(
         )
 
     library = Library()
+    projects = ProjectService(library)
     return Orchestrator(
         compiler,
         render_fn,  # type: ignore[arg-type]
         engine_version(),
         library=library,
-        projects=ProjectService(library),
+        projects=projects,
+        project_snapshots=ProjectSnapshotService(projects),
+        layers=layers,
         run_store=RunStore(),
         batch_worker=_batch_render_one,
     )

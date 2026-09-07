@@ -125,6 +125,78 @@ root:
     assert any(d.code == "ARC-IR-020" for d in result.diagnostics)
 
 
+def test_duplicate_authored_id_is_validated_once_before_repeat_expansion(
+    tmp_path: Path,
+) -> None:
+    """Distinct rendered repeat IDs must not hide one duplicate authored definition."""
+    template = _write(
+        tmp_path,
+        """version: 0.1.0
+variables:
+  items: {type: list, default: [{id: alpha}, {id: beta}]}
+formats:
+  square: {canvas: {width: 100pt, height: 100pt, dpi: 72}}
+root:
+  id: root
+  type: group
+  children:
+    - repeat: "{{ items }}"
+      as: item
+      key: "{{ item.id }}"
+      node:
+        id: card
+        type: shape
+        shape: rect
+        constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+    - id: card
+      type: shape
+      shape: rect
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+""",
+    )
+
+    result = Compiler().compile(template, None, "square", None, None)
+
+    duplicates = [
+        diagnostic for diagnostic in result.diagnostics if diagnostic.code == "ARC-IR-020"
+    ]
+    assert result.document is None
+    assert len(duplicates) == 1
+    assert duplicates[0].source is not None
+    assert duplicates[0].source.keypath == "root.children[1].id"
+
+
+def test_authored_ids_reject_repeat_brackets_and_reserved_virtual_prefix(
+    tmp_path: Path,
+) -> None:
+    """A real authored node must not impersonate generated instance or virtual IDs."""
+    template = _write(
+        tmp_path,
+        """version: 0.1.0
+formats:
+  square: {canvas: {width: 100pt, height: 100pt, dpi: 72}}
+root:
+  id: root
+  type: group
+  children:
+    - {id: "bad[left", type: shape, shape: rect}
+    - {id: "bad]right", type: shape, shape: rect}
+    - {id: "@arcavex/virtual/pretend", type: shape, shape: rect}
+""",
+    )
+
+    result = Compiler().compile(template, None, "square", None, None)
+
+    invalid = [diagnostic for diagnostic in result.diagnostics if diagnostic.code == "ARC-TPL-030"]
+    assert result.document is None
+    assert len(invalid) == 3
+    assert [diagnostic.source.keypath for diagnostic in invalid if diagnostic.source] == [
+        "root.children[0].id",
+        "root.children[1].id",
+        "root.children[2].id",
+    ]
+
+
 def test_unknown_format(tmp_path: Path) -> None:
     template = _write(tmp_path, BASIC)
     result = Compiler().compile(template, None, "nope", None, None)

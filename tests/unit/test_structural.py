@@ -234,3 +234,53 @@ root:
     assert result.document is not None
     ids = _ids(result.document.root)
     assert ids == ["root", "grp[g1]", "cell[g1][r1]", "cell[g1][r2]"]
+
+
+def test_nested_repeat_key_tuples_escape_reserved_characters_injectively(
+    tmp_path: Path,
+) -> None:
+    """Adversarial key tuples must not collapse to the same rendered instance ID."""
+    template = _write(
+        tmp_path,
+        """version: 0.1.0
+formats: {square: {canvas: {width: 100pt, height: 100pt, dpi: 72}}}
+preview_data:
+  groups:
+    - {id: a, rows: [{id: "b][c"}]}
+    - {id: "a][b", rows: [{id: c}]}
+    - {id: "pct%key", rows: [{id: "x[y]"}]}
+root:
+  id: root
+  type: group
+  children:
+    - repeat: "{{ groups }}"
+      as: group
+      key: "{{ group.id }}"
+      node:
+        id: group
+        type: group
+        constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 10pt, h: 10pt}}
+        children:
+          - repeat: "{{ group.rows }}"
+            as: row
+            key: "{{ row.id }}"
+            node:
+              id: cell
+              type: shape
+              shape: rect
+              constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 5pt, h: 5pt}}
+""",
+    )
+
+    result = Compiler().compile(template, None, "square", None, None)
+
+    assert result.document is not None, result.diagnostics
+    assert _ids(result.document.root) == [
+        "root",
+        "group[a]",
+        "cell[a][b%5D%5Bc]",
+        "group[a%5D%5Bb]",
+        "cell[a%5D%5Bb][c]",
+        "group[pct%25key]",
+        "cell[pct%25key][x%5By%5D]",
+    ]

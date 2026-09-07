@@ -265,6 +265,9 @@ class _CompiledNodeBase(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str
+    # Stable authored identity is provenance, not canonical render input. Repeated instances
+    # keep deterministic IDs such as ``card[alpha]`` while pointing back to ``card``.
+    authored_node_id: str | None = Field(default=None, exclude=True)
     transform: Transform = Transform()
     constraints: Constraints
     style: Style = Style()
@@ -465,19 +468,28 @@ class LayoutNode(BaseModel):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     source_node_id: str
+    authored_node_id: str | None = Field(default=None, exclude=True)
     kind: Literal["group", "text", "image", "shape", "path"]
     bounds: Rect
     absolute_transform: Matrix3
-    # ``paint_bounds`` is the canvas-space AABB of the node after rotation *and* effect growth
-    # (used for inspection/debug/clipping). ``render_bounds`` is the node-local (pre-rotation)
-    # rectangle the renderer allocates the element surface for — bounds grown by the effects'
-    # declared expansion, so a drop-shadow or blur is not clipped (spec §4.2/§4.4).
+    # Canvas-space selection provenance. ``bounds`` and ``paint_bounds`` retain the solver's
+    # pre-ancestor geometry because the renderer applies group rotations recursively; desktop
+    # inspection consumes these cumulative AABBs without changing backend transform behavior.
+    canvas_bounds: Rect | None = Field(default=None, exclude=True)
+    canvas_paint_bounds: Rect | None = Field(default=None, exclude=True)
+    # ``paint_bounds`` is the pre-ancestor AABB after this node's local rotation and effect
+    # growth; sibling layout and the recursive renderer retain that local semantic.
+    # ``canvas_paint_bounds`` is the cumulative AABB exposed by public inspection. Meanwhile,
+    # ``render_bounds`` is the pre-rotation rectangle allocated for the element surface, so a
+    # drop-shadow or blur is not clipped (spec §4.2/§4.4).
     paint_bounds: Rect
     render_bounds: Rect
     effects: tuple[EffectSpec, ...] = ()
     overflow: OverflowState = OverflowState()
     rotate_deg: float = 0.0
-    rotate_origin: tuple[float, float] | None = None  # absolute pt centre of rotation
+    rotate_origin: tuple[float, float] | None = None  # absolute pt pivot for rotation and scale
+    translate: tuple[float, float] = (0.0, 0.0)
+    scale: tuple[float, float] = (1.0, 1.0)
     opacity: float = 1.0
     visible: bool = True
     clip: bool = False

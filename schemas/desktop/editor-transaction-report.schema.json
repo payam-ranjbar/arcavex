@@ -1,0 +1,938 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": true,
+      "description": "Who submitted a mutation.\n\nExtra keys are allowed: an MCP client may carry its own identity fields, and the engine's job\nis to record them in history, not to have anticipated them.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "ChangedPath": {
+      "additionalProperties": false,
+      "description": "One project-relative path a transaction touched.",
+      "properties": {
+        "change": {
+          "default": "modified",
+          "enum": [
+            "created",
+            "modified",
+            "deleted"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "ChangedPath",
+      "type": "object"
+    },
+    "ConflictDetail": {
+      "additionalProperties": false,
+      "description": "Why a mutation was refused, in enough detail to show the user what moved underneath them.",
+      "properties": {
+        "actual_project_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Actual Project Revision",
+          "type": "string"
+        },
+        "changed": {
+          "items": {
+            "$ref": "#/$defs/ChangedPath"
+          },
+          "title": "Changed",
+          "type": "array"
+        },
+        "expected_project_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Expected Project Revision",
+          "type": "string"
+        },
+        "layer_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Layer Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "expected_project_revision",
+        "actual_project_revision"
+      ],
+      "title": "ConflictDetail",
+      "type": "object"
+    },
+    "DeleteCommand": {
+      "additionalProperties": false,
+      "description": "Remove one or more nodes and their subtrees.",
+      "properties": {
+        "kind": {
+          "const": "delete",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Layer Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_ids"
+      ],
+      "title": "DeleteCommand",
+      "type": "object"
+    },
+    "Diagnostic": {
+      "description": "A single structured diagnostic.",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "default": "error",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Diagnostic",
+      "type": "object"
+    },
+    "DuplicateCommand": {
+      "additionalProperties": false,
+      "description": "Copy a node and its subtree, giving every copy a fresh stable id.",
+      "properties": {
+        "kind": {
+          "const": "duplicate",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id"
+      ],
+      "title": "DuplicateCommand",
+      "type": "object"
+    },
+    "EditorTarget": {
+      "additionalProperties": false,
+      "description": "The format and locale a mutation is composed against.\n\nStructural edits apply to the authored document regardless of target, but validation and the\nrender check that gate a commit need to know which target the user was looking at.",
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "locale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locale"
+        }
+      },
+      "title": "EditorTarget",
+      "type": "object"
+    },
+    "EffectSpec": {
+      "additionalProperties": false,
+      "description": "One effect entry in a node's effect list.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "EffectSpec",
+      "type": "object"
+    },
+    "GroupCommand": {
+      "additionalProperties": false,
+      "description": "Wrap a set of siblings in a new group node.",
+      "properties": {
+        "group_id": {
+          "minLength": 1,
+          "title": "Group Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "group",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Layer Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_ids",
+        "group_id"
+      ],
+      "title": "GroupCommand",
+      "type": "object"
+    },
+    "ReorderCommand": {
+      "additionalProperties": false,
+      "description": "Move a node to a new index among its siblings.\n\nThe index is a position in the authored parent's child list. The desktop shows topmost-first\npaint order and converts; the engine never guesses which direction the caller meant.",
+      "properties": {
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "reorder",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "minLength": 1,
+          "title": "Parent Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id",
+        "parent_id",
+        "index"
+      ],
+      "title": "ReorderCommand",
+      "type": "object"
+    },
+    "ReparentCommand": {
+      "additionalProperties": false,
+      "description": "Move a node under a different parent at an explicit index.",
+      "properties": {
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "reparent",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "minLength": 1,
+          "title": "Parent Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id",
+        "parent_id",
+        "index"
+      ],
+      "title": "ReparentCommand",
+      "type": "object"
+    },
+    "ResizeCommand": {
+      "additionalProperties": false,
+      "description": "Set the box of one node in points.",
+      "properties": {
+        "h_pt": {
+          "exclusiveMinimum": 0.0,
+          "title": "H Pt",
+          "type": "number"
+        },
+        "kind": {
+          "const": "resize",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        },
+        "w_pt": {
+          "exclusiveMinimum": 0.0,
+          "title": "W Pt",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id",
+        "w_pt",
+        "h_pt"
+      ],
+      "title": "ResizeCommand",
+      "type": "object"
+    },
+    "RotateCommand": {
+      "additionalProperties": false,
+      "description": "Set the absolute rotation of one node in degrees.",
+      "properties": {
+        "degrees": {
+          "title": "Degrees",
+          "type": "number"
+        },
+        "kind": {
+          "const": "rotate",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id",
+        "degrees"
+      ],
+      "title": "RotateCommand",
+      "type": "object"
+    },
+    "SemanticTransaction": {
+      "additionalProperties": false,
+      "description": "One atomic set of commands, composed against one project revision.\n\nEverything needed to decide whether the mutation may run travels with it, so the engine never\nhas to consult ambient state to answer \"is this still safe?\".",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "base_project_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Base Project Revision",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid4",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "commands": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "delete": "#/$defs/DeleteCommand",
+                "duplicate": "#/$defs/DuplicateCommand",
+                "group": "#/$defs/GroupCommand",
+                "reorder": "#/$defs/ReorderCommand",
+                "reparent": "#/$defs/ReparentCommand",
+                "resize": "#/$defs/ResizeCommand",
+                "rotate": "#/$defs/RotateCommand",
+                "set_display_name": "#/$defs/SetDisplayNameCommand",
+                "set_effects": "#/$defs/SetEffectsCommand",
+                "set_property": "#/$defs/SetPropertyCommand",
+                "set_text": "#/$defs/SetTextCommand",
+                "set_visibility": "#/$defs/SetVisibilityCommand",
+                "splice_children": "#/$defs/SpliceCommand",
+                "translate": "#/$defs/TranslateCommand"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/SetTextCommand"
+              },
+              {
+                "$ref": "#/$defs/SetPropertyCommand"
+              },
+              {
+                "$ref": "#/$defs/SetVisibilityCommand"
+              },
+              {
+                "$ref": "#/$defs/TranslateCommand"
+              },
+              {
+                "$ref": "#/$defs/ResizeCommand"
+              },
+              {
+                "$ref": "#/$defs/RotateCommand"
+              },
+              {
+                "$ref": "#/$defs/ReorderCommand"
+              },
+              {
+                "$ref": "#/$defs/ReparentCommand"
+              },
+              {
+                "$ref": "#/$defs/DuplicateCommand"
+              },
+              {
+                "$ref": "#/$defs/DeleteCommand"
+              },
+              {
+                "$ref": "#/$defs/GroupCommand"
+              },
+              {
+                "$ref": "#/$defs/SetDisplayNameCommand"
+              },
+              {
+                "$ref": "#/$defs/SetEffectsCommand"
+              },
+              {
+                "$ref": "#/$defs/SpliceCommand"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Commands",
+          "type": "array"
+        },
+        "project_path": {
+          "title": "Project Path",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/EditorTarget"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command_id",
+        "project_path",
+        "base_project_revision",
+        "actor",
+        "commands"
+      ],
+      "title": "SemanticTransaction",
+      "type": "object"
+    },
+    "SetDisplayNameCommand": {
+      "additionalProperties": false,
+      "description": "Rename a layer for people.\n\nThe stable id is a technical identifier that anchors, patches, and AI references depend on, so\nrenaming is deliberately a separate, non-structural change to UI metadata.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "kind": {
+          "const": "set_display_name",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id"
+      ],
+      "title": "SetDisplayNameCommand",
+      "type": "object"
+    },
+    "SetEffectsCommand": {
+      "additionalProperties": false,
+      "description": "Replace a node's whole effect list, which is how ordering changes stay expressible.",
+      "properties": {
+        "effects": {
+          "items": {
+            "$ref": "#/$defs/EffectSpec"
+          },
+          "title": "Effects",
+          "type": "array"
+        },
+        "kind": {
+          "const": "set_effects",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id"
+      ],
+      "title": "SetEffectsCommand",
+      "type": "object"
+    },
+    "SetPropertyCommand": {
+      "additionalProperties": false,
+      "description": "Set one authored property, addressed by keypath relative to the node.\n\nThe value stays `Any` because the property space is the template schema's, not this module's;\nthe executing service validates it against the node kind before anything is written.\n\n``remove`` exists because \"set to null\" and \"delete the key\" are different edits in YAML, and\nan inverse that restores \"the key was absent\" must be able to say so.",
+      "properties": {
+        "keypath": {
+          "minLength": 1,
+          "title": "Keypath",
+          "type": "string"
+        },
+        "kind": {
+          "const": "set_property",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        },
+        "remove": {
+          "default": false,
+          "title": "Remove",
+          "type": "boolean"
+        },
+        "value": {
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id",
+        "keypath"
+      ],
+      "title": "SetPropertyCommand",
+      "type": "object"
+    },
+    "SetTextCommand": {
+      "additionalProperties": false,
+      "description": "Replace the authored text of one text node.",
+      "properties": {
+        "kind": {
+          "const": "set_text",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id",
+        "text"
+      ],
+      "title": "SetTextCommand",
+      "type": "object"
+    },
+    "SetVisibilityCommand": {
+      "additionalProperties": false,
+      "description": "Show or hide one node without deleting it.",
+      "properties": {
+        "kind": {
+          "const": "set_visibility",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_id": {
+          "minLength": 1,
+          "title": "Layer Id",
+          "type": "string"
+        },
+        "visible": {
+          "title": "Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_id",
+        "visible"
+      ],
+      "title": "SetVisibilityCommand",
+      "type": "object"
+    },
+    "SourceLocation": {
+      "description": "A location in an authored source file.",
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "keypath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keypath"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        }
+      },
+      "title": "SourceLocation",
+      "type": "object"
+    },
+    "SpliceCommand": {
+      "additionalProperties": false,
+      "description": "Engine-authored restoration: replace a slice of a parent's child list with raw entries.\n\nThe inverse of ``delete`` must re-insert the exact authored subtree, and the inverse of\n``group`` must put the original siblings back where the group stood — neither is expressible\nin the semantic vocabulary above, because both restore *content*, not intent. The engine\nemits this kind in inverses and accepts it back on undo; clients normally never compose one.",
+      "properties": {
+        "entries": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "splice_children",
+          "title": "Kind",
+          "type": "string"
+        },
+        "parent_id": {
+          "minLength": 1,
+          "title": "Parent Id",
+          "type": "string"
+        },
+        "remove_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Remove Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "parent_id",
+        "index"
+      ],
+      "title": "SpliceCommand",
+      "type": "object"
+    },
+    "TranslateCommand": {
+      "additionalProperties": false,
+      "description": "Move one or more nodes by the same offset, which is what dragging a selection means.",
+      "properties": {
+        "dx_pt": {
+          "title": "Dx Pt",
+          "type": "number"
+        },
+        "dy_pt": {
+          "title": "Dy Pt",
+          "type": "number"
+        },
+        "kind": {
+          "const": "translate",
+          "title": "Kind",
+          "type": "string"
+        },
+        "layer_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Layer Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "layer_ids",
+        "dx_pt",
+        "dy_pt"
+      ],
+      "title": "TranslateCommand",
+      "type": "object"
+    }
+  },
+  "description": "The result of submitting one transaction. Never raises; a refusal is a report.",
+  "properties": {
+    "canonical_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Canonical Path"
+    },
+    "changed": {
+      "items": {
+        "$ref": "#/$defs/ChangedPath"
+      },
+      "title": "Changed",
+      "type": "array"
+    },
+    "changed_layer_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changed Layer Ids",
+      "type": "array"
+    },
+    "command_id": {
+      "anyOf": [
+        {
+          "format": "uuid4",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Command Id"
+    },
+    "conflict": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConflictDetail"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "contract_version": {
+      "default": 1,
+      "title": "Contract Version",
+      "type": "integer"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/Diagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "inverse": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SemanticTransaction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "project_revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project Revision"
+    },
+    "queued_command_id": {
+      "anyOf": [
+        {
+          "format": "uuid4",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Queued Command Id"
+    },
+    "render_revision": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Render Revision"
+    },
+    "response_version": {
+      "default": 1,
+      "title": "Response Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "title": "TransactionReport",
+  "type": "object"
+}

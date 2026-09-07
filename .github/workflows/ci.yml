@@ -1,24 +1,32 @@
 name: ci
 
-# Lint, type-check, architecture contracts, and the full test suite including per-platform
-# golden images (spec §8.5). The matrix is linux-x86_64 + macos-arm64, with linux-aarch64 added
-# in Phase 7 per the spec's CI plan; goldens are compared per platform (win-x86_64 goldens are
-# committed from the Windows dev machine and validated locally). This workflow is written to be
-# correct for CI even though the Phase 7 implementation validates it on Windows locally.
+# Every gate a change must pass: the Python engine on all supported platforms, the generated
+# TypeScript contracts, the React workbench, the Rust desktop core, and — on Windows, the declared
+# reference platform — a real packaged installation driven end to end.
+#
+# Actions are pinned to immutable commit SHAs rather than tags. A tag can be moved to point at
+# different code, and these jobs handle a signing key and produce the artifact people install.
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Stacked work targets the branch below it rather than main, and a pull request that runs no
+    # checks is a pull request nobody can trust: this one carried 66 commits and reported "no
+    # checks reported" while its base was the branch being verified.
+    branches: [main, 'codex/**']
+
+# Read-only by default; nothing here publishes.
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: ${{ matrix.name }}
+  engine:
+    name: engine (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -39,7 +47,7 @@ jobs:
             runner: windows-latest
             platform_tag: win-x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       # skia-python links against the system GL/EGL stack. The GitHub Linux images do not carry
       # it, so `import skia` fails with `libEGL.so.1: cannot open shared object file` and every
@@ -51,7 +59,10 @@ jobs:
           sudo apt-get install -y libegl1 libgl1 libglib2.0-0t64 libfontconfig1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Set up Python
         run: uv python install 3.12
@@ -62,16 +73,35 @@ jobs:
           uv pip install -e ".[dev]"
 
       - name: Lint (ruff)
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests packaging scripts
 
       - name: Type-check (mypy --strict on kernel)
         run: uv run mypy src/arcavex/kernel --strict
+
+      # The editor writes to project sources, so it is held to the kernel's standard even though
+      # it lives in the service layer: a wrong type here rewrites someone's files.
+      #
+      # Pinned to 3.12 rather than the project's 3.11 floor because this package reaches NumPy
+      # transitively and NumPy's stubs use `type` statements, which mypy will not parse at 3.11.
+      # The kernel check above still runs at the floor, so nothing there is unguarded.
+      - name: Type-check (mypy --strict on the editor service)
+        run: uv run mypy src/arcavex/services/editor --strict --python-version 3.12
 
       - name: Architecture contracts (import-linter)
         run: uv run lint-imports
 
       - name: Tests (excluding platform goldens)
         run: uv run pytest tests -q --ignore=tests/golden
+
+      # Called out separately from the suite above: these spawn real processes over one project,
+      # and they are the only gate on "an edit never corrupts a source file". A collection error
+      # would otherwise disappear into a green run.
+      - name: Multi-process editor guarantees
+        run: >
+          uv run pytest -q
+          tests/e2e/test_editor_races.py
+          tests/e2e/test_editor_cli.py
+          tests/e2e/test_editor_external_collaboration.py
 
       # Golden images are per-platform (dssim <= 0.003). A platform whose golden set is not yet
       # committed uploads its renders as an artifact for review rather than failing the build; a
@@ -82,7 +112,7 @@ jobs:
 
       - name: Upload golden diffs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: golden-artifacts-${{ matrix.platform_tag }}
           path: tests/golden/_artifacts/**
@@ -100,7 +130,7 @@ jobs:
           - name: macos-arm64
             runner: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Install skia system libraries (Linux)
         if: runner.os == 'Linux'
@@ -109,7 +139,10 @@ jobs:
           sudo apt-get install -y libegl1 libgl1 libglib2.0-0t64 libfontconfig1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
       - name: Build wheel and install into a clean venv
         run: |
@@ -176,3 +209,232 @@ jobs:
           assert abs(width - 595.28) < 1.0 and abs(height - 841.89) < 1.0, (width, height)
           print(f"pypdfium2 opened /tmp/installed.pdf: 1 page, {width:.2f} x {height:.2f} pt")
           PY
+
+  desktop-frontend:
+    name: desktop frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install skia system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libglib2.0-0t64 libfontconfig1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # The contract check regenerates TypeScript from the engine's live Pydantic schemas, so this
+      # job needs a working engine even though everything it asserts is frontend code.
+      - name: Create venv and install the engine
+        run: |
+          uv venv
+          uv pip install -e ".[dev]"
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Lint
+        working-directory: apps/desktop
+        run: npm run lint
+
+      - name: Formatting
+        working-directory: apps/desktop
+        run: npm run format
+
+      - name: Type-check
+        working-directory: apps/desktop
+        run: npm run typecheck
+
+      # Fails when the generated contracts no longer match the engine's schemas — the only thing
+      # standing between a renamed Pydantic field and a silently broken viewer.
+      - name: Generated contract drift
+        working-directory: apps/desktop
+        run: npm run contracts:check
+
+      - name: Component, accessibility, and architecture tests
+        working-directory: apps/desktop
+        run: npm run test:coverage
+
+      - name: Install Playwright browsers
+        working-directory: apps/desktop
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end viewer tests
+        working-directory: apps/desktop
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-report
+          path: |
+            apps/desktop/playwright-report/**
+            apps/desktop/test-results/**
+          if-no-files-found: ignore
+
+  desktop-core:
+    name: desktop core (rust)
+    # Windows is where the desktop ships and where the sidecar, watcher, and path handling are
+    # exercised for real; running these on Linux would test a configuration nobody installs.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      # rust-toolchain.toml pins the version and its components, so rustup installs exactly that
+      # on the first cargo invocation. No toolchain action is involved and nothing floats.
+      - name: Show the pinned toolchain
+        working-directory: apps/desktop/src-tauri
+        run: rustup show active-toolchain
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      # The crate does not compile without the two things it bundles. `tauri::generate_context!`
+      # embeds the built frontend, so apps/desktop/dist has to exist before rustc runs, and
+      # tauri.windows.conf.json declares binaries/engine/ as a resource, which the build script
+      # refuses to skip when the directory is absent. The frontend is cheap to build here; the
+      # frozen sidecar is not, and nothing this job does needs a working one, so it gets an empty
+      # directory and `desktop package (windows)` remains the job that builds the real engine and
+      # proves it renders.
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Build the frontend the crate embeds
+        working-directory: apps/desktop
+        run: npm ci && npm run build
+
+      - name: Make room for the sidecar this job does not build
+        shell: pwsh
+        working-directory: apps/desktop/src-tauri
+        run: New-Item -ItemType Directory -Force -Path binaries/engine | Out-Null
+
+      - name: Formatting
+        working-directory: apps/desktop/src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: apps/desktop/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --all-targets
+
+  desktop-package:
+    name: desktop package (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create venv and install
+        run: |
+          uv venv
+          uv pip install -e ".[dev,packaging]"
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      # A pull request has no published engine release to pin, so it freezes the engine from this
+      # very commit and records the digest it produced. The release lane does the opposite: it
+      # downloads the pinned artifact and refuses anything else.
+      - name: Freeze and stage the engine
+        shell: pwsh
+        run: ./scripts/stage_engine_sidecar.ps1 -Source Build -UpdateLock
+
+      - name: Sidecar contract tests
+        run: uv run pytest tests/e2e/test_engine_sidecar.py -q
+
+      # Updater artifacts are mandatory, so every build signs. Where the repository secret is not
+      # available — a fork — this mints a throwaway key and rewrites the public key the build
+      # trusts to match, so the signature check still exercises the whole signing path instead of
+      # being skipped.
+      - name: Resolve an updater signing key
+        id: signing
+        shell: pwsh
+        env:
+          RELEASE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if ($env:RELEASE_KEY) {
+            $key = $env:RELEASE_KEY
+            Write-Host 'Signing with the repository updater key.'
+          } else {
+            Push-Location apps/desktop
+            npx --no-install tauri signer generate --ci -w "$env:RUNNER_TEMP/ci.key" -f
+            Pop-Location
+            $conf = 'apps/desktop/src-tauri/tauri.windows.conf.json'
+            $json = Get-Content $conf -Raw | ConvertFrom-Json
+            $json.plugins.updater.pubkey = (Get-Content "$env:RUNNER_TEMP/ci.key.pub" -Raw).Trim()
+            $json | ConvertTo-Json -Depth 10 | Set-Content $conf -Encoding utf8
+            $key = (Get-Content "$env:RUNNER_TEMP/ci.key" -Raw).Trim()
+            Write-Host "::add-mask::$key"
+            Write-Host '::notice::No signing secret available; built and verified with an ephemeral key.'
+          }
+          # A minisign key is multi-line, which the `name=value` output form cannot carry.
+          "key<<ARCAVEX_SIGNING_KEY" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $key | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "ARCAVEX_SIGNING_KEY" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Build the Windows installer
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.signing.outputs.key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
+
+      - name: Verify the packaged bundle
+        shell: pwsh
+        run: ./scripts/verify_desktop_bundle.ps1
+
+      - name: Upload the installer
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: arcavex-desktop-windows-x64
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+            apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+            apps/desktop/src-tauri/binaries/engine-lock.json
+            apps/desktop/bundle-verification/screenshots/**
+            apps/desktop/bundle-verification/work/self-check.json
+          if-no-files-found: error

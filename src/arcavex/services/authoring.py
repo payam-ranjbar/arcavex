@@ -7,6 +7,7 @@ service returns versioned kernel response models and never raises across the fac
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from arcavex.kernel.api import (
     VariableInfo,
 )
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic, has_errors
+from arcavex.kernel.ir.models import SourceRef
 from arcavex.kernel.ir.units import Dim
 from arcavex.services.fsutil import sha256_bytes
 from arcavex.services.template.compiler import (
@@ -40,6 +42,7 @@ from arcavex.services.template.loader import (
     line_of,
     load_template,
     load_yaml,
+    node_line,
     resolve_template_path,
 )
 from arcavex.services.template.overlays import PatchLog, apply_patches
@@ -66,6 +69,54 @@ _SPLIT_MAP: tuple[tuple[str, str], ...] = (
     ("locales", "locales.yaml"),
     ("preview_data", "preview-data.yaml"),
 )
+
+
+@dataclass(frozen=True)
+class AuthoredEffect:
+    """One source effect declaration before compiler parameter normalization."""
+
+    name: str
+    params: dict[str, object]
+
+
+@dataclass(frozen=True)
+class AuthoredMask:
+    """One source mask declaration before compiler parameter normalization."""
+
+    component: str
+    params: dict[str, object]
+
+
+@dataclass(frozen=True)
+class AuthoredLayer:
+    """Source-only layer definition; structural constructs remain unexpanded."""
+
+    id: str
+    kind: str
+    #: Authored text for a text node; None for every other kind.
+    text: str | None
+    #: The node's authored ``style`` mapping, so an editor can show what it is about to change
+    #: rather than writing blind. Plain values only; absent when the node declares no style.
+    style: dict[str, Any] | None
+    #: The node's authored ``paragraph`` mapping (``align``, ``direction``). Separate from style
+    #: because the text renderer reads alignment from here, and an editor writing it to ``style``
+    #: produces a value the schema accepts and the renderer ignores.
+    paragraph: dict[str, Any] | None
+    parent_id: str | None
+    authored_index: int
+    z: int
+    visible: bool
+    origin: str
+    condition: str | None
+    collection: str | None
+    loop_var: str | None
+    key: str | None
+    file: str
+    keypath: str
+    line: int | None
+    effects: tuple[AuthoredEffect, ...]
+    mask: AuthoredMask | None
+    children: tuple[AuthoredLayer, ...]
 
 _SCAFFOLD_TEMPLATE = """\
 version: 0.1.0
@@ -266,6 +317,36 @@ class AuthoringService:
             functions=_function_infos(self._functions),
             preview_data=preview_data if isinstance(preview_data, dict) else {},
             diagnostics=diagnostics,
+        )
+
+    def authored_layer_tree(
+        self,
+        template: Path,
+        *,
+        effective_root: Any | None = None,
+        source_map: dict[int, SourceRef] | None = None,
+    ) -> AuthoredLayer | None:
+        """Project a compiler-effective hierarchy without evaluating structural constructs."""
+        if effective_root is None:
+            source = load_template(template)
+            effective_root = source.raw.get("root")
+            fallback_file = str(source.file_for("root"))
+        else:
+            root_source = (source_map or {}).get(id(effective_root))
+            fallback_file = (
+                str(template / "template.yaml") if Path(template).is_dir() else str(template)
+            )
+            if root_source is not None and root_source.file is not None:
+                fallback_file = root_source.file
+        return _authored_layer(
+            effective_root,
+            parent_id=None,
+            authored_index=0,
+            origin="static",
+            construct={},
+            file=fallback_file,
+            keypath="root",
+            source_map=source_map or {},
         )
 
     # -------------------------------------------------------------------- split
@@ -570,6 +651,111 @@ def _str_or_none(value: Any) -> str | None:
     return str(value) if value is not None else None
 
 
+def _authored_layer(
+    node_raw: Any,
+    *,
+    parent_id: str | None,
+    authored_index: int,
+    origin: str,
+    construct: dict[str, str | None],
+    file: str,
+    keypath: str,
+    source_map: dict[int, SourceRef],
+) -> AuthoredLayer | None:
+    """Project one authored node while preserving wrappers instead of evaluating them."""
+    if not isinstance(node_raw, dict):
+        return None
+    mapped_source = source_map.get(id(node_raw))
+    node_file = file
+    node_keypath = keypath
+    node_source_line: int | None = None
+    if mapped_source is not None:
+        node_file = mapped_source.file or node_file
+        node_keypath = mapped_source.keypath or node_keypath
+        node_source_line = mapped_source.line
+    node_id = _str_or_none(node_raw.get("id")) or "?"
+    effects: list[AuthoredEffect] = []
+    raw_effects = node_raw.get("effects")
+    if isinstance(raw_effects, list):
+        for raw_effect in raw_effects:
+            if not isinstance(raw_effect, dict):
+                continue
+            params = _to_plain(raw_effect.get("params") or {})
+            effects.append(
+                AuthoredEffect(
+                    name=_str_or_none(raw_effect.get("name")) or "?",
+                    params=params if isinstance(params, dict) else {},
+                )
+            )
+    mask: AuthoredMask | None = None
+    raw_mask = node_raw.get("mask")
+    if isinstance(raw_mask, dict):
+        params = _to_plain(raw_mask.get("params") or {})
+        mask = AuthoredMask(
+            component=_str_or_none(raw_mask.get("component")) or "?",
+            params=params if isinstance(params, dict) else {},
+        )
+    children: list[AuthoredLayer] = []
+    raw_children = node_raw.get("children")
+    if isinstance(raw_children, list):
+        for index, child in enumerate(raw_children):
+            child_keypath = f"{node_keypath}.children[{index}]"
+            child_node = child
+            child_origin = "static"
+            child_construct: dict[str, str | None] = {}
+            if isinstance(child, dict) and "repeat" in child and "node" in child:
+                child_node = child["node"]
+                child_origin = "repeat"
+                child_construct = {
+                    "collection": _str_or_none(child.get("repeat")),
+                    "loop_var": _str_or_none(child.get("as")),
+                    "key": _str_or_none(child.get("key")),
+                }
+                child_keypath = f"{child_keypath}.node"
+            elif isinstance(child, dict) and "if" in child and "node" in child:
+                child_node = child["node"]
+                child_origin = "if"
+                child_construct = {"condition": _str_or_none(child.get("if"))}
+                child_keypath = f"{child_keypath}.node"
+            projected = _authored_layer(
+                child_node,
+                parent_id=node_id,
+                authored_index=index,
+                origin=child_origin,
+                construct=child_construct,
+                file=file,
+                keypath=child_keypath,
+                source_map=source_map,
+            )
+            if projected is not None:
+                children.append(projected)
+    raw_z = node_raw.get("z", 0)
+    z = raw_z if isinstance(raw_z, int) and not isinstance(raw_z, bool) else 0
+    raw_visible = node_raw.get("visible", True)
+    return AuthoredLayer(
+        id=node_id,
+        kind=_str_or_none(node_raw.get("type")) or "?",
+        text=_str_or_none(node_raw.get("text")),
+        style=_plain_mapping(node_raw.get("style")),
+        paragraph=_plain_mapping(node_raw.get("paragraph")),
+        parent_id=parent_id,
+        authored_index=authored_index,
+        z=z,
+        visible=raw_visible if isinstance(raw_visible, bool) else True,
+        origin=origin,
+        condition=construct.get("condition"),
+        collection=construct.get("collection"),
+        loop_var=construct.get("loop_var"),
+        key=construct.get("key"),
+        file=node_file,
+        keypath=node_keypath,
+        line=node_source_line or line_of(node_raw, "id") or node_line(node_raw),
+        effects=tuple(effects),
+        mask=mask,
+        children=tuple(children),
+    )
+
+
 def _walk_authored_nodes(root_raw: Any) -> list[NodeInfo]:
     """Walk the authored node tree, reporting repeat/if constructs unexpanded (DX-3)."""
     out: list[NodeInfo] = []
@@ -639,3 +825,24 @@ def raise_if_missing(template: Path) -> None:
                 hint="Check the path on the command line.",
             )
         )
+
+
+def _plain_mapping(value: Any) -> dict[str, Any] | None:
+    """A YAML mapping as plain Python, or None when the node declares none."""
+    if not isinstance(value, dict) or not value:
+        return None
+    plain: dict[str, Any] = {}
+    for key, item in value.items():
+        plain[str(key)] = (
+            _plain_mapping(item) if isinstance(item, dict) else _plain_scalar(item)
+        )
+    return plain
+
+
+def _plain_scalar(value: Any) -> Any:
+    """Unwrap a ruamel scalar to the JSON-safe value underneath it."""
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, list):
+        return [_plain_scalar(item) for item in value]
+    return str(value)

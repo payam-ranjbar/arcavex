@@ -70,8 +70,10 @@ from arcavex.services.template.loader import (
     node_line,
 )
 from arcavex.services.template.overlays import (
+    NodeSourceMap,
     PatchLog,
     apply_patches,
+    index_node_sources,
     merge_overlay,
 )
 
@@ -99,7 +101,7 @@ _VAR_PY_TYPES: dict[str, tuple[type, ...]] = {
 # Locale setting vocabularies validated for shape in Phase 1 (application is Phase 2, DX-5).
 _LOCALE_DIRECTIONS = {"ltr", "rtl"}
 _LOCALE_DIGITS = {"en", "fa", "latn", "arab"}
-_LOCALE_KEYS = {"direction", "digits", "fonts", "data", "patch"}
+_LOCALE_KEYS = {"direction", "digits", "fonts", "data", "patch", "formats"}
 
 # Known field whitelists per sub-block (CR-2). An unknown key here is a located error rather
 # than a silently ignored typo, matching how the compiler treats unknown keys elsewhere.
@@ -222,7 +224,7 @@ _NODE_FIELD_ALIASES: dict[str, str] = {
     "rotation": "Rotate with 'transform: {rotate: <degrees>}'.",
     "rotate": "Rotate with 'transform: {rotate: <degrees>}'.",
     "angle": "Rotate with 'transform: {rotate: <degrees>}'.",
-    "scale": "Scaling lives in 'transform: {scale: ...}', and is not supported in this build.",
+    "scale": "Scaling lives in 'transform: {scale: ...}' — a number or [sx, sy].",
     "translate": "Translate with 'transform: {translate: [dx, dy]}'.",
     # Misc habits from other systems.
     "z_index": "Order siblings with 'z:'.",
@@ -339,6 +341,7 @@ class Compiler:
         self._default_direction: str = "ltr"
         self._font_overrides: dict[str, tuple[str, ...]] = {}
         self._style_pack: StylePack | None = None
+        self._effective_source_map: NodeSourceMap = {}
         # The authoritative variable snapshot on the rerun path, else ``None`` (§5.3).
         self._resolved_data: dict[str, Any] | None = None
 
@@ -372,11 +375,23 @@ class Compiler:
         self._default_direction = "ltr"
         self._font_overrides = {}
         self._style_pack = None
+        self._effective_source_map = {}
         self._resolved_data = resolved_data
+        effective_root: dict[str, Any] | None = None
+        resolved_format: str | None = None
         try:
             source = load_template(template)
             template_path = source.template_path
             raw = source.raw
+            root_candidate = raw.get("root")
+            if isinstance(root_candidate, dict):
+                effective_root = root_candidate
+                index_node_sources(
+                    effective_root,
+                    source.file_for("root"),
+                    "root",
+                    self._effective_source_map,
+                )
             # Canonical template hash captured before any patch mutates the node AST (§3.1.4).
             template_hash = canonical_hash(_to_plain(raw))
 
@@ -385,7 +400,13 @@ class Compiler:
             diags.extend(_collect_unsupported_sections(source))
             diags.extend(self._validate_locales_shape(source))
             if has_errors(diags):
-                return CompileResult(None, diags, inferred)
+                return CompileResult(
+                    None,
+                    diags,
+                    inferred,
+                    effective_root=effective_root,
+                    effective_source_map=dict(self._effective_source_map),
+                )
             # Runs after the unsupported-section sweep so a deferred section keeps its own
             # specific diagnostic (e.g. 'styles' -> ARC-TPL-093) instead of being reported as a
             # merely-unknown root key.
@@ -424,26 +445,73 @@ class Compiler:
             # (§4.1.5): style -> format patch -> locale patch. Applied to the node AST in place.
             self._apply_format_patch(source, resolved_format, root_raw)
             self._apply_locale_patch(source, locale, loc_settings, root_raw)
+            self._apply_locale_format_patch(source, locale, resolved_format, root_raw)
             if project_patch:
                 apply_patches(
                     root_raw, project_patch, "project",
                     project_patch_file or source.template_path, "project.patch",
                     self._patch_log,
+                    self._effective_source_map,
+                )
+
+            authored_id_diags = _validate_authored_id_uniqueness(
+                root_raw,
+                template_path,
+                self._effective_source_map,
+            )
+            if authored_id_diags:
+                return CompileResult(
+                    None,
+                    [*diags, *authored_id_diags],
+                    inferred,
+                    format_name=resolved_format,
+                    effective_root=effective_root,
+                    effective_source_map=dict(self._effective_source_map),
                 )
 
             # On the rerun path the snapshot is authoritative, so file/preview/locale data
             # overlays are skipped; template-level patches above still ran for byte-identity.
             if resolved_data is None:
                 pre_overlays, post_overlays = self._locale_data_overlays(
-                    source, data, locale, loc_settings, inferred
+                    source, data, locale, loc_settings, inferred, diags
                 )
+                # Applying a locale's direction to text written in another one is the quietest
+                # way to ship a wrong artifact: the picture looks normal and an English time
+                # range comes out reversed. Say it, rather than let it look deliberate.
+                if (
+                    locale is not None
+                    and not pre_overlays
+                    and not post_overlays
+                    and _direction_differs(source, loc_settings, locale)
+                ):
+                    diags.append(
+                        diagnostic(
+                            "ARC-TPL-102",
+                            f"Locale {locale!r} was applied but supplies no text of its own, so "
+                            "the existing copy is rendered under its direction and digit rules.",
+                            severity="warning",
+                            file=str(source.template_path),
+                            keypath=f"locales.{locale}",
+                            hint=(
+                                f"Add 'locales.{locale}.data', or a sibling "
+                                f"'<data>.{locale}.yaml', or render without --locale."
+                            ),
+                        )
+                    )
             else:
                 pre_overlays, post_overlays = [], []
             context = self._build_context(
                 source, data, diags, inferred, pre_overlays, post_overlays
             )
             if has_errors(diags):
-                return CompileResult(None, diags, inferred)
+                return CompileResult(
+                    None,
+                    diags,
+                    inferred,
+                    format_name=resolved_format,
+                    effective_root=effective_root,
+                    effective_source_map=dict(self._effective_source_map),
+                )
 
             seen_ids: set[str] = set()
             root = self._build_node(
@@ -475,9 +543,18 @@ class Compiler:
                 template_hash=template_hash,
                 style_hash=style_hash,
                 data_hash=canonical_hash(snapshot),
+                effective_root=effective_root,
+                effective_source_map=dict(self._effective_source_map),
             )
         except DiagnosticError as exc:
-            return CompileResult(None, diags + list(exc.diagnostics), inferred)
+            return CompileResult(
+                None,
+                diags + list(exc.diagnostics),
+                inferred,
+                format_name=resolved_format,
+                effective_root=effective_root,
+                effective_source_map=dict(self._effective_source_map),
+            )
 
     def inspect_resolved(
         self,
@@ -528,6 +605,7 @@ class Compiler:
                 )
             self._apply_format_patch(source, resolved_format, root_raw)
             self._apply_locale_patch(source, locale, loc_settings, root_raw)
+            self._apply_locale_format_patch(source, locale, resolved_format, root_raw)
             # The last op touching a path is the one whose value survives; mark it effective.
             last_for_path: dict[str, int] = {}
             for i, rec in enumerate(self._patch_log.records):
@@ -1055,6 +1133,7 @@ class Compiler:
             apply_patches(
                 root_raw, patch, f"format:{format_name}", source.file_for("formats"),
                 f"formats.{format_name}.patch", self._patch_log,
+                self._effective_source_map,
             )
 
     def _apply_locale_patch(
@@ -1064,11 +1143,55 @@ class Compiler:
         loc_settings: dict[str, Any],
         root_raw: dict[str, Any],
     ) -> None:
-        patch = loc_settings.get("patch")
+        # Structural patch nodes must retain ruamel line metadata. ``loc_settings`` is the
+        # normalized plain mapping used by locale resolution, so read only the patch list from
+        # the original source mapping while preserving the normalized fallback for compatibility.
+        locales = source.raw.get("locales")
+        source_settings = locales.get(locale) if isinstance(locales, dict) else None
+        patch = (
+            source_settings.get("patch")
+            if isinstance(source_settings, dict)
+            else loc_settings.get("patch")
+        )
         if locale is not None and isinstance(patch, list) and patch:
             apply_patches(
                 root_raw, patch, f"locale:{locale}", source.file_for("locales"),
                 f"locales.{locale}.patch", self._patch_log,
+                self._effective_source_map,
+            )
+
+    def _apply_locale_format_patch(
+        self,
+        source: TemplateSource,
+        locale: str | None,
+        format_name: str,
+        root_raw: dict[str, Any],
+    ) -> None:
+        """Apply ``locales.<locale>.formats.<format>.patch`` — the narrowest layer, applied last.
+
+        Without it "Farsi, on the poster" cannot be said at all. Patch order is format then
+        locale, so one `locales.fa.patch` setting a display size flattened the poster's 132px
+        down to the square's, because a locale patch necessarily spans every format. Scripts
+        differ in optical size and line-box ratio at every format, so a bilingual campaign hit
+        this immediately and worked around it by duplicating the node and gating both copies.
+        """
+        if locale is None:
+            return
+        locales = source.raw.get("locales")
+        settings = locales.get(locale) if isinstance(locales, dict) else None
+        if not isinstance(settings, dict):
+            return
+        per_format = settings.get("formats")
+        if not isinstance(per_format, dict):
+            return
+        spec = per_format.get(format_name)
+        patch = spec.get("patch") if isinstance(spec, dict) else None
+        if isinstance(patch, list) and patch:
+            apply_patches(
+                root_raw, patch, f"locale:{locale}+format:{format_name}",
+                source.file_for("locales"),
+                f"locales.{locale}.formats.{format_name}.patch", self._patch_log,
+                self._effective_source_map,
             )
 
     def _locale_data_overlays(
@@ -1078,6 +1201,7 @@ class Compiler:
         locale: str | None,
         loc_settings: dict[str, Any],
         inferred: dict[str, str],
+        diags: list[Diagnostic],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Collect ``(pre, post)`` data overlays for the locale.
 
@@ -1090,9 +1214,11 @@ class Compiler:
         post: list[dict[str, Any]] = []
         inline = loc_settings.get("data")
         if isinstance(inline, dict) and inline:
-            pre.append(_to_plain(inline))
+            plain_inline = _to_plain(inline)
+            pre.append(plain_inline)
             if locale is not None:
                 inferred["locale_data"] = f"locales.{locale}.data"
+                self._warn_if_locale_data_is_shadowed(source, data, locale, plain_inline, diags)
         # A sibling data-file variant (base.<locale>.yaml) is applied when it exists, and the
         # inference is reported (§4.1.4 / §6.3).
         if data is not None and locale is not None:
@@ -1104,6 +1230,46 @@ class Compiler:
                     post.append(loaded)
                     inferred["data_overlay"] = candidate.name
         return pre, post
+
+    def _warn_if_locale_data_is_shadowed(
+        self,
+        source: TemplateSource,
+        data: Path | None,
+        locale: str,
+        inline: dict[str, Any],
+        diags: list[Diagnostic],
+    ) -> None:
+        """Say when the project's data file overrides the copy a locale ships.
+
+        User data outranking template data is deliberate (ADR-0002), and silence about it is
+        not: a template shipping `locales.fa.data` and a project data file setting the same key
+        rendered a mirrored right-to-left layout full of English words, with nothing reported.
+        """
+        if data is None or not data.is_file():
+            return
+        loaded = _to_plain(load_yaml(data))
+        if not isinstance(loaded, dict):
+            return
+        shadowed = sorted(key for key in inline if key in loaded)
+        if not shadowed:
+            return
+
+        named = ", ".join(shadowed)
+        diags.append(
+            diagnostic(
+                "ARC-TPL-103",
+                f"Locale {locale!r} supplies {named}, and {data.name} sets the same "
+                f"{'keys' if len(shadowed) > 1 else 'key'}, which wins — so this render uses the "
+                "project's data, not the locale's.",
+                severity="warning",
+                file=str(data),
+                keypath=f"locales.{locale}.data",
+                hint=(
+                    f"Remove {named} from {data.name}, or move the locale's copy into "
+                    f"'{data.stem}.{locale}{data.suffix}', which is applied over the base data."
+                ),
+            )
+        )
 
     # ---------------------------------------------------------------------- formats
     def _resolve_format(
@@ -1260,11 +1426,15 @@ class Compiler:
             raw, context, canvas, template, node_id, keypath, id_suffix
         )
         style = self._parse_style(raw, context, canvas, template, node_id, keypath)
+        self._warn_about_paint_that_never_paints(
+            raw, str(node_type), template, node_id, keypath, diags
+        )
         visible = bool(raw.get("visible", True))
         z = int(raw.get("z", 0))
 
         common: dict[str, Any] = {
             "id": node_id,
+            "authored_node_id": authored_id,
             "transform": transform,
             "constraints": constraints,
             "style": style,
@@ -1276,8 +1446,9 @@ class Compiler:
             "z": z,
             # Carry the authoring location so layout/render-time diagnostics can locate the
             # node in the source (RR-3). Kept out of the canonical hash (SourceRef.exclude).
-            "source": SourceRef(
-                file=str(template), keypath=keypath, line=node_line(raw)
+            "source": self._effective_source_map.get(
+                id(raw),
+                SourceRef(file=str(template), keypath=keypath, line=node_line(raw)),
             ),
         }
 
@@ -2521,16 +2692,20 @@ class Compiler:
             )
         else:
             scale_pair = (1.0, 1.0)
-        if scale_pair != (1.0, 1.0):
-            # Rotation is supported (Phase 2); scaling still is not.
+        import math as _math
+
+        if any(not _math.isfinite(component) or component <= 0.0 for component in scale_pair):
+            # A zero scale collapses the node to nothing while it stays selectable, and a
+            # negative one mirrors — a distinct operation this vocabulary does not express.
             raise DiagnosticError(
                 diagnostic(
-                    "ARC-RND-901",
-                    f"Scale transforms are not supported yet on {node_id!r}",
+                    "ARC-IR-016",
+                    f"Invalid transform scale {scale!r} on {node_id!r}: each component must be "
+                    "a finite number greater than zero",
                     file=str(template),
                     keypath=f"{keypath}.transform.scale",
                     line=line_of(raw, "transform"),
-                    hint="Only translation and rotation are supported.",
+                    hint="Use a positive number, or [sx, sy] with both components positive.",
                 )
             )
         origin = self._parse_origin(t, template, keypath, t_line)
@@ -2542,7 +2717,7 @@ class Compiler:
             )
         else:
             tr = (0.0, 0.0)
-        return Transform(translate=tr, rotate_deg=rotate, origin=origin)
+        return Transform(translate=tr, rotate_deg=rotate, scale=scale_pair, origin=origin)
 
     def _parse_origin(
         self, t: dict[str, Any], template: Path, keypath: str, line: int | None
@@ -2586,6 +2761,7 @@ class Compiler:
         keypath: str,
         id_suffix: str,
     ) -> Constraints:
+        node_type = str(raw.get("type") or "")
         c = raw.get("constraints")
         if not isinstance(c, dict):
             # No constraints at all: fill the parent, anchored top-left. This is the
@@ -2617,16 +2793,19 @@ class Compiler:
                     file=str(template),
                     keypath=f"{keypath}.constraints.size",
                     line=size_line,
-                    hint="Add 'size: {w: ..., h: ...}' (each of fixed/%/fill/fit_content/aspect).",
+                    hint=(
+                        "Add 'size: {w: ..., h: ...}' — each of "
+                        f"{_size_options_for(node_type)}."
+                    ),
                 )
             )
         width = self._parse_size_axis(
             size.get("w"), context, canvas.dpi, template, node_id, keypath, "w", size_line,
-            required=True,
+            required=True, node_type=node_type,
         )
         height = self._parse_size_axis(
             size.get("h"), context, canvas.dpi, template, node_id, keypath, "h", size_line,
-            required=True,
+            required=True, node_type=node_type,
         )
         return Constraints(anchors=anchors, width=width, height=height)
 
@@ -2675,6 +2854,7 @@ class Compiler:
         line: int | None,
         *,
         required: bool,
+        node_type: str = "",
     ) -> SizeSpec:
         """Parse one axis size: a scalar (fixed/%/fill/fit_content) or a mapping with aspect/
         min/max. Expressions inside scalar strings are evaluated first (§12.5)."""
@@ -2687,8 +2867,7 @@ class Compiler:
                         file=str(template),
                         keypath=f"{keypath}.constraints.size.{axis}",
                         line=line,
-                        hint="Give this axis fixed (e.g. 100px), a %, 'fill', 'fit_content', "
-                        "or {aspect: 'W:H'}.",
+                        hint=f"Give this axis {_size_options_for(node_type)}.",
                     )
                 )
             return SizeSpec(mode="fill")
@@ -2774,6 +2953,52 @@ class Compiler:
                         hint=f"Valid {block} fields are: {valid}.",
                     )
                 )
+
+    #: Style fields that only a shape draws. Valid vocabulary everywhere, painted nowhere else.
+    _PAINT_ONLY = ("fill", "stroke", "stroke_width", "corner_radius")
+
+    def _warn_about_paint_that_never_paints(
+        self,
+        raw: dict[str, Any],
+        node_type: str,
+        template: Path,
+        node_id: str,
+        keypath: str,
+        diags: list[Diagnostic],
+    ) -> None:
+        """Say when a node declares paint it will never draw.
+
+        `style` is shared vocabulary, so a group setting `fill` and `corner_radius` passes every
+        check this compiler makes and then renders as though the keys were absent. In an engine
+        that rejects unknown fields precisely so nothing silently does nothing, a known field
+        that silently does nothing is worse: it looks correct in the file and in validation, and
+        only the pixels disagree.
+        """
+        if node_type in {"shape", "path"}:
+            return
+        style = raw.get("style")
+        if not isinstance(style, dict):
+            return
+        declared = [field for field in self._PAINT_ONLY if field in style]
+        if not declared:
+            return
+
+        named = ", ".join(declared)
+        diags.append(
+            diagnostic(
+                "ARC-TPL-104",
+                f"Node {node_id!r} is a {node_type} and sets {named}, which only a shape paints, "
+                "so this has no effect on the render.",
+                severity="warning",
+                file=str(template),
+                keypath=f"{keypath}.style",
+                line=line_of(style, declared[0]),
+                hint=(
+                    f"Give {node_id!r} a shape child carrying {named}, or move the style onto "
+                    "the shape that should show it."
+                ),
+            )
+        )
 
     def _parse_style(
         self,
@@ -3065,14 +3290,22 @@ class Compiler:
                     hint=_expr_hint(exc),
                 )
             ) from exc
-        if isinstance(value, str):
-            return value
         from arcavex.services.template.expressions import localize_digits, stringify
 
+        # CR-8: an exact-match expression ("{{ n }}") bypasses render_value's per-fragment digit
+        # mapping, so apply the active digit policy here too — for a string as much as a number.
+        # Converting numbers only meant one poster could show a count as ۶ beside a clock time
+        # of "20:00", because the time happened to be carried as a string. Two numbering systems
+        # in one render, with nothing saying why.
+        #
+        # This is the displayed-text path only (`localize` is passed by the three text call
+        # sites), so asset paths, ids and style values are untouched.
+        if isinstance(value, str):
+            if localize and self._digits:
+                return localize_digits(value, self._digits)
+            return value
+
         text = stringify(value)
-        # CR-8: an exact-match numeric expression ("{{ n }}") bypasses render_value's
-        # per-fragment digit mapping, so apply the active digit policy here too. This makes
-        # "{{ n }}" and "n = {{ n }}" agree under --locale fa.
         if localize and self._digits and isinstance(value, (int, float)) and not isinstance(
             value, bool
         ):
@@ -3087,6 +3320,77 @@ _REPEAT_CAP = 1000
 # Sentinel returned by type checking to mean "value unchanged" (distinct from None, which is
 # a legitimate coerced value the caller may want to keep).
 _UNCHANGED = object()
+
+
+def _validate_authored_id_uniqueness(
+    root: Any,
+    template: Path,
+    source_map: NodeSourceMap,
+) -> list[Diagnostic]:
+    """Validate each effective authored definition once, before if/repeat expansion."""
+    seen: set[str] = set()
+    out: list[Diagnostic] = []
+
+    def visit(entry: Any, keypath: str) -> None:
+        node = entry
+        node_keypath = keypath
+        if isinstance(entry, dict) and isinstance(entry.get("node"), dict) and (
+            "repeat" in entry or "if" in entry
+        ):
+            node = entry["node"]
+            node_keypath = f"{keypath}.node"
+        if not isinstance(node, dict):
+            return
+        authored_id = node.get("id")
+        if isinstance(authored_id, str) and authored_id:
+            source = source_map.get(id(node))
+            source_keypath = (
+                source.keypath if source is not None and source.keypath else node_keypath
+            )
+            source_file = (
+                source.file
+                if source is not None and source.file is not None
+                else str(template)
+            )
+            source_line = (
+                source.line
+                if source is not None and source.line is not None
+                else line_of(node, "id")
+            )
+            if "[" in authored_id or "]" in authored_id or authored_id.startswith("@arcavex/"):
+                out.append(
+                    diagnostic(
+                        "ARC-TPL-030",
+                        f"Invalid authored node id {authored_id!r}",
+                        file=source_file,
+                        keypath=f"{source_keypath}.id",
+                        line=source_line,
+                        hint=(
+                            "Authored IDs cannot contain '[' or ']' or start with the reserved "
+                            "'@arcavex/' prefix."
+                        ),
+                    )
+                )
+            elif authored_id in seen:
+                out.append(
+                    diagnostic(
+                        "ARC-IR-020",
+                        f"Duplicate node id {authored_id!r}",
+                        file=source_file,
+                        keypath=f"{source_keypath}.id",
+                        line=source_line,
+                        hint="Node IDs must be unique across the template.",
+                    )
+                )
+            else:
+                seen.add(authored_id)
+        children = node.get("children")
+        if isinstance(children, list):
+            for index, child in enumerate(children):
+                visit(child, f"{node_keypath}.children[{index}]")
+
+    visit(root, "root")
+    return out
 
 # Template-level sections still deferred to later phases. Authoring one is a located error,
 # not a silent no-op. Per RR-4 these are collected together rather than raised on the first.
@@ -3234,10 +3538,14 @@ def _truthy_value(value: Any) -> bool:
 def _stringify_key(value: Any) -> str:
     """Render a repeat key value to the string used inside expanded node IDs."""
     if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, float):
-        return _num_to_str(value)
-    return str(value)
+        text = "true" if value else "false"
+    elif isinstance(value, float):
+        text = _num_to_str(value)
+    else:
+        text = str(value)
+    # Percent-encode the repeat tuple delimiters and the escape marker itself. Replacing percent
+    # first makes the mapping injective while preserving familiar IDs for ordinary keys.
+    return text.replace("%", "%25").replace("[", "%5B").replace("]", "%5D")
 
 
 def _int_field(value: Any, template: Path, keypath: str, line: int | None) -> int:
@@ -3495,3 +3803,39 @@ def _parse_anchor_value(
     # expanded sibling id (e.g. 'title' -> 'title[ann]'); 'parent' is never suffixed.
     resolved_ref = "parent" if ref == "parent" else f"{ref}{id_suffix}"
     return AnchorEdge(ref=resolved_ref, edge=edge, offset_pt=offset_pt)  # type: ignore[arg-type]
+
+
+def _direction_differs(source: Any, loc_settings: dict[str, Any], locale: str) -> bool:
+    """True when this locale reads the other way from the template's own default.
+
+    Only that case is worth a warning: applying `en` rules to English copy is exactly what it
+    looks like, while applying `fa` rules to it silently reverses dates and time ranges.
+    """
+    requested = str(loc_settings.get("direction") or "ltr").lower()
+    declared = source.raw.get("locales") if hasattr(source, "raw") else None
+    if not isinstance(declared, dict) or not declared:
+        return False
+
+    # The first declared locale is the one the template was authored in, by convention, and its
+    # direction is therefore the direction the untranslated copy actually reads in. Rendering
+    # that copy under a locale that reads the other way is the case worth warning about;
+    # rendering it under its own direction is exactly what it looks like.
+    authored = next(iter(declared))
+    if authored == locale:
+        return False
+    settings = declared.get(authored)
+    authored_direction = "ltr"
+    if isinstance(settings, dict) and settings.get("direction"):
+        authored_direction = str(settings["direction"]).lower()
+    return requested != authored_direction
+
+def _size_options_for(node_type: str) -> str:
+    """The size values this node kind accepts, for a hint that does not contradict the next one.
+
+    `fit_content` is text-only (ARC-LAY-020), and offering it to every node sent an author round
+    a loop: the missing-size error suggested it, and using it produced "Only text nodes support
+    fit_content" from the very next check.
+    """
+    if node_type == "text":
+        return "fixed (e.g. 100px), a %, 'fill', 'fit_content', or {aspect: 'W:H'}"
+    return "fixed (e.g. 100px), a %, 'fill', or {aspect: 'W:H'} (fit_content is text-only)"

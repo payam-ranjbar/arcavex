@@ -1,0 +1,251 @@
+name: release-desktop
+
+# The desktop release lane. It stages the exact engine artifact the lock manifest pins — never a
+# rebuild that merely claims the same version — builds the Windows x64 installer, installs it and
+# drives the packaged product, then publishes the signed updater bundle.
+#
+# Called by the release workflow when Release Please creates a `desktop-v*` tag, and available
+# manually for a re-run.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The desktop-vA.B.C tag to build.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The desktop-vA.B.C tag to build.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  build:
+    name: windows installer
+    runs-on: windows-latest
+    environment: release
+    permissions:
+      # Reading the pinned engine archive from its own GitHub Release.
+      contents: read
+    outputs:
+      version: ${{ steps.identify.outputs.version }}
+      installer: ${{ steps.identify.outputs.installer }}
+      signed: ${{ steps.authenticode.outputs.signed }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create venv and install
+        run: |
+          uv venv
+          uv pip install -e ".[dev]"
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Check the tag matches the packaged version
+        shell: pwsh
+        run: |
+          $version = $env:TAG -replace '^desktop-v', ''
+          $packaged = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          Write-Host "tag=$version packaged=$packaged"
+          if ($version -ne $packaged) {
+            Write-Host "::error::tag $env:TAG does not match package.json version $packaged"
+            exit 1
+          }
+
+      # The whole point of the lock: this downloads the archive the manifest names, refuses it if
+      # the digest differs, and stages that exact tree. A desktop release therefore ships the
+      # engine build the engine lane tested, not a same-version rebuild.
+      - name: Stage the pinned engine
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/stage_engine_sidecar.ps1 -Source Release
+
+      - name: Sidecar contract tests
+        run: uv run pytest tests/e2e/test_engine_sidecar.py -q
+
+      # A release ships the editor, so the guarantees that keep an edit from corrupting a source
+      # file are gates here too, against the same pinned engine the installer will carry.
+      - name: Multi-process editor guarantees
+        run: >
+          uv run pytest -q
+          tests/e2e/test_editor_races.py
+          tests/e2e/test_editor_cli.py
+          tests/e2e/test_editor_external_collaboration.py
+
+      # Authenticode is a separate concern from the updater signature. Without a certificate the
+      # installer still works, but Windows SmartScreen warns on first run, so the release is
+      # marked as a prerelease rather than presented as ready for nontechnical distribution.
+      - name: Configure Authenticode signing
+        id: authenticode
+        shell: pwsh
+        env:
+          SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+        run: |
+          if ($env:SIGN_COMMAND) {
+            $conf = 'apps/desktop/src-tauri/tauri.windows.conf.json'
+            $json = Get-Content $conf -Raw | ConvertFrom-Json
+            $json.bundle.windows | Add-Member -NotePropertyName signCommand -NotePropertyValue $env:SIGN_COMMAND -Force
+            $json | ConvertTo-Json -Depth 10 | Set-Content $conf -Encoding utf8
+            "signed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "signed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host '::warning::No Authenticode certificate configured. The installer will trip SmartScreen; publishing as a prerelease.'
+          }
+
+      # Unlike pull-request CI, the release lane never falls back to an ephemeral key: an update
+      # signed by anything other than the release key cannot be installed by anyone.
+      - name: Require the updater signing key
+        shell: pwsh
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if (-not $env:SIGNING_KEY) {
+            Write-Host '::error::TAURI_SIGNING_PRIVATE_KEY is not set in the release environment. Updater signatures are mandatory.'
+            exit 1
+          }
+
+      - name: Build the Windows installer
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build
+
+      # Installs the setup executable, checks the engine landed where the desktop resolves it, uses
+      # that engine standalone, drives the installed application headlessly through handshake,
+      # open, render, restart, and render again, then confirms the updater signature was made by
+      # the key this build trusts.
+      - name: Verify the packaged bundle
+        shell: pwsh
+        run: ./scripts/verify_desktop_bundle.ps1
+
+      - name: Identify and collect the artifacts
+        id: identify
+        shell: pwsh
+        run: |
+          $version = $env:TAG -replace '^desktop-v', ''
+          $bundle = 'apps/desktop/src-tauri/target/release/bundle/nsis'
+          # With createUpdaterArtifacts the setup executable is itself the signed update payload;
+          # only the v1-compatible mode wraps it in a separate zip.
+          $setup = Get-ChildItem $bundle -Filter '*-setup.exe' | Select-Object -First 1
+          $sig = Get-Item "$($setup.FullName).sig"
+
+          New-Item -ItemType Directory -Path upload -Force | Out-Null
+          Copy-Item $setup.FullName, $sig.FullName upload/
+          Copy-Item apps/desktop/src-tauri/binaries/engine-lock.json upload/
+
+          # The updater endpoint compiled into the application reads this file from the release.
+          $manifest = [ordered]@{
+            version   = $version
+            notes     = "Arcavex Desktop $version"
+            pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            platforms = [ordered]@{
+              'windows-x86_64' = [ordered]@{
+                signature = (Get-Content $sig.FullName -Raw).Trim()
+                url       = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/$([uri]::EscapeDataString($setup.Name))"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 10 | Set-Content upload/latest.json -Encoding utf8
+
+          Get-ChildItem upload -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)"
+          } | Set-Content upload/SHA256SUMS -Encoding ascii
+
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "installer=$($setup.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-windows-x64
+          path: upload/*
+          if-no-files-found: error
+
+  publish:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: desktop-windows-x64
+          path: upload
+
+      - name: Generate an SBOM
+        uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+        with:
+          path: apps/desktop
+          format: spdx-json
+          artifact-name: arcavex-desktop-sbom.spdx.json
+          output-file: upload/arcavex-desktop-sbom.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
+        with:
+          subject-path: upload/*-setup.exe
+
+      - name: Compose the release notes
+        run: |
+          {
+            echo "Arcavex Desktop ${{ needs.build.outputs.version }} for Windows x64."
+            echo
+            echo "Install with \`${{ needs.build.outputs.installer }}\`. The bundled engine is pinned"
+            echo "by digest in \`engine-lock.json\` and remains usable on its own through the CLI and MCP."
+            echo
+            if [ "${{ needs.build.outputs.signed }}" != "true" ]; then
+              echo "> **This build is not Authenticode signed.** Windows SmartScreen will warn on first"
+              echo "> run (More info → Run anyway). It is published as a prerelease for self and friends"
+              echo "> distribution, not as a general release."
+            fi
+          } > notes.md
+          cat notes.md
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ inputs.tag }}
+          body_path: notes.md
+          files: upload/*
+          fail_on_unmatched_files: true
+          draft: false
+          # An unsigned installer is deliberately not presented as a general release.
+          prerelease: ${{ needs.build.outputs.signed != 'true' }}

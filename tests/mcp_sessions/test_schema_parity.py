@@ -8,6 +8,11 @@ patch tool's input reuses the shared :class:`PatchOp` model rather than a parall
 
 from __future__ import annotations
 
+import importlib.util
+import json
+import re
+from pathlib import Path
+
 from arcavex.clients.mcp_server import (
     _TOOL_METHODS,
     build_mcp_server,
@@ -20,13 +25,22 @@ from arcavex.kernel.api import (
     DiagnosticHelp,
     DiffReport,
     EffectListReport,
+    EngineHandshakeReport,
     FontListReport,
+    HitTestReport,
+    LayerTreeReport,
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
+    PreviewProjectReport,
     ProjectListReport,
+    ProjectPolicyReport,
     ProjectResult,
+    ProjectSnapshotReport,
     ProjectStatusReport,
+    ProjectUIMetadataReport,
+    ProposalActionReport,
+    ProposalListReport,
     RenderResult,
     RerunReport,
     RunListReport,
@@ -36,11 +50,38 @@ from arcavex.kernel.api import (
     TemplateInspectReport,
     TemplateListReport,
 )
+from arcavex.kernel.editor import (
+    COMMAND_KINDS,
+    HistoryReport,
+    SemanticTransaction,
+    TransactionReport,
+)
+
+_EXPORTER_SPEC = importlib.util.spec_from_file_location(
+    "export_desktop_schemas",
+    Path(__file__).parents[2] / "scripts" / "export_desktop_schemas.py",
+)
+assert _EXPORTER_SPEC is not None and _EXPORTER_SPEC.loader is not None
+_EXPORTER = importlib.util.module_from_spec(_EXPORTER_SPEC)
+_EXPORTER_SPEC.loader.exec_module(_EXPORTER)
 
 # Each structured tool maps to the exact facade model it returns. render_preview is absent: it
 # returns mixed image + text content (its structured payload is a PreviewResult inside a text
 # block), so it has no single output schema.
 _TOOL_OUTPUT_MODELS = {
+    "engine_handshake": EngineHandshakeReport,
+    "project_snapshot": ProjectSnapshotReport,
+    "project_ui_metadata": ProjectUIMetadataReport,
+    "project_ui_metadata_set": ProjectUIMetadataReport,
+    "project_policy": ProjectPolicyReport,
+    "project_policy_set": ProjectPolicyReport,
+    "project_proposal_list": ProposalListReport,
+    "project_proposal_approve": ProposalActionReport,
+    "project_proposal_reject": ProposalActionReport,
+    "layer_tree": LayerTreeReport,
+    "hit_test": HitTestReport,
+    "project_validate": CheckResult,
+    "project_preview": PreviewProjectReport,
     "arcavex_template_list": TemplateListReport,
     "arcavex_template_inspect": TemplateInspectReport,
     "arcavex_template_validate": CheckResult,
@@ -76,7 +117,7 @@ def test_catalog_lists_every_declared_tool() -> None:
     """The built server exposes exactly the declared tool catalog (names)."""
     catalog = _catalog()
     assert set(catalog) == {name for name, _ in _TOOL_METHODS}
-    assert len(catalog) == 25
+    assert len(catalog) == len(_TOOL_METHODS) == 46
 
 
 def test_output_schemas_match_facade_models() -> None:
@@ -86,9 +127,12 @@ def test_output_schemas_match_facade_models() -> None:
         assert catalog[name]["outputSchema"] == model.model_json_schema(), name
 
 
-def test_render_preview_returns_mixed_content_not_a_schema() -> None:
-    """render_preview yields image content, so it declares no single output schema."""
-    assert _catalog()["arcavex_render_preview"]["outputSchema"] is None
+def test_direct_preview_is_mixed_but_project_preview_is_a_structured_report() -> None:
+    """Project preview is a desktop contract, unlike direct image-plus-text preview output."""
+    catalog = _catalog()
+
+    assert catalog["arcavex_render_preview"]["outputSchema"] is None
+    assert catalog["project_preview"]["outputSchema"] == PreviewProjectReport.model_json_schema()
 
 
 def test_patch_tool_input_reuses_the_shared_patchop_model() -> None:
@@ -108,6 +152,11 @@ def test_every_tool_delegates_to_a_facade_method() -> None:
     from arcavex.kernel.api import Facade
 
     for facade_method in (
+        "engine_handshake",
+        "project_snapshot", "project_ui_metadata", "set_project_ui_metadata",
+        "project_policy", "set_project_policy", "list_project_proposals",
+        "approve_project_proposal", "reject_project_proposal", "layer_tree", "hit_test",
+        "validate_project", "preview_project",
         "list_templates", "inspect_template", "validate_template", "patch_template",
         "create_project", "list_projects", "project_status", "clone_project",
         "render_project", "record_render",
@@ -124,3 +173,77 @@ def test_server_constructs_with_instructions() -> None:
     server = build_mcp_server()
     assert server.name == "arcavex"
     assert server.instructions and "arcavex_template_inspect" in server.instructions
+
+
+def test_desktop_schema_export_writes_every_mcp_desktop_contract(tmp_path: Path) -> None:
+    """Omitting a desktop report from the exporter would let generated TypeScript drift."""
+    written = _EXPORTER.export_schemas(tmp_path)
+
+    expected = {
+        "engine-handshake.schema.json": EngineHandshakeReport,
+        "project-snapshot.schema.json": ProjectSnapshotReport,
+        "project-ui-metadata.schema.json": ProjectUIMetadataReport,
+        "project-policy.schema.json": ProjectPolicyReport,
+        "project-proposal-list.schema.json": ProposalListReport,
+        "project-proposal-action.schema.json": ProposalActionReport,
+        "layer-tree.schema.json": LayerTreeReport,
+        "hit-test.schema.json": HitTestReport,
+        "project-validate.schema.json": CheckResult,
+        "project-preview.schema.json": PreviewProjectReport,
+        "editor-transaction.schema.json": SemanticTransaction,
+        "editor-transaction-report.schema.json": TransactionReport,
+        "editor-history.schema.json": HistoryReport,
+    }
+
+    assert written == set(expected)
+    for filename, model in expected.items():
+        assert (tmp_path / filename).read_text(encoding="utf-8") == (
+            json.dumps(
+                model.model_json_schema(), ensure_ascii=False, indent=2, sort_keys=True
+            )
+            + "\n"
+        )
+
+    fixtures = _EXPORTER.export_contract_fixtures(tmp_path)
+    assert set(fixtures) == set(expected)
+    assert json.loads(
+        (tmp_path / "desktop-contract-fixtures.json").read_text(encoding="utf-8")
+    ) == fixtures
+    for filename, model in expected.items():
+        # A canonical absolute path cannot be spelled the same way on every platform, so the
+        # checked-in fixture carries a placeholder that callers materialize before validating.
+        materialized = _EXPORTER.materialize_fixture(fixtures[filename])
+        assert _EXPORTER.tokenize_fixture(
+            model.model_validate(materialized).model_dump(mode="json")
+        ) == fixtures[filename]
+
+
+def test_desktop_fixtures_populate_the_branches_runtime_guards_must_police() -> None:
+    """Empty-collection fixtures would let generated guards pass without exercising a contract."""
+    fixtures = _EXPORTER.contract_fixtures()
+
+    for filename, fixture in fixtures.items():
+        # A request contract has no diagnostics to carry; every report does, and an empty list
+        # would let its guard pass without ever exercising the diagnostic branch.
+        if filename == "editor-transaction.schema.json":
+            continue
+        assert fixture["diagnostics"], filename
+
+    # The command union is the widest branch in the whole desktop surface, so the transaction
+    # fixture must reach every member rather than one representative kind.
+    transaction = fixtures["editor-transaction.schema.json"]
+    assert {command["kind"] for command in transaction["commands"]} == set(COMMAND_KINDS)
+    assert fixtures["editor-transaction-report.schema.json"]["inverse"]["commands"]
+    assert fixtures["editor-history.schema.json"]["entries"]
+
+    proposal = fixtures["project-proposal-action.schema.json"]["proposal"]
+    assert re.fullmatch(r"[0-9a-f]{64}", proposal["base_project_revision"])
+    assert re.fullmatch(r"[0-9a-fA-F-]{36}", proposal["command_id"])
+    assert proposal["created_at"].endswith("Z")
+    assert proposal["command_payload"] and proposal["actor"]["channel"] == "mcp"
+
+    layers = fixtures["project-ui-metadata.schema.json"]["metadata"]["layers"]
+    assert layers["title"]["color"] == "#3A7BD5"
+    assert fixtures["project-preview.schema.json"]["previews"][0]["inferred"]
+    assert fixtures["layer-tree.schema.json"]["root"]["children"][0]["effects"]
+    assert fixtures["hit-test.schema.json"]["candidates"]

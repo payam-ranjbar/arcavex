@@ -10,16 +10,18 @@ wrapped as ``ARC-INT-999`` diagnostics.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import tempfile
 import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import UUID4, BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 from arcavex.kernel.contracts.types import (
     ExportOptions,
@@ -32,6 +34,12 @@ from arcavex.kernel.diagnostics import (
     has_errors,
     internal_error,
 )
+from arcavex.kernel.editor import (
+    Actor,
+    EditorProtocol,
+    HistoryReport,
+    TransactionReport,
+)
 from arcavex.kernel.ir.models import (
     CompiledDocument,
     CompiledGroup,
@@ -39,6 +47,7 @@ from arcavex.kernel.ir.models import (
     CompiledNode,
     LayoutDocument,
     LayoutNode,
+    SourceRef,
 )
 from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Rect
 from arcavex.kernel.pipeline import layout_and_render
@@ -93,12 +102,53 @@ _MIN_FREE_BAND_ROWS = 2
 # A project/provenance result model — every one carries ``ok`` and ``diagnostics``, so the
 # facade's never-raises boundary helper is generic over the concrete report it returns.
 _ResultT = TypeVar("_ResultT", bound="BaseModel")
+_FinitePoint = tuple[FiniteFloat, FiniteFloat]
+_FiniteRect = tuple[FiniteFloat, FiniteFloat, FiniteFloat, FiniteFloat]
+_FiniteMatrix = tuple[
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+    FiniteFloat,
+]
 
 
 def _output_name(stem: str, fmt: str, locale: str | None) -> str:
     """Build the default output filename ``<stem>.<format>[.<locale>].png`` (§6.3 / DX-3)."""
     locale_seg = f".{locale}" if locale else ""
     return f"{stem}.{fmt}{locale_seg}.png"
+
+
+def _hit_point(x_pt: float | str, y_pt: float | str) -> tuple[float, float]:
+    """Coerce one finite point or raise the stable public input diagnostic."""
+    try:
+        point = (float(x_pt), float(y_pt))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-015",
+                "Hit-test coordinates must be finite numbers",
+                keypath="point_pt",
+                hint=(
+                    "Pass numeric canvas-point x_pt and y_pt values; "
+                    "NaN and infinity are invalid."
+                ),
+            )
+        ) from exc
+    if not all(math.isfinite(value) for value in point):
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-015",
+                "Hit-test coordinates must be finite numbers",
+                keypath="point_pt",
+                hint=(
+                    "Pass numeric canvas-point x_pt and y_pt values; "
+                    "NaN and infinity are invalid."
+                ),
+            )
+        )
+    return point
 
 
 def _dedupe(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
@@ -141,6 +191,12 @@ class CompileResult:
     template_hash: str | None = None
     style_hash: str | None = None
     data_hash: str | None = None
+    # Effective authored AST after target/project structural patches but before if/repeat
+    # expansion. The source map is keyed by ``id(node_mapping)`` so duplicate authored IDs do
+    # not erase provenance before validation. Both are process-local compiler/service contracts,
+    # never serialized or included in canonical hashes.
+    effective_root: Any | None = None
+    effective_source_map: dict[int, SourceRef] = field(default_factory=dict)
 
 
 @dataclass
@@ -488,6 +544,261 @@ class DoctorReport(BaseModel):
     ok: bool
     engine_version: str
     checks: list[DoctorCheck]
+
+
+# --------------------------------------------------------------------------- desktop
+class EngineIdentity(BaseModel):
+    """Release identity for the executable serving a desktop client."""
+
+    model_config = ConfigDict(frozen=True)
+
+    engine_version: str
+    build_commit: str | None = None
+    artifact_path: str | None = None
+    artifact_sha256: str | None = None
+
+
+class EnginePaths(BaseModel):
+    """Arcavex home and the persistent stores rooted beneath it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    home: str
+    assets: str
+    cache: str
+    extensions: str
+    fonts: str
+    styles: str
+    templates: str
+
+
+class EngineHandshakeReport(BaseModel):
+    """Versioned startup contract shared by desktop CLI and MCP clients."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    identity: EngineIdentity
+    mcp_contract_version: str
+    accepted_ir_versions: list[str]
+    produced_ir_version: str
+    extension_sdk_version: str
+    capabilities: list[str]
+    paths: EnginePaths
+    doctor: DoctorReport
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class DesktopServiceProtocol(Protocol):
+    """Desktop identity service injected by bootstrap to keep the kernel pure."""
+
+    def handshake(self) -> EngineHandshakeReport: ...
+
+
+class RevisionManifestEntry(BaseModel):
+    """One normalized file or synthetic projection participating in a revision."""
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    sha256: str
+    bytes: int
+
+
+class ProjectTarget(BaseModel):
+    """One deterministic format and locale combination declared by a project."""
+
+    model_config = ConfigDict(frozen=True)
+
+    format: str
+    locale: str | None = None
+
+
+class ProjectSourceFile(BaseModel):
+    """A project input and its resolved source location for conflict diagnostics."""
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    resolved_path: str
+    role: Literal["project", "ui", "template", "data", "override", "asset"]
+    project_owned: bool
+    sha256: str | None = None
+
+
+class ProjectSnapshotReport(BaseModel):
+    """Read-only desktop snapshot with independent project and render revisions."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    name: str | None = None
+    template: str | None = None
+    style: str | None = None
+    data: str | None = None
+    dpi: int | None = None
+    formats: list[str] = Field(default_factory=list)
+    locales: list[str] = Field(default_factory=list)
+    targets: list[ProjectTarget] = Field(default_factory=list)
+    default_target: ProjectTarget | None = None
+    status: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    project_revision: str | None = None
+    render_revision: str | None = None
+    project_manifest: list[RevisionManifestEntry] = Field(default_factory=list)
+    render_manifest: list[RevisionManifestEntry] = Field(default_factory=list)
+    source_files: list[ProjectSourceFile] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class LayerUIMetadata(BaseModel):
+    """Non-rendering editor metadata for one stable authored layer ID."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    display_name: str | None = None
+    locked: bool = False
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class ProjectWorkspaceState(BaseModel):
+    """Project-local workspace choices that may travel with the authored project."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    active_format: str | None = None
+    active_locale: str | None = None
+    layer_tree_mode: Literal["definition", "rendered"] = "definition"
+    selected_layer_ids: list[str] = Field(default_factory=list)
+
+
+class ProjectUIMetadata(BaseModel):
+    """Versioned contents of the optional non-rendering ``project.ui.yaml`` sidecar."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: Literal[1] = 1
+    layers: dict[str, LayerUIMetadata] = Field(default_factory=dict)
+    workspace: ProjectWorkspaceState = Field(default_factory=ProjectWorkspaceState)
+
+    @field_validator("layers")
+    @classmethod
+    def _stable_layer_ids(
+        cls, value: dict[str, LayerUIMetadata]
+    ) -> dict[str, LayerUIMetadata]:
+        if any(not layer_id.strip() for layer_id in value):
+            raise ValueError("layer metadata keys must be non-empty stable authored IDs")
+        return value
+
+
+class ProjectUIMetadataReport(BaseModel):
+    """Current editor metadata together with the revisions that govern it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    metadata: ProjectUIMetadata = Field(default_factory=ProjectUIMetadata)
+    project_revision: str | None = None
+    render_revision: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+AutomationMode = Literal["unrestricted", "review", "read_only"]
+ExtensionMode = Literal["unrestricted", "disabled"]
+
+
+class AutomationPolicy(BaseModel):
+    """Versioned project-local policy for semantic automation and extension execution."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: Literal[1] = 1
+    mode: AutomationMode = "unrestricted"
+    extensions: ExtensionMode = "unrestricted"
+
+
+class ProjectPolicyReport(BaseModel):
+    """Current project policy together with the revisions that govern it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    policy: AutomationPolicy = Field(default_factory=AutomationPolicy)
+    project_revision: str | None = None
+    render_revision: str | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+#: A queued proposal and an executed transaction name the same actor, so they share one model
+#: rather than two identical ones that could drift apart.
+ProposalActor = Actor
+
+
+ProposalState = Literal["pending", "authorized", "rejected"]
+
+
+class ProjectProposal(BaseModel):
+    """Versioned queue record for a future semantic editor command."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: Literal[1] = 1
+    command_id: UUID4
+    project_path: str
+    base_project_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    actor: ProposalActor
+    command_payload: dict[str, Any]
+    created_at: datetime
+    state: ProposalState = "pending"
+    rejection_reason: str | None = None
+
+    @field_validator("project_path")
+    @classmethod
+    def _canonical_project_path(cls, value: str) -> str:
+        path = Path(value)
+        if not path.is_absolute() or str(path.resolve()) != value:
+            raise ValueError("project_path must be a canonical absolute path")
+        return value
+
+    @field_validator("created_at")
+    @classmethod
+    def _aware_created_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at must include a timezone")
+        return value
+
+
+class ProposalListReport(BaseModel):
+    """Deterministically ordered proposals plus diagnostics for unreadable entries."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    proposals: list[ProjectProposal] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class ProposalActionReport(BaseModel):
+    """Result of authorizing or rejecting one proposal; no command execution is implied."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    canonical_path: str | None = None
+    project_revision: str | None = None
+    proposal: ProjectProposal | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- explain
@@ -1024,6 +1335,140 @@ class LayoutReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class LayerSource(BaseModel):
+    """Stable authoring location for a layer definition."""
+
+    model_config = ConfigDict(frozen=True)
+
+    file: str | None = None
+    keypath: str | None = None
+    line: int | None = None
+
+
+class LayerEffect(BaseModel):
+    """One resolved effect declaration attached to a layer."""
+
+    model_config = ConfigDict(frozen=True)
+
+    index: int
+    name: str
+    category: Literal["geometry", "color", "raster", "composite"] | None = None
+    params: dict[str, object] = Field(default_factory=dict)
+
+
+class LayerMask(BaseModel):
+    """One resolved mask declaration attached to a layer."""
+
+    model_config = ConfigDict(frozen=True)
+
+    component: str
+    params: dict[str, object] = Field(default_factory=dict)
+
+
+class LayerNodeReport(BaseModel):
+    """One definition, rendered instance, or virtual effect/mask row in a layer tree."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    authored_id: str
+    instance_id: str | None = None
+    parent_id: str | None = None
+    authored_index: int
+    paint_index: int | None = None
+    z: int = 0
+    kind: str
+    origin: Literal["static", "repeat", "if"] = "static"
+    condition: str | None = None
+    collection: str | None = None
+    loop_var: str | None = None
+    key: str | None = None
+    display_name: str
+    #: The authored text of a text node, so an editor can show and diff what it will replace.
+    #: Absent for every other kind, and for a rendered instance whose text came from data.
+    text: str | None = None
+    #: What that text resolved to for this render — bindings filled in, locale applied. Present
+    #: in ``rendered`` mode only, and never what an editor writes back: replacing the authored
+    #: ``{{ headline }}`` with its resolved value is how a data binding gets destroyed. It is
+    #: here so a client can confirm a wording change without rendering a full-size image and
+    #: looking at it, which was the only way to check.
+    resolved_text: str | None = None
+    #: The node's authored ``style`` mapping — font, size, weight, colour, alignment, fill, and
+    #: the rest of the vocabulary. Reported so an editor can show a value before changing it;
+    #: without it a properties panel can only offer geometry, which is what it did.
+    style: dict[str, Any] | None = None
+    #: The node's authored ``paragraph`` mapping — ``align`` and ``direction``. Reported apart
+    #: from ``style`` because that is where the text renderer reads alignment from: a value
+    #: written to ``style.align`` is accepted by the schema and then ignored.
+    paragraph: dict[str, Any] | None = None
+    visible: bool = True
+    locked: bool = False
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    editable: bool = True
+    hit_testable: bool = True
+    virtual: bool = False
+    bounds_pt: _FiniteRect | None = None
+    bounds_px: _FiniteRect | None = None
+    paint_bounds_pt: _FiniteRect | None = None
+    paint_bounds_px: _FiniteRect | None = None
+    absolute_transform: _FiniteMatrix | None = None
+    rotate_deg: FiniteFloat = 0.0
+    overflow: OverflowReport | None = None
+    source: LayerSource | None = None
+    effects: list[LayerEffect] = Field(default_factory=list)
+    mask: LayerMask | None = None
+    children: list[LayerNodeReport] = Field(default_factory=list)
+
+
+class LayerTreeReport(BaseModel):
+    """Authoritative desktop layer hierarchy in authored or rendered mode."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    mode: Literal["authored", "rendered"] = "authored"
+    format: str | None = None
+    locale: str | None = None
+    canvas_pt: _FinitePoint = (0.0, 0.0)
+    canvas_px: tuple[int, int] = (0, 0)
+    dpi: int = 0
+    root: LayerNodeReport | None = None
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class HitCandidate(BaseModel):
+    """One rendered layer whose paint bounds contain the queried canvas point."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    authored_id: str
+    instance_id: str
+    parent_id: str | None = None
+    kind: Literal["group", "text", "image", "shape", "path"]
+    display_name: str
+    editable: bool
+    locked: bool
+    bounds_pt: _FiniteRect
+    paint_bounds_pt: _FiniteRect
+
+
+class HitTestReport(BaseModel):
+    """Topmost-first geometry hit-test result in canonical canvas point space."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    format: str | None = None
+    locale: str | None = None
+    point_pt: _FinitePoint = (0.0, 0.0)
+    point_px: _FinitePoint | None = None
+    candidates: list[HitCandidate] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 class AuthoringProtocol(Protocol):
     """Template authoring operations injected by bootstrap (scaffold/inspect/split)."""
 
@@ -1348,6 +1793,70 @@ class OrchestratorProtocol(Protocol):
 
     def project_status(self, start: Path | None, project: Path | None) -> ProjectStatusReport: ...
 
+    def project_snapshot(
+        self,
+        start: Path | None,
+        project: Path | None,
+        capabilities: list[str],
+    ) -> ProjectSnapshotReport: ...
+
+    def layer_tree(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: Literal["authored", "rendered"],
+        format_name: str | None,
+        locale: str | None,
+    ) -> LayerTreeReport: ...
+
+    def hit_test(
+        self,
+        start: Path | None,
+        project: Path | None,
+        point_pt: tuple[float, float],
+        format_name: str | None,
+        locale: str | None,
+    ) -> HitTestReport: ...
+
+    def project_ui_metadata(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectUIMetadataReport: ...
+
+    def set_project_ui_metadata(
+        self,
+        start: Path | None,
+        project: Path | None,
+        metadata: ProjectUIMetadata,
+    ) -> ProjectUIMetadataReport: ...
+
+    def project_policy(
+        self, start: Path | None, project: Path | None
+    ) -> ProjectPolicyReport: ...
+
+    def set_project_policy(
+        self,
+        start: Path | None,
+        project: Path | None,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+    ) -> ProjectPolicyReport: ...
+
+    def list_project_proposals(
+        self, start: Path | None, project: Path | None
+    ) -> ProposalListReport: ...
+
+    def approve_project_proposal(
+        self, start: Path | None, project: Path | None, command_id: str
+    ) -> ProposalActionReport: ...
+
+    def reject_project_proposal(
+        self,
+        start: Path | None,
+        project: Path | None,
+        command_id: str,
+        reason: str,
+    ) -> ProposalActionReport: ...
+
     def clone_project(
         self, start: Path | None, project: Path | None, target: Path, name: str
     ) -> ProjectResult: ...
@@ -1462,6 +1971,8 @@ class Facade:
         skills: SkillServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
+        desktop: DesktopServiceProtocol | None = None,
+        editor: EditorProtocol | None = None,
     ) -> None:
         """Wire the facade.
 
@@ -1493,6 +2004,65 @@ class Facade:
         self._skills = skills
         self._budget = budget
         self._engine_version = engine_version
+        self._desktop = desktop
+        self._editor = editor
+
+    # ------------------------------------------------------------------ semantic editor
+    def editor_apply(self, transaction: dict[str, Any]) -> TransactionReport:
+        """Execute one semantic transaction against its project. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.apply(transaction)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False, diagnostics=[internal_error("Editor apply failed", detail=repr(exc))]
+            )
+
+    def editor_apply_authorized(self, project: Path, command_id: str) -> TransactionReport:
+        """Execute a proposal a person authorized, re-checked against the fresh revision."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.apply_authorized(project, command_id)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False,
+                diagnostics=[internal_error("Editor authorized apply failed", detail=repr(exc))],
+            )
+
+    def editor_undo(self, project: Path) -> TransactionReport:
+        """Restore the state before the newest applied history entry. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.undo(project)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False, diagnostics=[internal_error("Editor undo failed", detail=repr(exc))]
+            )
+
+    def editor_redo(self, project: Path) -> TransactionReport:
+        """Re-apply the oldest undone history entry. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return TransactionReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.redo(project)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return TransactionReport(
+                ok=False, diagnostics=[internal_error("Editor redo failed", detail=repr(exc))]
+            )
+
+    def editor_history(self, project: Path) -> HistoryReport:
+        """The project's undo/redo state. Never raises."""
+        if self._editor is None:  # pragma: no cover - always wired in production
+            return HistoryReport(ok=False, diagnostics=[_unwired("editor")])
+        try:
+            return self._editor.history(project)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return HistoryReport(
+                ok=False, diagnostics=[internal_error("Editor history failed", detail=repr(exc))]
+            )
 
     def validate_template(
         self,
@@ -1861,6 +2431,45 @@ class Facade:
         )
 
     # ------------------------------------------------------------------ authoring
+    def engine_handshake(self) -> EngineHandshakeReport:
+        """Return the desktop startup contract from the injected identity service."""
+        if self._desktop is None:
+            return self._desktop_failure_report(
+                "Desktop service is not wired",
+                "Build the facade through arcavex.bootstrap.build_facade().",
+            )
+        try:
+            return self._desktop.handshake()
+        except Exception as exc:  # noqa: BLE001 - facade boundary must never leak exceptions
+            return self._desktop_failure_report(
+                "Desktop handshake failed unexpectedly",
+                f"Please report this with your environment details. Detail: {exc!r}",
+            )
+
+    def _desktop_failure_report(self, message: str, hint: str) -> EngineHandshakeReport:
+        """Build the stable fallback shape for missing or failed desktop service wiring."""
+        doctor = self.doctor()
+        return EngineHandshakeReport(
+            ok=False,
+            identity=EngineIdentity(engine_version=doctor.engine_version),
+            mcp_contract_version="",
+            accepted_ir_versions=[],
+            produced_ir_version="",
+            extension_sdk_version="",
+            capabilities=[],
+            paths=EnginePaths(
+                home="",
+                assets="",
+                cache="",
+                extensions="",
+                fonts="",
+                styles="",
+                templates="",
+            ),
+            doctor=doctor,
+            diagnostics=[diagnostic("ARC-INT-999", message, hint=hint)],
+        )
+
     def doctor(self) -> DoctorReport:
         """Run environment probes and return a report. Never raises."""
         if self._doctor_probe is None:  # pragma: no cover - always wired in production
@@ -2384,6 +2993,131 @@ class Facade:
             lambda o: o.project_status(start, project), ProjectStatusReport
         )
 
+    def project_snapshot(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProjectSnapshotReport:
+        """Return a read-only project snapshot and independent revision manifests."""
+        capabilities = list(self.engine_handshake().capabilities)
+        return self._guard_project(
+            lambda o: o.project_snapshot(start, project, capabilities),
+            ProjectSnapshotReport,
+        )
+
+    def layer_tree(
+        self,
+        project: Path | None = None,
+        *,
+        mode: Literal["authored", "rendered"] = "authored",
+        format_name: str | None = None,
+        locale: str | None = None,
+        start: Path | None = None,
+    ) -> LayerTreeReport:
+        """Return the engine-owned definition or rendered layer hierarchy."""
+        resolved_project = None if project is None else Path(project)
+        return self._guard_project(
+            lambda orchestrator: orchestrator.layer_tree(
+                start, resolved_project, mode, format_name, locale
+            ),
+            LayerTreeReport,
+        )
+
+    def hit_test(
+        self,
+        project: Path | None = None,
+        *,
+        x_pt: float | str,
+        y_pt: float | str,
+        format_name: str | None = None,
+        locale: str | None = None,
+        start: Path | None = None,
+    ) -> HitTestReport:
+        """Hit-test one canonical canvas-point coordinate against rendered paint bounds."""
+        resolved_project = None if project is None else Path(project)
+        return self._guard_project(
+            lambda orchestrator: orchestrator.hit_test(
+                start,
+                resolved_project,
+                _hit_point(x_pt, y_pt),
+                format_name,
+                locale,
+            ),
+            HitTestReport,
+        )
+
+    def project_ui_metadata(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProjectUIMetadataReport:
+        """Read optional project editor metadata without creating its sidecar."""
+        return self._guard_project(
+            lambda o: o.project_ui_metadata(start, project), ProjectUIMetadataReport
+        )
+
+    def set_project_ui_metadata(
+        self,
+        metadata: ProjectUIMetadata,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProjectUIMetadataReport:
+        """Atomically replace validated project editor metadata."""
+        return self._guard_project(
+            lambda o: o.set_project_ui_metadata(start, project, metadata),
+            ProjectUIMetadataReport,
+        )
+
+    def project_policy(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProjectPolicyReport:
+        """Return effective automation and extension policy without writing defaults."""
+        return self._guard_project(
+            lambda o: o.project_policy(start, project), ProjectPolicyReport
+        )
+
+    def set_project_policy(
+        self,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProjectPolicyReport:
+        """Atomically update project automation and extension policy."""
+        return self._guard_project(
+            lambda o: o.set_project_policy(start, project, mode, extensions),
+            ProjectPolicyReport,
+        )
+
+    def list_project_proposals(
+        self, start: Path | None = None, project: Path | None = None
+    ) -> ProposalListReport:
+        """List valid project queue records and diagnostics for malformed entries."""
+        return self._guard_project(
+            lambda o: o.list_project_proposals(start, project), ProposalListReport
+        )
+
+    def approve_project_proposal(
+        self,
+        command_id: str,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProposalActionReport:
+        """Revision-check and authorize a proposal without applying its command."""
+        return self._guard_project(
+            lambda o: o.approve_project_proposal(start, project, command_id),
+            ProposalActionReport,
+        )
+
+    def reject_project_proposal(
+        self,
+        command_id: str,
+        reason: str,
+        start: Path | None = None,
+        project: Path | None = None,
+    ) -> ProposalActionReport:
+        """Persist an explicit rejection while retaining the proposal record."""
+        return self._guard_project(
+            lambda o: o.reject_project_proposal(start, project, command_id, reason),
+            ProposalActionReport,
+        )
+
     def clone_project(
         self,
         target: Path,
@@ -2794,6 +3528,16 @@ def _edge_value(edge: str, node: LayoutNode) -> float:
     }[edge]
 
 
+def _canvas_bounds(node: LayoutNode) -> Rect:
+    """Return cumulative canvas geometry, with compatibility for legacy solvers."""
+    return node.canvas_bounds or node.bounds
+
+
+def _canvas_paint_bounds(node: LayoutNode) -> Rect:
+    """Return cumulative effect-grown geometry, with compatibility for legacy solvers."""
+    return node.canvas_paint_bounds or node.paint_bounds
+
+
 def _build_node_report(
     compiled: CompiledNode,
     layout: LayoutNode,
@@ -2802,8 +3546,11 @@ def _build_node_report(
     overlaps: list[SiblingOverlap],
     parent_stack: str | None = None,
 ) -> LayoutNodeReport:
-    b = layout.bounds
-    pb = layout.paint_bounds
+    # Desktop layout inspection and layer selection share cumulative canvas-space geometry.
+    # Third-party/legacy solvers may omit the excluded provenance fields, so retain the
+    # pre-ancestor values only as a compatibility fallback.
+    b = _canvas_bounds(layout)
+    pb = _canvas_paint_bounds(layout)
     scale = dpi / 72.0
     overflow = None
     if layout.overflow.kind != "none" or layout.overflow.measured_h_pt > 0.0:
@@ -2827,7 +3574,7 @@ def _build_node_report(
             children_reports.append(
                 _build_node_report(child, lchild, compiled.direction, dpi, overlaps, stack_kind)
             )
-        _collect_overlaps(layout.children, overlaps, layout.bounds)
+        _collect_overlaps(layout.children, overlaps, _canvas_bounds(layout))
 
     t = layout.absolute_transform
     return LayoutNodeReport(
@@ -2895,6 +3642,11 @@ def _content_aabb(node: LayoutNode) -> Rect:
     (CR-14); the AABB of a rotated node is coarser than its ink, which is why such a pair is
     reported as ``content`` and left to the author to judge.
     """
+    if node.canvas_bounds is not None:
+        # The solver has already projected the unexpanded layout rectangle through every
+        # ancestor transform. This is exactly the content footprint: cumulative, but without
+        # effect growth. Re-transforming it here would apply ancestor rotations twice.
+        return node.canvas_bounds
     if node.render_bounds == node.bounds:
         # Nothing grew the box, so paint_bounds already *is* the content AABB. Reusing it keeps
         # the solver's 1/1024pt geometry quantization intact instead of re-deriving a rect that
@@ -2937,7 +3689,12 @@ def _collect_overlaps(
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
             (a, ca), (b, cb) = visible[i], visible[j]
-            classified = _classify_overlap(ca, cb, a.paint_bounds, b.paint_bounds)
+            classified = _classify_overlap(
+                ca,
+                cb,
+                _canvas_paint_bounds(a),
+                _canvas_paint_bounds(b),
+            )
             if classified is None:
                 continue
             # DX-8/RR2-9: containment is suppressed as noise only when the *container* is a
@@ -3012,7 +3769,7 @@ def _coverage_grid(layout: LayoutDocument, cells: int) -> list[list[bool]] | Non
             return
         if not node.visible:
             return
-        b = node.bounds
+        b = _canvas_bounds(node)
         cx0 = max(0, int(b.x / w * cells))
         cx1 = min(cells, int((b.x + b.w) / w * cells) + 1)
         cy0 = max(0, int(b.y / h * cells))

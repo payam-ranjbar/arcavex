@@ -18,16 +18,22 @@ from pathlib import Path
 from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from ruamel.yaml.error import CommentMark
+from ruamel.yaml.tokens import CommentToken
 
+from arcavex.kernel.api import AutomationPolicy, ProjectUIMetadata
 from arcavex.kernel.diagnostics import DiagnosticError, diagnostic
 from arcavex.services.fsutil import atomic_write_text
 from arcavex.services.library import Library, ResolvedTemplate, is_library_ref
+from arcavex.services.project_locking import project_mutation_lock
 from arcavex.services.template.loader import load_template, load_yaml
 
 PROJECT_FILE = "project.yaml"
+PROJECT_UI_FILE = "project.ui.yaml"
 
 ProjectStatus = Literal["draft", "review", "approved", "published"]
 _STATUSES: tuple[str, ...] = get_args(ProjectStatus)
+_AUTOMATION_POLICY_KEYS = frozenset({"version", "mode", "extensions"})
 
 
 class ProjectModel(BaseModel):
@@ -47,6 +53,7 @@ class ProjectModel(BaseModel):
     dpi: int | None = None
     status: ProjectStatus = "draft"
     tags: list[str] = Field(default_factory=list)
+    automation: AutomationPolicy = Field(default_factory=AutomationPolicy)
 
 
 @dataclass(frozen=True)
@@ -139,12 +146,12 @@ class ProjectService:
 
     def load(self, project_dir: Path) -> Project:
         """Load and validate the ``project.yaml`` in ``project_dir`` (``ARC-PRJ-002`` on error)."""
-        project_dir = Path(project_dir)
+        project_dir = Path(project_dir).resolve()
         raw = load_yaml(project_dir / PROJECT_FILE)
         if not isinstance(raw, dict):
             raise self._invalid(project_dir, "project.yaml is not a mapping")
         try:
-            manifest = ProjectModel.model_validate(_plain(raw))
+            manifest = ProjectModel.model_validate(_manifest_validation_data(raw))
         except ValidationError as exc:
             raise self._invalid(project_dir, _first_error(exc)) from exc
         return Project(root=project_dir, manifest=manifest)
@@ -165,7 +172,8 @@ class ProjectService:
         A library reference is resolved and pinned to an exact ``name@version`` so a recorded
         render never drifts; a filesystem path is stored relative to the project. Formats and
         locales default to the template's own declarations, and a starter data file is written
-        from the template's ``preview_data`` so the project renders immediately.
+        from the template's own ``data.yaml`` when it ships one, or from ``preview_data`` when it
+        does not, so the project renders immediately either way.
         """
         target = Path(target)
         if target.exists() and any(target.iterdir()):
@@ -199,7 +207,15 @@ class ProjectService:
         (target / "overrides").mkdir(exist_ok=True)
         (target / "outputs").mkdir(exist_ok=True)
         (target / "data").mkdir(exist_ok=True)
-        starter = preview if isinstance(preview, dict) else {}
+        # A template's own data.yaml is real content; preview_data is a thumbnail of it. Seeding
+        # from preview when both exist handed the author abbreviated strings in place of the copy
+        # they had just written, with nothing said about the substitution.
+        shipped = template_dir / "data.yaml" if template_dir.is_dir() else None
+        if shipped is not None and shipped.is_file():
+            loaded = _plain(load_yaml(shipped))
+            starter = loaded if isinstance(loaded, dict) else {}
+        else:
+            starter = preview if isinstance(preview, dict) else {}
         _dump_yaml_atomic(target / f"data/{name}.yaml", starter)
         self._write_manifest(target, manifest)
         return Project(root=target, manifest=manifest)
@@ -208,6 +224,63 @@ class ProjectService:
         """Write a project's manifest back to disk atomically and return the project."""
         self._write_manifest(project.root, project.manifest)
         return project
+
+    def load_ui_metadata(self, project: Project) -> ProjectUIMetadata:
+        """Read optional project-owned editor metadata without creating the sidecar."""
+        path = project.root / PROJECT_UI_FILE
+        if not path.is_file():
+            return ProjectUIMetadata()
+        raw = load_yaml(path)
+        if not isinstance(raw, dict):
+            raise _invalid_ui_metadata(path, "project.ui.yaml is not a mapping")
+        try:
+            return ProjectUIMetadata.model_validate(_plain(raw))
+        except ValidationError as exc:
+            raise _invalid_ui_metadata(path, _first_error(exc)) from exc
+
+    def save_ui_metadata(
+        self, project: Project, metadata: ProjectUIMetadata
+    ) -> ProjectUIMetadata:
+        """Atomically persist canonical project-owned editor metadata."""
+        with project_mutation_lock(project.root):
+            self.load(project.root)
+            _dump_yaml_atomic(project.root / PROJECT_UI_FILE, _ui_metadata_dict(metadata))
+        return metadata
+
+    def save_automation_policy(
+        self, project: Project, policy: AutomationPolicy
+    ) -> Project:
+        """Merge only automation into round-trip YAML, preserving unknown authored content."""
+        with project_mutation_lock(project.root):
+            path = project.root / PROJECT_FILE
+            raw = load_yaml(path)
+            if not isinstance(raw, dict):
+                raise self._invalid(project.root, "project.yaml is not a mapping")
+            existing = raw.get("automation")
+            if isinstance(existing, dict):
+                automation = existing
+            else:
+                automation: dict[str, Any] = {}
+                raw["automation"] = automation
+
+            if policy.mode == "unrestricted":
+                _pop_default_automation_field(automation, "mode")
+            else:
+                automation["mode"] = policy.mode
+            if policy.extensions == "unrestricted":
+                _pop_default_automation_field(automation, "extensions")
+            else:
+                automation["extensions"] = policy.extensions
+
+            has_unknown_fields = any(
+                key not in _AUTOMATION_POLICY_KEYS for key in automation
+            )
+            if policy == AutomationPolicy() and not has_unknown_fields:
+                raw.pop("automation", None)
+            else:
+                automation["version"] = policy.version
+            _dump_yaml_atomic(path, raw)
+            return self.load(project.root)
 
     def set_status(self, project: Project, status: str) -> Project:
         """Set the project's ``status`` (one of draft/review/approved/published) and persist it."""
@@ -298,9 +371,7 @@ class ProjectService:
             return f"{resolved.name}@{resolved.version}", resolved.path
         template_path = Path(template_ref).resolve()
         root = _resolve_template_dir(template_path)
-        # Store the path relative to the project so the project stays relocatable as a tree.
-        rel = os.path.relpath(root, project_target.resolve())
-        return rel.replace(os.sep, "/"), root
+        return _pin_for(root, project_target.resolve()), root
 
     def _write_manifest(self, root: Path, manifest: ProjectModel) -> None:
         _dump_yaml_atomic(root / PROJECT_FILE, _manifest_dict(manifest))
@@ -314,6 +385,23 @@ class ProjectService:
                 hint="A project.yaml needs at least 'name' and 'template'.",
             )
         )
+
+
+def _pin_for(template_root: Path, project_root: Path) -> str:
+    """How a project should record the path of a template outside it.
+
+    A path relative to the project keeps the pair relocatable as one tree, which is what a project
+    and its template usually are. On Windows two drives have no relative path between them at all,
+    and ``os.path.relpath`` raises rather than inventing one: a project on ``D:`` pinning a
+    template on ``C:`` is an ordinary arrangement (work on the data drive, the engine's examples on
+    the system drive) that used to surface as ARC-INT-999. There is nothing to relativise, so the
+    absolute path is recorded, and the project is pinned to that drive rather than to a tree.
+    """
+    try:
+        relative = os.path.relpath(template_root, project_root)
+    except ValueError:
+        return template_root.as_posix()
+    return relative.replace(os.sep, "/")
 
 
 def _resolve_template_dir(path: Path) -> Path:
@@ -347,7 +435,46 @@ def _manifest_dict(manifest: ProjectModel) -> dict[str, Any]:
     # Only persist an explicit per-project DPI, so a scaffolded project.yaml stays clean.
     if manifest.dpi is not None:
         out["dpi"] = manifest.dpi
+    if manifest.automation != AutomationPolicy():
+        policy: dict[str, Any] = {"version": manifest.automation.version}
+        if manifest.automation.mode != "unrestricted":
+            policy["mode"] = manifest.automation.mode
+        if manifest.automation.extensions != "unrestricted":
+            policy["extensions"] = manifest.automation.extensions
+        out["automation"] = policy
     return out
+
+
+def _ui_metadata_dict(metadata: ProjectUIMetadata) -> dict[str, Any]:
+    """Render editor metadata without serializing optional/default noise."""
+    layers: dict[str, Any] = {}
+    for layer_id, layer in metadata.layers.items():
+        value: dict[str, Any] = {}
+        if layer.display_name is not None:
+            value["display_name"] = layer.display_name
+        if layer.locked:
+            value["locked"] = True
+        if layer.color is not None:
+            value["color"] = layer.color
+        layers[layer_id] = value
+    workspace = metadata.workspace.model_dump(
+        mode="python", exclude_defaults=True, exclude_none=True
+    )
+    return {"version": metadata.version, "layers": layers, "workspace": workspace}
+
+
+def _invalid_ui_metadata(path: Path, detail: str) -> DiagnosticError:
+    return DiagnosticError(
+        diagnostic(
+            "ARC-PRJ-008",
+            f"Invalid project UI metadata: {detail}",
+            file=str(path),
+            hint=(
+                "Use version 1 with layer display_name/locked/#RRGGBB color metadata and "
+                "supported project-local workspace fields."
+            ),
+        )
+    )
 
 
 def _template_style(raw: Any) -> str | None:
@@ -373,6 +500,76 @@ def _plain(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_plain(v) for v in obj]
     return obj
+
+
+def _manifest_validation_data(raw: dict[Any, Any]) -> dict[str, Any]:
+    """Validate known persisted policy axes while tolerating forward metadata."""
+    data: dict[str, Any] = _plain(raw)
+    automation = data.get("automation")
+    if isinstance(automation, dict):
+        data["automation"] = {
+            key: value
+            for key, value in automation.items()
+            if key in _AUTOMATION_POLICY_KEYS
+        }
+    return data
+
+
+def _pop_default_automation_field(
+    automation: dict[str, Any], field: str
+) -> None:
+    """Remove a default-valued axis without dropping a following unknown key's comment."""
+    comments = getattr(automation, "ca", None)
+    ordered_keys = list(automation)
+    if comments is not None and field in automation:
+        index = ordered_keys.index(field)
+        following = ordered_keys[index + 1] if index + 1 < len(ordered_keys) else None
+        attached = comments.items.get(field)
+        token = attached[2] if attached and len(attached) > 2 else None
+        if (
+            token is not None
+            and following is not None
+            and following not in _AUTOMATION_POLICY_KEYS
+        ):
+            preserved = _standalone_comment_tokens(
+                token, indent=automation.lc.key(following)[1]
+            )
+            if preserved:
+                destination = comments.items.setdefault(
+                    following, [None, None, None, None]
+                )
+                if destination[1] is None:
+                    destination[1] = []
+                destination[1].extend(preserved)
+            attached[2] = None
+    automation.pop(field, None)
+
+
+def _standalone_comment_tokens(
+    token: CommentToken, *, indent: int
+) -> list[CommentToken]:
+    """Split an axis EOL token into marked pre-key comments owned by the next field."""
+    value = token.value
+    if value.startswith("#"):
+        _, newline, value = value.partition("\n")
+        if not newline:
+            return []
+    elif value.startswith("\r\n"):
+        value = value[2:]
+    elif value.startswith("\n"):
+        value = value[1:]
+    else:
+        return []
+
+    lines = value.splitlines(keepends=True)
+    mark = CommentMark(indent)
+    preserved: list[CommentToken] = []
+    while lines and not lines[0].strip(" \t\r\n"):
+        preserved.append(CommentToken(lines.pop(0), mark))
+    if lines:
+        lines[0] = lines[0].lstrip(" ")
+        preserved.append(CommentToken("".join(lines), mark))
+    return preserved
 
 
 def _first_error(exc: ValidationError) -> str:

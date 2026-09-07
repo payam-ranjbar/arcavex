@@ -47,6 +47,12 @@ dev = [
     "pillow>=12.3,<13",             # 12.3.0
     "mcp>=1.28,<2",                 # 1.28.1 — 2.0.0 removed mcp.server.fastmcp
 ]
+# Freezing the standalone engine that Arcavex Desktop bundles. Separate from `dev` because the
+# engine's own suite never needs it, and because the PyInstaller bootloader is itself a shipped
+# artifact: the pin is a release input, not a developer convenience.
+packaging = [
+    "pyinstaller>=6.19,<7",         # 6.22.2
+]
 
 [project.urls]
 Homepage = "https://github.com/payam-ranjbar/arcavex"
@@ -60,16 +66,20 @@ arcavex = "arcavex.clients.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/arcavex"]
 
-# Ship the bundled fonts inside the wheel so an installed engine renders without the dev tree
-# (spec §8.5 packaged-install test). They live in library-seed/fonts in the repo; force-include
-# maps them under the package at arcavex/_bundled/fonts, where the text service discovers them
-# (services.text.find_font_dirs). ICU (icudtl.dat) ships with the skia-python dependency, so it
-# needs no packaging here — 'arcavex doctor' diagnoses it if a build cannot locate it (ADR-0001).
+# Ship the bundled fonts and seeded style packs inside the wheel so an installed engine renders
+# without the dev tree (spec §8.5 packaged-install test). They live in library-seed/ in the repo;
+# force-include maps them under the package at arcavex/_bundled/, where the text and style
+# services discover them (services.text.find_font_dirs, services.style.find_style_dirs). Both are
+# required: without the styles entry an installed engine resolves zero style packs, because the
+# repo-marker walk that finds library-seed/styles in a checkout finds nothing once installed.
+# ICU (icudtl.dat) ships with the skia-python dependency, so it needs no packaging here —
+# 'arcavex doctor' diagnoses it if a build cannot locate it (ADR-0001).
 [tool.hatch.build.targets.wheel.force-include]
 "library-seed/fonts" = "arcavex/_bundled/fonts"
 # The design skill ships in the wheel so `arcavex skill install` works from a pip install with no
 # source checkout; services.skills.bundled_skill_dir resolves this path first, then the repo.
 "skills/arcavex-design-studio" = "arcavex/_bundled/skill"
+"library-seed/styles" = "arcavex/_bundled/styles"
 
 [tool.ruff]
 line-length = 100

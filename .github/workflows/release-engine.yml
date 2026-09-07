@@ -1,0 +1,232 @@
+name: release-engine
+
+# The engine release lane. It publishes Arcavex as a standalone product: wheel and sdist to PyPI,
+# plus the frozen Windows CLI/MCP bundle that Arcavex Desktop later pins by digest. Nothing here
+# knows about the desktop; the desktop consumes what this lane publishes.
+#
+# Called by the release workflow when Release Please creates an `engine-v*` tag, and available
+# manually for a re-run. Every artifact is verified before the draft release is published.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The engine-vX.Y.Z tag to build.
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The engine-vX.Y.Z tag to build.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  python-artifacts:
+    name: wheel and sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install skia system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libglib2.0-0t64 libfontconfig1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Check the tag matches the packaged version
+        run: |
+          VERSION="${TAG#engine-v}"
+          PACKAGED=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
+          echo "tag=$VERSION packaged=$PACKAGED"
+          test "$VERSION" = "$PACKAGED" || {
+            echo "::error::tag $TAG does not match pyproject version $PACKAGED"
+            exit 1
+          }
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      # A release artifact nobody has installed is a guess. Install the built wheel into a clean
+      # environment and use it, rather than trusting that the repository working tree behaved.
+      - name: Verify the built wheel in a clean environment
+        run: |
+          uv venv /tmp/verify
+          uv pip install --python /tmp/verify dist/*.whl
+          /tmp/verify/bin/arcavex --version
+          /tmp/verify/bin/arcavex doctor
+          # Written here, not taken from examples/: this verifies the wheel, which does not ship
+          # repository content.
+          cat > /tmp/smoke.yaml <<'YAML'
+          version: 0.1.0
+          formats:
+            square: {canvas: {width: 400px, height: 400px, dpi: 96}}
+          preview_data: {}
+          root:
+            type: group
+            id: root
+            children:
+              - id: background
+                type: shape
+                shape: rect
+                style: {fill: "#12131A"}
+                constraints:
+                  anchor: {top: parent.top, left: parent.left}
+                  size: {w: fill, h: fill}
+          YAML
+          /tmp/verify/bin/arcavex render /tmp/smoke.yaml --format square -o /tmp/release-check.png
+          test -s /tmp/release-check.png
+          # The bundled skill must survive packaging, or `skill install` is broken for pip users.
+          /tmp/verify/bin/arcavex skill install --path /tmp/skillcheck
+          test -f /tmp/skillcheck/arcavex-design-studio/SKILL.md
+
+      # The desktop generates its TypeScript from these, so they are part of the engine's public
+      # contract and ship with the release rather than living only in the repository.
+      - name: Export the desktop contract schemas
+        # From the installed wheel rather than the working tree, so the published schemas are the
+        # ones the released engine actually serves.
+        run: |
+          /tmp/verify/bin/python scripts/export_desktop_schemas.py
+          cd schemas && zip -r "$GITHUB_WORKSPACE/dist/arcavex-desktop-schemas-${TAG#engine-v}.zip" .
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: engine-python
+          path: dist/*
+          if-no-files-found: error
+
+  windows-engine:
+    name: frozen windows engine
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create venv and install
+        run: |
+          uv venv
+          uv pip install -e ".[dev,packaging]"
+
+      - name: Freeze the engine
+        run: uv run python packaging/build.py
+
+      # Digest comparison, not a smoke test: every way packaging breaks Arcavex is silent. A
+      # missing font reflows text, absent package metadata changes the PDF Producer string, a
+      # different ICU reshapes Farsi. This renders the fixture matrix both ways and compares.
+      - name: Verify the frozen engine renders byte-identically
+        run: uv run python packaging/verify_frozen.py
+
+      - name: Archive the bundle
+        shell: pwsh
+        run: |
+          $version = $env:TAG -replace '^engine-v', ''
+          $name = "arcavex-engine-$version-x86_64-pc-windows-msvc.zip"
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          Compress-Archive -Path dist/frozen/arcavex -DestinationPath "release/$name"
+          $digest = (Get-FileHash "release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$digest  $name" | Out-File -FilePath release/engine-windows.sha256 -Encoding ascii
+          Write-Host "$name $digest"
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: engine-windows
+          path: release/*
+          if-no-files-found: error
+
+  publish:
+    name: publish the release
+    needs: [python-artifacts, windows-engine]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      # PyPI trusted publishing and build provenance both use OIDC; no long-lived token exists.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: engine-python
+          path: dist
+
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: engine-windows
+          path: release
+
+      - name: Collect the artifacts and checksums
+        run: |
+          mkdir -p upload
+          cp dist/* upload/
+          cp release/*.zip upload/
+          cd upload && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Generate an SBOM
+        uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84 # v0.20.9
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: arcavex-engine-sbom.spdx.json
+          output-file: upload/arcavex-engine-sbom.spdx.json
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
+        with:
+          subject-path: |
+            upload/*.whl
+            upload/*.tar.gz
+            upload/*.zip
+
+      - name: Publish to PyPI
+        # Trusted publishing uses the job's id-token permission; it needs a configured publisher
+        # for this repository on PyPI. Until one exists this is skipped rather than failing the
+        # release, so the GitHub Release still carries every artifact.
+        continue-on-error: true
+        run: uv publish --trusted-publishing always dist/*.whl dist/*.tar.gz
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: upload/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          draft: false

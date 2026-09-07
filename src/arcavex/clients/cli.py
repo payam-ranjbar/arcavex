@@ -67,6 +67,8 @@ asset_app = typer.Typer(add_completion=False, help="Asset ingest/annotation comm
 app.add_typer(asset_app, name="asset")
 mcp_app = typer.Typer(add_completion=False, help="MCP authoring server (spec §6.2).")
 app.add_typer(mcp_app, name="mcp")
+editor_app = typer.Typer(help="Semantic project editing: apply, undo, redo, history.")
+app.add_typer(editor_app, name="editor")
 ext_app = typer.Typer(add_completion=False, help="Trusted local extension commands (spec §7).")
 app.add_typer(ext_app, name="ext")
 font_app = typer.Typer(add_completion=False, help="Font install/inspect commands (spec §4.3).")
@@ -75,6 +77,8 @@ skill_app = typer.Typer(
     add_completion=False, help="Install the bundled design skill into an AI assistant."
 )
 app.add_typer(skill_app, name="skill")
+desktop_app = typer.Typer(add_completion=False, help="Desktop engine compatibility commands.")
+app.add_typer(desktop_app, name="desktop")
 
 
 def _engine_version() -> str:
@@ -387,6 +391,111 @@ def validate(
     raise typer.Exit(_exit_code_for(diagnostics, ok))
 
 
+@editor_app.command("apply")
+def editor_apply(
+    file: Path = typer.Argument(
+        ..., help="A JSON file holding one semantic transaction, or '-' for stdin."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Execute one semantic transaction; a refusal reports conflicts or diagnostics."""
+    import json as json_module
+    import sys as sys_module
+
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    raw = sys_module.stdin.read() if str(file) == "-" else file.read_text(encoding="utf-8")
+    try:
+        payload = json_module.loads(raw)
+    except ValueError as error:
+        console.print(f"[red]Not valid JSON:[/red] {error}")
+        raise typer.Exit(EXIT_VALIDATION) from error
+    report = facade.editor_apply(payload)
+    _finish_editor_command(report, console, json_out, quiet)
+
+
+@editor_app.command("undo")
+def editor_undo(
+    project: Path | None = typer.Option(None, "--project", "-p", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Restore the project state before its newest applied history entry."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.editor_undo(project or Path.cwd())
+    _finish_editor_command(report, console, json_out, quiet)
+
+
+@editor_app.command("redo")
+def editor_redo(
+    project: Path | None = typer.Option(None, "--project", "-p", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Re-apply the oldest undone history entry."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.editor_redo(project or Path.cwd())
+    _finish_editor_command(report, console, json_out, quiet)
+
+
+@editor_app.command("history")
+def editor_history(
+    project: Path | None = typer.Option(None, "--project", "-p", help="Project directory."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Show the undo/redo timeline and whether an external edit branched it."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    report = facade.editor_history(project or Path.cwd())
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if not quiet:
+            for entry in report.entries:
+                console.print(f"{entry.created_at:%H:%M:%S} {entry.actor.id}: {entry.summary}")
+            console.print(
+                f"undo: {'yes' if report.can_undo else 'no'} · "
+                f"redo: {'yes' if report.can_redo else 'no'}"
+                + (" · branched by an external edit" if report.branched_by_external_edit else "")
+            )
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+def _finish_editor_command(report, console: Console, json_out: bool, quiet: bool) -> None:  # noqa: ANN001
+    """Shared tail for apply/undo/redo: print, then exit by the report's outcome."""
+    if json_out:
+        _emit_json(report)
+    else:
+        _print_diagnostics(console, report.diagnostics, quiet)
+        if not quiet and report.ok:
+            if report.queued_command_id is not None:
+                console.print(f"[yellow]Queued for review[/yellow] as {report.queued_command_id}")
+            else:
+                changed = ", ".join(entry.path for entry in report.changed) or "nothing"
+                console.print(f"[green]Applied[/green] · changed {changed}")
+        if not quiet and not report.ok and report.conflict is not None:
+            moved = ", ".join(entry.path for entry in report.conflict.changed) or "unknown files"
+            console.print(f"[red]Conflict[/red]: the project changed underneath you ({moved})")
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
 @app.command()
 def doctor(
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
@@ -424,6 +533,30 @@ def _print_doctor_table(console: Console, report: DoctorReport) -> None:
     for check in report.checks:
         if check.status != "ok" and check.hint:
             console.print(f"  [dim]hint ({check.name}):[/dim] {check.hint}")
+
+
+@desktop_app.command("handshake")
+def desktop_handshake(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+) -> None:
+    """Report engine identity, compatibility versions, paths, capabilities, and health."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet=False)
+    report = facade.engine_handshake()
+    if json_out:
+        _emit_json(report)
+    else:
+        identity = report.identity
+        console.print(f"[bold]Arcavex[/bold] engine {identity.engine_version}")
+        console.print(f"MCP contract: {report.mcp_contract_version}")
+        console.print(f"IR accepted: {', '.join(report.accepted_ir_versions)}")
+        console.print(f"IR produced: {report.produced_ir_version}")
+        console.print(f"Extension SDK: {report.extension_sdk_version}")
+        console.print(f"Arcavex home: {report.paths.home}")
+    raise typer.Exit(EXIT_OK if report.ok else EXIT_MISSING)
 
 
 @app.command()
@@ -1285,12 +1418,22 @@ def rerun(
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
 ) -> None:
-    """Reproduce a recorded run into a new run directory (byte-identical on match)."""
+    """Reproduce a recorded run into a new run directory (byte-identical on match).
+
+    Takes the run directory, or the bare run id that ``list-runs`` prints — the two are the same
+    string only because the id happens to name the directory under ``outputs/``, which nothing
+    says out loud. Passing what the listing showed used to fail with "no run manifest".
+    """
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
-    report: RerunReport = facade.rerun(run_dir)
+    resolved = run_dir
+    if not (run_dir / "manifest.json").is_file():
+        candidate = Path.cwd() / "outputs" / run_dir.name
+        if (candidate / "manifest.json").is_file():
+            resolved = candidate
+    report: RerunReport = facade.rerun(resolved)
     if json_out:
         _emit_json(report)
     elif not quiet:

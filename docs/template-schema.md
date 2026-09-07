@@ -114,8 +114,9 @@ Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`,
 | `path` | A vector path. Geometry effects (e.g. `torn-paper`) apply to `shape`/`path` nodes only. |
 
 Common fields on any node: `visible: true|false` (a hidden node and its subtree are not rendered),
-`z` (draw order within siblings), `style`, `style_role`, `constraints`, `transform` (translation +
-`rotate`), and `mask` (`{component, params}` — built-ins: `rounded_rect`, `circle`,
+`z` (draw order within siblings), `style`, `style_role`, `constraints`, `transform`
+(`translate`, `rotate`, `scale`, `origin` — composed as translate ∘ rotate ∘ scale about the
+pivot), and `mask` (`{component, params}` — built-ins: `rounded_rect`, `circle`,
 `diamond_grid`). Any node may also carry an `effects:` list or an `effect_preset:` shorthand.
 
 Beyond those, each kind adds only its own fields — and nothing else is accepted (`ARC-TPL-064`):
@@ -130,7 +131,8 @@ Beyond those, each kind adds only its own fields — and nothing else is accepte
 
 There is **no per-node `condition:`** — gate a node with the structural `if:`/`node:` construct
 below. Paint properties (`opacity`, `color`, `font_size`, …) live in `style:`, not on the node;
-size lives in `constraints.size`, position in `constraints.anchor`, and rotation in `transform`.
+size lives in `constraints.size`, position in `constraints.anchor`, and rotation/scale in
+`transform`.
 Writing any of them at node level is a located error whose hint names the real home.
 
 ### Structural constructs — `repeat` and `if`
@@ -203,8 +205,8 @@ constraints:
 
 - **Reference** is `parent` or a **sibling id** in the same group. Sibling references resolve
   regardless of declaration order (forward refs work); a cycle is a located `ARC-LAY-052` naming the
-  loop, and an unknown sibling is `ARC-LAY-053`. A rotated sibling contributes its post-transform
-  bounding box.
+  loop, and an unknown sibling is `ARC-LAY-053`. A transformed sibling contributes its post-transform
+  bounding box — the AABB after its translate, rotate, and scale.
 - **Edges** are the six physical edges (`top`, `bottom`, `left`, `right`, `center_x`, `center_y`)
   plus the **logical** `start`/`end`, which resolve through the enclosing group's `direction` — in
   `ltr`, `start` = left and a `+` offset moves right; in `rtl`, `start` = right and a `+` offset

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arcavex.bootstrap import build_facade
 from arcavex.kernel.api import LayoutNodeReport
 
@@ -81,6 +83,59 @@ def test_report_carries_transform_and_paint_px() -> None:
     assert accent.rotate_deg != 0.0
     assert accent.absolute_transform != (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
     assert accent.paint_bounds_px[2] > 0.0
+
+
+def test_rotated_descendants_use_canvas_space_in_layout_summaries(tmp_path: Path) -> None:
+    """Overlap, coverage, and free regions must share reported node coordinates."""
+    template = tmp_path / "rotated-summary.yaml"
+    template.write_text(
+        """version: 0.1.0
+formats:
+  sq: {canvas: {width: 300pt, height: 200pt, dpi: 72}}
+root:
+  id: root
+  type: group
+  children:
+    - id: outer
+      type: group
+      transform: {rotate: 90, origin: center}
+      constraints:
+        anchor: {top: parent.top+40pt, left: parent.left+40pt}
+        size: {w: 100pt, h: 100pt}
+      children:
+        - id: a
+          type: shape
+          shape: rect
+          constraints:
+            anchor: {top: parent.top, left: parent.left}
+            size: {w: 50pt, h: 50pt}
+        - id: b
+          type: shape
+          shape: rect
+          constraints:
+            anchor: {top: parent.top, left: parent.left+30pt}
+            size: {w: 50pt, h: 50pt}
+""",
+        encoding="utf-8",
+    )
+
+    report = build_facade().inspect_layout(template, format_name="sq")
+
+    assert report.ok, [diagnostic.model_dump() for diagnostic in report.diagnostics]
+    assert report.root is not None
+    a = _find(report.root, "a")
+    b = _find(report.root, "b")
+    assert a.bounds_pt == pytest.approx((90.0, 40.0, 50.0, 50.0))
+    assert b.bounds_pt == pytest.approx((90.0, 70.0, 50.0, 50.0))
+    overlap = next(
+        item for item in report.overlaps if {item.a, item.b} == {"a", "b"}
+    )
+    assert overlap.rect_pt == pytest.approx((90.0, 70.0, 50.0, 20.0))
+    assert report.covered_fraction == pytest.approx(round(297 / (64 * 64), 4))
+    assert report.free_regions == [
+        (0.0, 121.88, 300.0, 78.12),
+        (0.0, 0.0, 300.0, 37.5),
+    ]
 
 
 def test_inspect_failure_reports_diagnostics(tmp_path: Path) -> None:

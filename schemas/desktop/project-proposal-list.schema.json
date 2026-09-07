@@ -1,0 +1,253 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": true,
+      "description": "Who submitted a mutation.\n\nExtra keys are allowed: an MCP client may carry its own identity fields, and the engine's job\nis to record them in history, not to have anticipated them.",
+      "properties": {
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "Diagnostic": {
+      "description": "A single structured diagnostic.",
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "default": "error",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Diagnostic",
+      "type": "object"
+    },
+    "ProjectProposal": {
+      "additionalProperties": false,
+      "description": "Versioned queue record for a future semantic editor command.",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "base_project_revision": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Base Project Revision",
+          "type": "string"
+        },
+        "command_id": {
+          "format": "uuid4",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "command_payload": {
+          "additionalProperties": true,
+          "title": "Command Payload",
+          "type": "object"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "project_path": {
+          "title": "Project Path",
+          "type": "string"
+        },
+        "rejection_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rejection Reason"
+        },
+        "state": {
+          "default": "pending",
+          "enum": [
+            "pending",
+            "authorized",
+            "rejected"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command_id",
+        "project_path",
+        "base_project_revision",
+        "actor",
+        "command_payload",
+        "created_at"
+      ],
+      "title": "ProjectProposal",
+      "type": "object"
+    },
+    "SourceLocation": {
+      "description": "A location in an authored source file.",
+      "properties": {
+        "column": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Column"
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "keypath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keypath"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        }
+      },
+      "title": "SourceLocation",
+      "type": "object"
+    }
+  },
+  "description": "Deterministically ordered proposals plus diagnostics for unreadable entries.",
+  "properties": {
+    "canonical_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Canonical Path"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/Diagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "proposals": {
+      "items": {
+        "$ref": "#/$defs/ProjectProposal"
+      },
+      "title": "Proposals",
+      "type": "array"
+    },
+    "response_version": {
+      "default": 1,
+      "title": "Response Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "ok"
+  ],
+  "title": "ProposalListReport",
+  "type": "object"
+}

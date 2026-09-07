@@ -64,6 +64,20 @@ def test_project_override_path_resolves_directory(tmp_path: Path) -> None:
     assert found.manifest.name == "demo"
 
 
+def test_project_root_is_canonical_when_opened_through_a_relative_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every project consumer must receive the resolved directory containing project.yaml."""
+    svc = _service(tmp_path)
+    project = svc.create(tmp_path / "proj", "demo", "poster@1.0.0")
+    monkeypatch.chdir(tmp_path)
+
+    found = svc.resolve(override=Path("proj"))
+
+    assert found.root == project.root.resolve()
+    assert found.root.is_absolute()
+
+
 def test_set_status_persists(tmp_path: Path) -> None:
     svc = _service(tmp_path)
     project = svc.create(tmp_path / "proj", "demo", "poster@1.0.0")

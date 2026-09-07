@@ -85,7 +85,14 @@ class AnchorLayoutSolver(LayoutSolver):
         """Resolve geometry for every node into a new layout document."""
         warnings: list[Diagnostic] = []
         canvas = Rect(0.0, 0.0, doc.canvas.width_pt, doc.canvas.height_pt)
-        root = self._solve_node(doc.root, canvas, doc.root.direction, measure, warnings)
+        root = self._solve_node(
+            doc.root,
+            canvas,
+            doc.root.direction,
+            measure,
+            warnings,
+            Matrix3.identity(),
+        )
         return LayoutDocument(
             canvas=_resolved_canvas(doc),
             seed=doc.seed,
@@ -101,9 +108,17 @@ class AnchorLayoutSolver(LayoutSolver):
         inherited_dir: str,
         measure: MeasureFn,
         warnings: list[Diagnostic],
+        parent_transform: Matrix3,
     ) -> LayoutNode:
-        rotate_deg = node.transform.rotate_deg
-        origin = self._origin_abs(node, bounds) if rotate_deg else None
+        transform = node.transform
+        rotate_deg = transform.rotate_deg
+        # A pivot is needed by rotation and by scale; translation is pivot-free.
+        needs_pivot = bool(rotate_deg) or transform.scale != (1.0, 1.0)
+        origin = self._origin_abs(node, bounds) if needs_pivot else None
+        local_transform = self._transform(
+            transform.translate, rotate_deg, transform.scale, origin
+        )
+        absolute_transform = local_transform.then(parent_transform)
 
         content, overflow = self._resolve_content(node, bounds, inherited_dir, measure, warnings)
 
@@ -114,7 +129,14 @@ class AnchorLayoutSolver(LayoutSolver):
             child_dir = node.direction
             child_rects = self._layout_children(node, bounds, measure, warnings)
             children = tuple(
-                self._solve_node(child, rect, child_dir, measure, warnings)
+                self._solve_node(
+                    child,
+                    rect,
+                    child_dir,
+                    measure,
+                    warnings,
+                    absolute_transform,
+                )
                 for child, rect in child_rects
             )
 
@@ -122,18 +144,23 @@ class AnchorLayoutSolver(LayoutSolver):
         # that expanded rectangle's post-rotation AABB. Layout/anchoring still use `bounds`.
         expansion = self._effect_expansion(node.effects)
         render_bounds = bounds.expanded(expansion)
-        paint_bounds = self._paint_bounds(render_bounds, rotate_deg, origin)
+        paint_bounds = self._transform_bounds(render_bounds, local_transform)
         return LayoutNode(
             source_node_id=node.id,
+            authored_node_id=node.authored_node_id or node.id,
             kind=node.type,
             bounds=bounds,
-            absolute_transform=self._transform(rotate_deg, origin),
+            absolute_transform=absolute_transform,
+            canvas_bounds=self._transform_bounds(bounds, absolute_transform),
+            canvas_paint_bounds=self._transform_bounds(render_bounds, absolute_transform),
             paint_bounds=paint_bounds,
             render_bounds=render_bounds,
             effects=node.effects,
             overflow=overflow,
             rotate_deg=rotate_deg,
             rotate_origin=origin,
+            translate=transform.translate,
+            scale=transform.scale,
             opacity=node.style.opacity,
             visible=node.visible,
             clip=clip,
@@ -171,11 +198,20 @@ class AnchorLayoutSolver(LayoutSolver):
         return out
 
     def _aabb_for(self, node: CompiledNode, rect: Rect) -> Rect:
-        """Return the axis-aligned bounding box a sibling sees: the paint AABB when rotated."""
-        deg = node.transform.rotate_deg
-        if not deg:
+        """Return the axis-aligned bounding box a sibling sees: the post-transform paint AABB.
+
+        Spec §4.2 generalizes naturally from rotation to the full local transform: a sibling
+        pinned to a translated, scaled, or rotated node sees where it actually paints.
+        """
+        transform = node.transform
+        if transform.is_identity:
             return rect
-        return self._paint_bounds(rect, deg, self._origin_abs(node, rect))
+        needs_pivot = bool(transform.rotate_deg) or transform.scale != (1.0, 1.0)
+        origin = self._origin_abs(node, rect) if needs_pivot else None
+        matrix = self._transform(
+            transform.translate, transform.rotate_deg, transform.scale, origin
+        )
+        return self._transform_bounds(rect, matrix)
 
     def _topo_order(
         self, group: CompiledGroup, by_id: dict[str, CompiledNode]
@@ -335,6 +371,75 @@ class AnchorLayoutSolver(LayoutSolver):
             remaining = max(0.0, remaining)
         return resolved
 
+    def _stack_intrinsic(
+        self,
+        group: CompiledGroup,
+        width: float | None,
+        measure: MeasureFn,
+    ) -> float:
+        """The size a stack needs to hold its children, along the axis being resolved.
+
+        `fit_content` used to be text-only, so every group in a stack carried a hand-computed
+        height and one extra line of copy meant retuning three formats by hand. A stack is the
+        one container whose intrinsic size is unambiguous: along its main axis it is the sum of
+        its children plus the gaps and padding, and across it is the widest child.
+
+        A child sized `fill` or a percentage of this group is circular — it is asking for a share
+        of the size being computed — so it is refused by name rather than silently counted as
+        zero. ``width`` is None while the width is being resolved and known once it is, which is
+        what tells the two axes apart.
+        """
+        stack = group.stack
+        assert stack is not None
+        horizontal = stack.kind == "hstack"
+        resolving_width = width is None
+        resolving_main = resolving_width == horizontal
+
+        pad_main = (
+            stack.pad_left_pt + stack.pad_right_pt
+            if horizontal
+            else stack.pad_top_pt + stack.pad_bottom_pt
+        )
+        pad_cross = (
+            stack.pad_top_pt + stack.pad_bottom_pt
+            if horizontal
+            else stack.pad_left_pt + stack.pad_right_pt
+        )
+        # Across the stack the extent is known once the width is; along it there is nothing to
+        # measure against, which is exactly why a parent-relative child cannot be allowed.
+        cross_extent = max(0.0, (width or 0.0) - pad_cross) if not horizontal else 0.0
+
+        total = 0.0
+        widest = 0.0
+        for child in group.children:
+            main_spec = child.constraints.width if horizontal else child.constraints.height
+            cross_spec = child.constraints.height if horizontal else child.constraints.width
+            axis_spec = main_spec if resolving_main else cross_spec
+            if axis_spec.mode in {"fill", "percent"}:
+                raise DiagnosticError(
+                    diagnostic(
+                        "ARC-LAY-021",
+                        f"Stack {group.id!r} sizes to its content, so child {child.id!r} cannot "
+                        f"size itself as {axis_spec.mode!r} of it",
+                        hint=(
+                            f"Give {child.id!r} a fixed size or 'fit_content' on that axis, or "
+                            f"give {group.id!r} a size of its own."
+                        ),
+                        **_loc(child),
+                    )
+                )
+            cross, main = self._stack_child_sizes(
+                child, main_spec, cross_spec, 0.0, cross_extent, stack, horizontal,
+                main_is_fill=False, measure=measure,
+            )
+            total += main
+            widest = max(widest, cross)
+
+        if not resolving_main:
+            return widest + pad_cross
+        gaps = stack.gap_pt * max(0, len(group.children) - 1)
+        return total + gaps + pad_main
+
     def _stack_child_sizes(
         self,
         child: CompiledNode,
@@ -493,7 +598,9 @@ class AnchorLayoutSolver(LayoutSolver):
             return basis
         if spec.mode == "aspect":  # resolved by caller
             return 0.0
-        # fit_content — text intrinsic (width when width is None, else height at that width).
+        # fit_content — a stack hugs its children; text uses its own intrinsic size.
+        if isinstance(node, CompiledGroup) and node.stack is not None:
+            return self._stack_intrinsic(node, width, measure)
         result = self._measure_text(node, width, None, measure)
         if width is None:
             # Cushion the measured longest-line width so feeding it back as the paint-time
@@ -745,8 +852,12 @@ class AnchorLayoutSolver(LayoutSolver):
             raise DiagnosticError(
                 diagnostic(
                     "ARC-LAY-020",
-                    f"Node {node.id!r} uses 'fit_content' but is not a text node",
-                    hint="Only text nodes support fit_content; give images/groups a fixed size.",
+                    f"Node {node.id!r} uses 'fit_content' but has no content to size to",
+                    hint=(
+                        "fit_content works on a text node and on a stack (layout: vstack or "
+                        "hstack), which sizes to its children. An anchored group or an image "
+                        "needs a size of its own."
+                    ),
                     **_loc(node),
                 )
             )
@@ -792,17 +903,40 @@ class AnchorLayoutSolver(LayoutSolver):
             return bounds.center_x, bounds.center_y
         return bounds.x + bounds.w * origin[0], bounds.y + bounds.h * origin[1]
 
-    def _transform(self, deg: float, origin: tuple[float, float] | None) -> Matrix3:
-        if not deg or origin is None:
-            return Matrix3.identity()
-        rad = math.radians(deg)
-        cos, sin = math.cos(rad), math.sin(rad)
-        ox, oy = origin
-        return Matrix3(
-            a=cos, b=sin, c=-sin, d=cos,
-            e=ox - ox * cos + oy * sin,
-            f=oy - ox * sin - oy * cos,
-        )
+    def _transform(
+        self,
+        translate: tuple[float, float],
+        deg: float,
+        scale: tuple[float, float],
+        origin: tuple[float, float] | None,
+    ) -> Matrix3:
+        """Compose the node's local transform in the one documented order.
+
+        ``local = translate ∘ rotate ∘ scale`` — scale first about the pivot, then rotation
+        about the same pivot, then the offset. The backend concatenates canvas operations in
+        exactly this order, so reported geometry and painted pixels cannot disagree.
+        """
+        matrix = Matrix3.identity()
+        if origin is not None and scale != (1.0, 1.0):
+            sx, sy = scale
+            ox, oy = origin
+            matrix = matrix.then(
+                Matrix3(a=sx, b=0.0, c=0.0, d=sy, e=ox - ox * sx, f=oy - oy * sy)
+            )
+        if deg and origin is not None:
+            rad = math.radians(deg)
+            cos, sin = math.cos(rad), math.sin(rad)
+            ox, oy = origin
+            matrix = matrix.then(
+                Matrix3(
+                    a=cos, b=sin, c=-sin, d=cos,
+                    e=ox - ox * cos + oy * sin,
+                    f=oy - ox * sin - oy * cos,
+                )
+            )
+        if translate != (0.0, 0.0):
+            matrix = matrix.then(Matrix3.translation(translate[0], translate[1]))
+        return matrix
 
     def _effect_expansion(self, effects: tuple[EffectSpec, ...]) -> Insets:
         """Sum every effect's declared outward growth per side (spec §4.4).
@@ -823,12 +957,7 @@ class AnchorLayoutSolver(LayoutSolver):
             left += insets.left
         return Insets(top=top, right=right, bottom=bottom, left=left)
 
-    def _paint_bounds(
-        self, bounds: Rect, deg: float, origin: tuple[float, float] | None
-    ) -> Rect:
-        if not deg or origin is None:
-            return bounds
-        matrix = self._transform(deg, origin)
+    def _transform_bounds(self, bounds: Rect, matrix: Matrix3) -> Rect:
         corners = [
             matrix.apply(bounds.x, bounds.y),
             matrix.apply(bounds.right, bounds.y),

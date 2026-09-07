@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import TextContent
@@ -30,30 +30,46 @@ from mcp.types import TextContent
 from arcavex.bootstrap import build_facade
 from arcavex.kernel.api import (
     AssetReport,
+    AutomationMode,
     CheckResult,
     DataReport,
+    DetachReport,
     DiagnosticHelp,
     DiffReport,
     EffectListReport,
+    EngineHandshakeReport,
+    ExtensionMode,
     Facade,
     FontListReport,
+    HitTestReport,
+    LayerTreeReport,
     LayoutReport,
     PatchOp,
     PatchTemplateResult,
+    PreviewProjectReport,
     PreviewResult,
     ProjectListReport,
+    ProjectPolicyReport,
     ProjectResult,
+    ProjectSnapshotReport,
     ProjectStatusReport,
+    ProjectUIMetadata,
+    ProjectUIMetadataReport,
+    ProposalActionReport,
+    ProposalListReport,
+    PublishReport,
     RenderResult,
     RerunReport,
     RunListReport,
     RunReport,
+    ScaffoldResult,
     StyleInspectReport,
     StyleListReport,
     TemplateInspectReport,
     TemplateListReport,
 )
-from arcavex.kernel.diagnostics import has_errors
+from arcavex.kernel.diagnostics import diagnostic, has_errors
+from arcavex.kernel.editor import HistoryReport, TransactionReport
 
 _INSTRUCTIONS = (
     "Arcavex rendering engine, MCP authoring surface. Every tool mirrors a service API method "
@@ -66,7 +82,16 @@ _INSTRUCTIONS = (
     "arcavex_data_set / arcavex_data_import, then arcavex_project_render for a recorded run "
     "(discoverable via arcavex_run_list). Discover vocabulary with arcavex_style_list / "
     "arcavex_effects_list / arcavex_font_list (the only font families a template may name). "
-    "Use arcavex_diagnostic_explain <code> for any code you do not know."
+    "Use arcavex_diagnostic_explain <code> for any code you do not know. "
+    "Starting from nothing: arcavex_template_new scaffolds a minimal renderable template "
+    "(arcavex_template_publish puts one in the library so arcavex_project_create can pin it by "
+    "name). To change an existing design semantically rather than by patching source, use the "
+    "editor tools — arcavex_editor_apply (with arcavex_editor_undo / _redo / _history) — which "
+    "take a whole transaction, check the project revision, and write atomically; submit an empty "
+    "transaction to have the engine state the exact shape it wants. "
+    "READ THE GUIDE FIRST: the resource skill://arcavex-design-studio/SKILL.md is the design "
+    "skill shipped with this engine, and its references/ documents cover the authoring loop, "
+    "art direction, multi-format and locale work, and verification."
 )
 
 
@@ -87,6 +112,11 @@ class ArcavexTools:
         """Bind the tools to a wired facade."""
         self._facade = facade
 
+    # ---------------------------------------------------------------- desktop
+    def engine_handshake(self) -> EngineHandshakeReport:
+        """Report engine identity, compatibility versions, capabilities, paths, and health."""
+        return self._facade.engine_handshake()
+
     # ---------------------------------------------------------------- templates
     def template_list(self) -> TemplateListReport:
         """List every published library template and its available versions."""
@@ -95,6 +125,20 @@ class ArcavexTools:
     def template_inspect(self, template: str) -> TemplateInspectReport:
         """Report a template's contract: variables, formats, locales, node ids, functions, data."""
         return self._facade.inspect_template(Path(template))
+
+    def template_new(self, target: str, name: str | None = None) -> ScaffoldResult:
+        """Scaffold a minimal renderable template directory to start a new design from."""
+        return self._facade.scaffold_template(name or Path(target).name, Path(target))
+
+    def template_publish(
+        self, template: str, name: str, version: str, set_default: bool = True
+    ) -> PublishReport:
+        """Publish a template directory into the library as an immutable version."""
+        return self._facade.publish_template(Path(template), name, version, set_default)
+
+    def template_detach(self, project: str | None = None) -> DetachReport:
+        """Copy the project's pinned template into the project so it can be edited in place."""
+        return self._facade.detach_template(project=_opt_path(project))
 
     def template_validate(
         self,
@@ -149,6 +193,166 @@ class ArcavexTools:
     def project_status(self, project: str | None = None) -> ProjectStatusReport:
         """Report the active (or --project) project's manifest and recorded-run count."""
         return self._facade.project_status(project=_opt_path(project))
+
+    def project_snapshot(self, project: str | None = None) -> ProjectSnapshotReport:
+        """Open a project read-only and report its source and render revision manifests."""
+        return self._facade.project_snapshot(project=_opt_path(project))
+
+    def project_validate(
+        self,
+        project: str | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+    ) -> CheckResult:
+        """Validate the requested project targets without rendering or writing source files."""
+        return self._facade.validate_project(
+            project=_opt_path(project), formats=formats, locales=locales
+        )
+
+    def project_preview(
+        self,
+        project: str | None = None,
+        formats: list[str] | None = None,
+        locales: list[str] | None = None,
+        dpi: int | None = None,
+    ) -> PreviewProjectReport:
+        """Render structured per-target project preview reports for desktop viewers."""
+        return self._facade.preview_project(
+            project=_opt_path(project), formats=formats, locales=locales, dpi=dpi
+        )
+
+    def layer_tree(
+        self,
+        project: str | None = None,
+        mode: Literal["authored", "rendered"] = "authored",
+        format: str | None = None,
+        locale: str | None = None,
+    ) -> LayerTreeReport:
+        """Return the engine-owned definition or rendered hierarchy for one project target."""
+        return self._facade.layer_tree(
+            project=_opt_path(project), mode=mode, format_name=format, locale=locale
+        )
+
+    # ---------------------------------------------------------------- semantic editor
+    def editor_apply(self, transaction: dict[str, Any]) -> TransactionReport:
+        """Execute one semantic editor transaction; refusals return conflicts or diagnostics.
+
+        A transaction is:
+
+            {"command_id": "<uuid4>",
+             "project_path": "<absolute path to the project directory>",
+             "base_project_revision": "<project_revision from project_snapshot>",
+             "actor": {"id": "<who is editing>"},
+             "target": {"format": "<name>", "locale": "<name or null>"},   # optional
+             "commands": [{"kind": "<one of the kinds below>", ...}]}
+
+        All geometry is in points (``_pt``), whatever units the template is authored in. Command
+        shapes, with their required fields:
+
+            set_text          layer_id, text
+            set_property      layer_id, keypath, value            (or remove: true)
+            set_visibility    layer_id, visible
+            set_display_name  layer_id, display_name              (writes project.ui.yaml)
+            translate         layer_ids, dx_pt, dy_pt
+            resize            layer_id, w_pt and/or h_pt
+            rotate            layer_id, deg
+            reorder           layer_id, parent_id, index
+            reparent          layer_id, parent_id, index
+            duplicate         layer_id
+            delete            layer_ids
+            group             layer_ids, group_id
+            splice_children   layer_id, children
+            set_effects       layer_id, effects
+
+        The whole transaction applies or none of it does. A stale ``base_project_revision`` is
+        refused as a conflict naming the files that moved; submit an empty transaction to have
+        the engine restate this shape.
+        """
+        return self._facade.editor_apply(transaction)
+
+    def editor_apply_authorized(self, project: str, command_id: str) -> TransactionReport:
+        """Execute an authorized proposal under a fresh revision check."""
+        return self._facade.editor_apply_authorized(Path(project), command_id)
+
+    def editor_undo(self, project: str | None = None) -> TransactionReport:
+        """Restore the project state before its newest applied history entry."""
+        return self._facade.editor_undo(_opt_path(project) or Path.cwd())
+
+    def editor_redo(self, project: str | None = None) -> TransactionReport:
+        """Re-apply the oldest undone history entry."""
+        return self._facade.editor_redo(_opt_path(project) or Path.cwd())
+
+    def editor_history(self, project: str | None = None) -> HistoryReport:
+        """Report the project's undo/redo timeline and whether an external edit branched it."""
+        return self._facade.editor_history(_opt_path(project) or Path.cwd())
+
+    def hit_test(
+        self,
+        x_pt: float | str,
+        y_pt: float | str,
+        project: str | None = None,
+        format: str | None = None,
+        locale: str | None = None,
+    ) -> HitTestReport:
+        """Return topmost-first rendered candidates containing one canvas point coordinate."""
+        return self._facade.hit_test(
+            project=_opt_path(project),
+            x_pt=x_pt,
+            y_pt=y_pt,
+            format_name=format,
+            locale=locale,
+        )
+
+    def project_ui_metadata(
+        self, project: str | None = None
+    ) -> ProjectUIMetadataReport:
+        """Read project-owned non-rendering layer and workspace metadata."""
+        return self._facade.project_ui_metadata(project=_opt_path(project))
+
+    def project_ui_metadata_set(
+        self, metadata: ProjectUIMetadata, project: str | None = None
+    ) -> ProjectUIMetadataReport:
+        """Atomically replace validated project-owned editor metadata."""
+        return self._facade.set_project_ui_metadata(
+            metadata, project=_opt_path(project)
+        )
+
+    def project_policy(self, project: str | None = None) -> ProjectPolicyReport:
+        """Return effective project automation and extension policy."""
+        return self._facade.project_policy(project=_opt_path(project))
+
+    def project_policy_set(
+        self,
+        mode: AutomationMode,
+        extensions: ExtensionMode,
+        project: str | None = None,
+    ) -> ProjectPolicyReport:
+        """Atomically set project automation and extension policy."""
+        return self._facade.set_project_policy(
+            mode, extensions, project=_opt_path(project)
+        )
+
+    def project_proposal_list(
+        self, project: str | None = None
+    ) -> ProposalListReport:
+        """List deterministic proposal records and malformed-entry diagnostics."""
+        return self._facade.list_project_proposals(project=_opt_path(project))
+
+    def project_proposal_approve(
+        self, command_id: str, project: str | None = None
+    ) -> ProposalActionReport:
+        """Authorize a current proposal without claiming its command was applied."""
+        return self._facade.approve_project_proposal(
+            command_id, project=_opt_path(project)
+        )
+
+    def project_proposal_reject(
+        self, command_id: str, reason: str, project: str | None = None
+    ) -> ProposalActionReport:
+        """Persist an explicit proposal rejection without deleting its record."""
+        return self._facade.reject_project_proposal(
+            command_id, reason, project=_opt_path(project)
+        )
 
     def project_clone(
         self, target: str, name: str | None = None, project: str | None = None
@@ -331,9 +535,44 @@ class ArcavexTools:
         """Diff two recorded runs: per-output pixels/perceptual plus provenance metadata."""
         return self._facade.diff_runs(Path(run_a), Path(run_b))
 
-    def run_rerun(self, run_dir: str) -> RerunReport:
-        """Reproduce a recorded run into a new run directory (byte-identical on match)."""
-        return self._facade.rerun(Path(run_dir))
+    def run_rerun(
+        self, run_dir: str | None = None, run_id: str | None = None, project: str | None = None
+    ) -> RerunReport:
+        """Reproduce a recorded run into a new run directory (byte-identical on match).
+
+        Takes either the run directory or the ``run_id`` that ``arcavex_run_list`` reports —
+        listing runs and then rerunning one should not require knowing that the id happens to be
+        the directory's name under ``outputs/``.
+        """
+        if run_dir is not None:
+            return self._facade.rerun(Path(run_dir))
+        if run_id is None:
+            return RerunReport(
+                ok=False,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-RUN-001",
+                        "Pass either 'run_dir' or the 'run_id' that arcavex_run_list reports.",
+                        hint="arcavex_run_list returns run_id for every recorded run.",
+                    )
+                ],
+            )
+        listed = self._facade.list_runs(project=_opt_path(project), path=None)
+        match = next((run for run in listed.runs if run.run_id == run_id), None)
+        if match is None:
+            known = ", ".join(run.run_id for run in listed.runs[:5]) or "none recorded"
+            return RerunReport(
+                ok=False,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-RUN-001",
+                        f"No recorded run {run_id!r} for this project.",
+                        hint=f"Recorded runs: {known}.",
+                    )
+                ],
+            )
+        root = Path(project) if project else Path.cwd()
+        return self._facade.rerun(root / "outputs" / match.run_id)
 
     # ---------------------------------------------------------------- diagnostics
     def diagnostic_explain(self, code: str) -> DiagnosticHelp:
@@ -344,13 +583,29 @@ class ArcavexTools:
 # The tool catalog: MCP tool name -> the ArcavexTools method it wraps. One registration site so
 # the catalog, the server, and the tests all read from a single source of truth.
 _TOOL_METHODS: tuple[tuple[str, str], ...] = (
+    ("engine_handshake", "engine_handshake"),
     ("arcavex_template_list", "template_list"),
     ("arcavex_template_inspect", "template_inspect"),
+    ("arcavex_template_new", "template_new"),
+    ("arcavex_template_publish", "template_publish"),
+    ("arcavex_template_detach", "template_detach"),
     ("arcavex_template_validate", "template_validate"),
     ("arcavex_template_patch", "template_patch"),
     ("arcavex_project_create", "project_create"),
     ("arcavex_project_list", "project_list"),
     ("arcavex_project_status", "project_status"),
+    ("project_snapshot", "project_snapshot"),
+    ("project_validate", "project_validate"),
+    ("project_preview", "project_preview"),
+    ("layer_tree", "layer_tree"),
+    ("hit_test", "hit_test"),
+    ("project_ui_metadata", "project_ui_metadata"),
+    ("project_ui_metadata_set", "project_ui_metadata_set"),
+    ("project_policy", "project_policy"),
+    ("project_policy_set", "project_policy_set"),
+    ("project_proposal_list", "project_proposal_list"),
+    ("project_proposal_approve", "project_proposal_approve"),
+    ("project_proposal_reject", "project_proposal_reject"),
     ("arcavex_project_clone", "project_clone"),
     ("arcavex_project_render", "project_render"),
     ("arcavex_render_record", "render_record"),
@@ -369,6 +624,11 @@ _TOOL_METHODS: tuple[tuple[str, str], ...] = (
     ("arcavex_run_diff", "run_diff"),
     ("arcavex_run_rerun", "run_rerun"),
     ("arcavex_diagnostic_explain", "diagnostic_explain"),
+    ("arcavex_editor_apply", "editor_apply"),
+    ("arcavex_editor_apply_authorized", "editor_apply_authorized"),
+    ("arcavex_editor_undo", "editor_undo"),
+    ("arcavex_editor_redo", "editor_redo"),
+    ("arcavex_editor_history", "editor_history"),
 )
 
 
@@ -385,7 +645,50 @@ def build_mcp_server(facade: Facade | None = None) -> FastMCP:
         method = getattr(tools, method_name)
         structured = None if method_name != "render_preview" else False
         server.tool(name=tool_name, structured_output=structured)(method)
+    _register_skill_resources(server, tools._facade)
     return server
+
+
+def _register_skill_resources(server: FastMCP, facade: Facade) -> None:
+    """Serve the bundled design skill so a client can learn this engine from this engine.
+
+    ``arcavex skill install`` copies the skill into Claude Code's or Codex's own skill directory,
+    which helps those hosts and only when a person runs the command. Every other client — the ones
+    this server exists for — had no way to discover that the document exists, so an assistant's
+    only route to the template grammar was to provoke validation errors until they enumerated it.
+
+    The files are read at call time rather than at build time: the skill is documentation, and a
+    server should not hold a stale copy of it in memory for the life of the process.
+    """
+    from mcp.server.fastmcp.resources import FunctionResource
+    from pydantic import AnyUrl
+
+    # Asked through the facade rather than the skill service: a client may only speak to the
+    # engine's public API, and "where does your skill live" is a fair question to ask it.
+    listed = facade.list_skill_targets()
+    if not listed.source:  # pragma: no cover - a build without the bundled skill
+        return
+    root = Path(listed.source)
+    if not (root / "SKILL.md").is_file():  # pragma: no cover - defensive
+        return
+    skill_name = listed.skill or root.name
+
+    documents = [root / "SKILL.md", *sorted((root / "references").glob("*.md"))]
+    for document in documents:
+        relative = document.relative_to(root).as_posix()
+        server.add_resource(
+            FunctionResource(
+                uri=AnyUrl(f"skill://{skill_name}/{relative}"),
+                name=relative,
+                description=(
+                    "The Arcavex design skill: how to drive this engine as a designer."
+                    if relative == "SKILL.md"
+                    else f"Arcavex design skill reference: {document.stem}."
+                ),
+                mime_type="text/markdown",
+                fn=lambda path=document: path.read_text(encoding="utf-8"),
+            )
+        )
 
 
 def tool_catalog(server: FastMCP) -> list[dict[str, Any]]:

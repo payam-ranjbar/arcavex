@@ -1,0 +1,15 @@
+{
+  "engine_version": "0.1.0",
+  "release_tag": "engine-v0.1.0",
+  "mcp_contract_version": "2025-06-18",
+  "produced_ir_version": "1.0",
+  "accepted_ir_versions": ["1.0"],
+  "artifacts": {
+    "x86_64-pc-windows-msvc": {
+      "file": "engine/arcavex.exe",
+      "sha256": "1cf7f559b30738690c03b6347372e6dfa14ef08382eedf696b5df1e63a2959dd",
+      "archive": "arcavex-engine-0.1.0-x86_64-pc-windows-msvc.zip",
+      "archive_sha256": ""
+    }
+  }
+}

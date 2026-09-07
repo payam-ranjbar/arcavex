@@ -1,0 +1,1070 @@
+//! The typed surface the WebView may call. Nothing reaches the engine except through here.
+
+pub mod session;
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde_json::{json, Value};
+use tauri::AppHandle;
+
+use crate::engine::{
+    CommandLauncher, EngineLauncher, EngineSpec, EngineState, EngineStatus, McpClient, Supervisor,
+};
+use crate::events::{publish, DesktopEventKind};
+use crate::projects::{ChangeActor, ChangeSet, ProjectWatcher, WatchedProject, DEBOUNCE};
+use crate::rendering::{RenderJob, RenderOutput, RenderStatus};
+use crate::settings::{DesktopSettings, LiveRenderMode, SettingsStore};
+
+use session::{
+    png_dimensions, preview_to_display, render_url, summarize, ActivityEntry, ProjectTarget,
+    Session, ACTIVITY_LIMIT,
+};
+
+/// Gateway state for the real application.
+pub type DesktopState = GatewayState<CommandLauncher>;
+
+/// Holds the supervised engine, the open project, and the preferences that outlive both.
+pub struct GatewayState<L: EngineLauncher> {
+    /// Absent when this build ships no artifact for the running platform.
+    supervisor: Option<Arc<Supervisor<L>>>,
+    unavailable: Option<String>,
+    client: Mutex<Option<Arc<McpClient>>>,
+    settings: SettingsStore,
+    settings_diagnostic: Option<String>,
+    open: Mutex<Option<Session>>,
+    activity: Mutex<Vec<ActivityEntry>>,
+    app: Mutex<Option<AppHandle>>,
+    next_activity_id: AtomicU64,
+}
+
+impl<L: EngineLauncher> GatewayState<L> {
+    #[must_use]
+    pub fn new(launcher: L, spec: EngineSpec, settings_directory: &Path) -> Self {
+        let loaded = SettingsStore::load(settings_directory);
+        Self {
+            supervisor: Some(Arc::new(Supervisor::new(launcher, spec))),
+            unavailable: None,
+            client: Mutex::new(None),
+            settings: loaded.store,
+            settings_diagnostic: loaded.diagnostic,
+            open: Mutex::new(None),
+            activity: Mutex::new(Vec::new()),
+            app: Mutex::new(None),
+            next_activity_id: AtomicU64::new(1),
+        }
+    }
+
+    /// Open the workbench in diagnostic mode when there is no engine to supervise at all.
+    #[must_use]
+    pub fn unavailable(reason: String, settings_directory: &Path) -> Self {
+        let loaded = SettingsStore::load(settings_directory);
+        Self {
+            supervisor: None,
+            unavailable: Some(reason),
+            client: Mutex::new(None),
+            settings: loaded.store,
+            settings_diagnostic: loaded.diagnostic,
+            open: Mutex::new(None),
+            activity: Mutex::new(Vec::new()),
+            app: Mutex::new(None),
+            next_activity_id: AtomicU64::new(1),
+        }
+    }
+
+    /// Bind the window that events are published to. Called once during setup.
+    pub fn attach(&self, app: AppHandle) {
+        *self.app.lock().expect("app handle") = Some(app);
+    }
+
+    fn emit(&self, kind: DesktopEventKind) {
+        if let Some(app) = self.app.lock().expect("app handle").as_ref() {
+            publish(app, kind);
+        }
+    }
+
+    #[must_use]
+    pub fn settings(&self) -> DesktopSettings {
+        self.settings.get()
+    }
+
+    /// Anything the user should be told about the settings file itself.
+    #[must_use]
+    pub fn settings_diagnostic(&self) -> Option<String> {
+        self.settings_diagnostic.clone()
+    }
+
+    /// Apply a settings change, persist it, and tell the workbench.
+    ///
+    /// # Errors
+    ///
+    /// Returns the write failure when the new settings could not be persisted.
+    pub fn update_settings<F>(&self, change: F) -> Result<DesktopSettings, String>
+    where
+        F: FnOnce(&mut DesktopSettings),
+    {
+        let settings = self.settings.update(change).map_err(|e| e.to_string())?;
+        self.emit(DesktopEventKind::Settings {
+            settings: serde_json::to_value(&settings).unwrap_or(Value::Null),
+        });
+        Ok(settings)
+    }
+
+    #[must_use]
+    pub fn activity(&self) -> Vec<ActivityEntry> {
+        self.activity.lock().expect("activity").clone()
+    }
+
+    fn record_activity(&self, actor: ChangeActor, summary: String, snapshot: Option<&Value>) {
+        let read = |field: &str| {
+            snapshot
+                .and_then(|value| value.get(field))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        let entry = ActivityEntry {
+            id: format!("a{}", self.next_activity_id.fetch_add(1, Ordering::Relaxed)),
+            at: epoch_millis(),
+            actor,
+            summary,
+            project_revision: read("project_revision"),
+            render_revision: read("render_revision"),
+            diagnostics: Vec::new(),
+        };
+        let mut log = self.activity.lock().expect("activity");
+        log.push(entry.clone());
+        if log.len() > ACTIVITY_LIMIT {
+            let excess = log.len() - ACTIVITY_LIMIT;
+            log.drain(..excess);
+        }
+        drop(log);
+        self.emit(DesktopEventKind::Activity {
+            entry: serde_json::to_value(&entry).unwrap_or(Value::Null),
+        });
+    }
+
+    #[must_use]
+    pub fn engine_state(&self) -> EngineState {
+        match &self.supervisor {
+            Some(supervisor) => supervisor.state(),
+            None => EngineState {
+                status: EngineStatus::Failed,
+                handshake: None,
+                artifact_path: None,
+                restart_count: 0,
+                message: self.unavailable.clone(),
+            },
+        }
+    }
+
+    /// The retained tail of engine stderr, for the diagnostics panel.
+    #[must_use]
+    pub fn engine_stderr(&self) -> Vec<String> {
+        self.supervisor
+            .as_ref()
+            .map(|supervisor| supervisor.stderr_tail())
+            .unwrap_or_default()
+    }
+
+    fn supervisor(&self) -> Result<&Arc<Supervisor<L>>, String> {
+        self.supervisor.as_ref().ok_or_else(|| {
+            self.unavailable
+                .clone()
+                .unwrap_or_else(|| "no engine is available".to_owned())
+        })
+    }
+
+    /// Return the connected client, starting the engine on first use.
+    ///
+    /// # Errors
+    ///
+    /// Returns the startup failure text when no trusted engine could be reached.
+    pub async fn client(&self) -> Result<Arc<McpClient>, String> {
+        if let Some(client) = self.client.lock().expect("engine client").clone() {
+            return Ok(client);
+        }
+        let client = self
+            .supervisor()?
+            .start()
+            .await
+            .map_err(|error| error.to_string())?;
+        *self.client.lock().expect("engine client") = Some(Arc::clone(&client));
+        Ok(client)
+    }
+
+    /// Drop the current engine and start a fresh one.
+    ///
+    /// # Errors
+    ///
+    /// Returns the startup failure text when the replacement engine cannot be trusted.
+    pub async fn restart(&self) -> Result<EngineState, String> {
+        let supervisor = Arc::clone(self.supervisor()?);
+        *self.client.lock().expect("engine client") = None;
+        supervisor.shutdown();
+        let client = supervisor
+            .start()
+            .await
+            .map_err(|error| error.to_string())?;
+        *self.client.lock().expect("engine client") = Some(client);
+        Ok(supervisor.state())
+    }
+
+    /// Call one MCP tool and hand back its structured report unchanged.
+    ///
+    /// The gateway parses and presents; it never reimplements engine behaviour.
+    ///
+    /// # Errors
+    ///
+    /// Returns the engine's failure text when the call cannot be completed.
+    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, String> {
+        let client = self.client().await?;
+        let response = client
+            .call("tools/call", json!({"name": name, "arguments": arguments}))
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(response
+            .get("structuredContent")
+            .cloned()
+            .unwrap_or(response))
+    }
+
+    /// Open a project in place: snapshot it, watch it, remember it, and render it.
+    ///
+    /// Nothing is imported or copied. The engine reads the directory the user chose.
+    ///
+    /// # Errors
+    ///
+    /// Returns the reason when the directory cannot be resolved or the engine cannot read it.
+    pub async fn open_project(self: &Arc<Self>, path: &str) -> Result<Value, String> {
+        let project = WatchedProject::open(Path::new(path)).map_err(|e| e.to_string())?;
+        let root = project.root().to_path_buf();
+        let canonical = root.display().to_string();
+
+        let snapshot = self
+            .call_tool("project_snapshot", json!({ "project": canonical }))
+            .await?;
+
+        let (sink, mut changes) = tokio::sync::mpsc::unbounded_channel();
+        let watcher =
+            ProjectWatcher::start(project, DEBOUNCE, sink).map_err(|error| error.to_string())?;
+
+        let target = Session::default_target(&snapshot);
+        *self.open.lock().expect("open project") = Some(Session {
+            root,
+            snapshot: snapshot.clone(),
+            target,
+            scheduler: crate::rendering::RenderScheduler::new(),
+            watcher,
+        });
+
+        self.update_settings(|settings| settings.remember_project(&canonical))?;
+        self.emit(DesktopEventKind::Project {
+            snapshot: snapshot.clone(),
+        });
+        self.record_activity(
+            ChangeActor::Desktop,
+            format!("Opened {canonical}"),
+            Some(&snapshot),
+        );
+
+        let consumer = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            while let Some(change) = changes.recv().await {
+                consumer.apply_change(change).await;
+            }
+        });
+
+        self.request_render();
+        Ok(snapshot)
+    }
+
+    /// Stop watching and forget the open project. The project itself is untouched.
+    pub fn close_project(&self) {
+        *self.open.lock().expect("open project") = None;
+    }
+
+    /// The snapshot of the open project as the engine last reported it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no project is open.
+    pub fn project_snapshot_value(&self) -> Result<Value, String> {
+        self.open
+            .lock()
+            .expect("open project")
+            .as_ref()
+            .map(|session| session.snapshot.clone())
+            .ok_or_else(|| "no project is open".to_owned())
+    }
+
+    #[must_use]
+    pub fn active_target(&self) -> ProjectTarget {
+        self.open
+            .lock()
+            .expect("open project")
+            .as_ref()
+            .map(|session| session.target.clone())
+            .unwrap_or_default()
+    }
+
+    /// Switch the target being viewed. The picture on screen becomes stale until it re-renders.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no project is open.
+    pub fn set_active_target(
+        self: &Arc<Self>,
+        target: ProjectTarget,
+    ) -> Result<ProjectTarget, String> {
+        {
+            let mut open = self.open.lock().expect("open project");
+            let session = open
+                .as_mut()
+                .ok_or_else(|| "no project is open".to_owned())?;
+            session.target = target.clone();
+            session.scheduler.target_changed();
+        }
+        self.publish_render_status();
+        self.request_render();
+        Ok(target)
+    }
+
+    #[must_use]
+    pub fn render_status(&self) -> RenderStatus {
+        self.open
+            .lock()
+            .expect("open project")
+            .as_ref()
+            .map(|session| session.scheduler.status())
+            .unwrap_or_else(|| crate::rendering::RenderScheduler::new().status())
+    }
+
+    /// Ask for a picture of the current target, starting a job only if none is running.
+    pub fn request_render(self: &Arc<Self>) {
+        let job = {
+            let mut open = self.open.lock().expect("open project");
+            let Some(session) = open.as_mut() else { return };
+            let key = session.render_key();
+            session.scheduler.request(key)
+        };
+        self.publish_render_status();
+        if let Some(job) = job {
+            self.run_render(job);
+        }
+    }
+
+    fn run_render(self: &Arc<Self>, job: RenderJob) {
+        let state = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            let outcome = state.render_once(&job).await;
+            let (_, next) = {
+                let mut open = state.open.lock().expect("open project");
+                let Some(session) = open.as_mut() else { return };
+                session.scheduler.complete(&job, outcome)
+            };
+            state.publish_render_status();
+            if let Some(next) = next {
+                state.run_render(next);
+            }
+        });
+    }
+
+    /// Run one render through the engine and turn its report into a displayable picture.
+    async fn render_once(&self, job: &RenderJob) -> Result<RenderOutput, Vec<Value>> {
+        let (root, canonical) = {
+            let open = self.open.lock().expect("open project");
+            let Some(session) = open.as_ref() else {
+                return Err(vec![json!({"message": "no project is open"})]);
+            };
+            (session.root.clone(), session.root.display().to_string())
+        };
+
+        let mut arguments = json!({ "project": canonical });
+        if let Some(format) = &job.key.format {
+            arguments["formats"] = json!([format]);
+        }
+        if let Some(locale) = &job.key.locale {
+            arguments["locales"] = json!([locale]);
+        }
+        arguments["dpi"] = json!(PREVIEW_DPI);
+
+        let report = self
+            .call_tool("project_preview", arguments)
+            .await
+            .map_err(|error| vec![json!({ "message": error })])?;
+
+        let preview = preview_to_display(&report)?.clone();
+        let output_path = preview
+            .get("output_path")
+            .and_then(Value::as_str)
+            .expect("preview_to_display only returns a target with an output path");
+        let content_sha256 = preview
+            .get("content_sha256")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let image_url = render_url(
+            &root,
+            self.engine_cache_root().as_deref(),
+            output_path,
+            content_sha256.as_deref(),
+        )
+        .ok_or_else(|| {
+            vec![json!({
+                "message": format!(
+                    "render wrote outside the project and the engine cache: {output_path}"
+                )
+            })]
+        })?;
+
+        let (width_px, height_px) = std::fs::read(output_path)
+            .ok()
+            .and_then(|bytes| png_dimensions(&bytes))
+            .unwrap_or((0, 0));
+
+        Ok(RenderOutput {
+            key: job.key.clone(),
+            image_url,
+            source_path: output_path.to_owned(),
+            width_px,
+            height_px,
+            content_sha256,
+            compile_ms: preview
+                .get("compile_ms")
+                .and_then(Value::as_f64)
+                .map(round_ms),
+            render_ms: preview
+                .get("render_ms")
+                .and_then(Value::as_f64)
+                .map(round_ms),
+        })
+    }
+
+    /// React to one debounced burst of source changes.
+    async fn apply_change(self: &Arc<Self>, change: ChangeSet) {
+        let Some(canonical) = self
+            .open
+            .lock()
+            .expect("open project")
+            .as_ref()
+            .map(|session| session.root.display().to_string())
+        else {
+            return;
+        };
+
+        let Ok(snapshot) = self
+            .call_tool("project_snapshot", json!({ "project": canonical }))
+            .await
+        else {
+            return;
+        };
+
+        {
+            let mut open = self.open.lock().expect("open project");
+            let Some(session) = open.as_mut() else { return };
+            session.snapshot = snapshot.clone();
+        }
+        self.emit(DesktopEventKind::Project {
+            snapshot: snapshot.clone(),
+        });
+        self.record_activity(change.actor, summarize(&change), Some(&snapshot));
+
+        if self.settings.get().live_render == LiveRenderMode::EveryChange {
+            self.request_render();
+        } else {
+            self.publish_render_status();
+        }
+    }
+
+    /// The canonical path of the open project, as the engine expects to receive it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no project is open.
+    pub fn open_project_path(&self) -> Result<String, String> {
+        self.open
+            .lock()
+            .expect("open project")
+            .as_ref()
+            .map(|session| session.root.display().to_string())
+            .ok_or_else(|| "no project is open".to_owned())
+    }
+
+    /// The engine's cache directory, as the running engine reported it at handshake.
+    ///
+    /// Live preview renders land under this directory rather than inside the project, so the
+    /// scheme handler must be able to serve from it. Reading it from the handshake rather than
+    /// recomputing it keeps the desktop correct when the engine's home is not the default.
+    #[must_use]
+    pub fn engine_cache_root(&self) -> Option<PathBuf> {
+        self.engine_state()
+            .handshake
+            .as_ref()
+            .and_then(|report| report.get("paths"))
+            .and_then(|paths| paths.get("cache"))
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+    }
+
+    /// After one of our own semantic edits: claim its writes and refresh the picture.
+    ///
+    /// The transaction report names every path it changed; announcing them keeps the watcher
+    /// from labelling the engine's write an external edit, and an accepted render-affecting
+    /// change re-renders the active target exactly like any other change.
+    pub fn after_own_edit(self: &Arc<Self>, report: &Value) {
+        let changed = files_changed_by(report);
+        for path in &changed {
+            self.announce_own_write(path);
+        }
+        if edit_changed_the_project(report) {
+            self.refresh_open_snapshot();
+            self.request_render();
+        }
+    }
+
+    /// Re-read the open project's snapshot so revisions the UI sees match the engine's.
+    fn refresh_open_snapshot(self: &Arc<Self>) {
+        let state = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            let Ok(project) = state.open_project_path() else {
+                return;
+            };
+            let Ok(snapshot) = state
+                .call_tool("project_snapshot", json!({ "project": project }))
+                .await
+            else {
+                return;
+            };
+            if let Some(session) = state.open.lock().expect("open project").as_mut() {
+                session.snapshot = snapshot.clone();
+            }
+            state.emit(DesktopEventKind::Project { snapshot });
+        });
+    }
+
+    /// Tell the watcher a write is ours, so the event it causes is not called an external edit.
+    pub fn announce_own_write(&self, relative: &str) {
+        if let Some(session) = self.open.lock().expect("open project").as_ref() {
+            session.watcher.announce(relative);
+        }
+    }
+
+    /// Merge a partial settings object, rejecting anything that does not fit the schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the patch is not an object, produces invalid settings, or cannot
+    /// be persisted.
+    pub fn apply_settings_patch(&self, patch: Value) -> Result<DesktopSettings, String> {
+        let Value::Object(fields) = patch else {
+            return Err("a settings patch must be an object".to_owned());
+        };
+        let mut merged =
+            serde_json::to_value(self.settings.get()).map_err(|error| error.to_string())?;
+        let Value::Object(current) = &mut merged else {
+            return Err("settings did not serialize as an object".to_owned());
+        };
+        for (key, value) in fields {
+            current.insert(key, value);
+        }
+        let candidate: DesktopSettings =
+            serde_json::from_value(merged).map_err(|error| error.to_string())?;
+        self.update_settings(|settings| *settings = candidate)
+    }
+
+    fn publish_render_status(&self) {
+        let status = self.render_status();
+        self.emit(DesktopEventKind::Render {
+            render: serde_json::to_value(&status).unwrap_or(Value::Null),
+        });
+    }
+
+    /// End the engine process. Called when the window closes.
+    pub fn shutdown(&self) {
+        *self.client.lock().expect("engine client") = None;
+        if let Some(supervisor) = &self.supervisor {
+            supervisor.shutdown();
+        }
+    }
+}
+
+/// Milliseconds since the Unix epoch, the unambiguous timestamp the workbench formats.
+fn epoch_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or_default()
+}
+
+/// Engine durations are floats; the workbench shows whole milliseconds.
+fn round_ms(value: f64) -> u64 {
+    value.max(0.0).round() as u64
+}
+
+/// State shared with background watcher and render tasks.
+pub type SharedState = Arc<DesktopState>;
+
+#[tauri::command]
+pub fn engine_state(state: tauri::State<'_, SharedState>) -> EngineState {
+    state.engine_state()
+}
+
+#[tauri::command]
+pub fn engine_stderr(state: tauri::State<'_, SharedState>) -> Vec<String> {
+    state.engine_stderr()
+}
+
+#[tauri::command]
+pub async fn restart_engine(state: tauri::State<'_, SharedState>) -> Result<EngineState, String> {
+    let restarted = state.restart().await?;
+    {
+        let mut open = state.open.lock().expect("open project");
+        if let Some(session) = open.as_mut() {
+            session.scheduler.engine_restarted();
+        }
+    }
+    state.publish_render_status();
+    let resumed = {
+        let mut open = state.open.lock().expect("open project");
+        open.as_mut().and_then(|session| session.scheduler.resume())
+    };
+    if let Some(job) = resumed {
+        state.inner().run_render(job);
+    }
+    Ok(restarted)
+}
+
+/// Ask the user for a project directory. `None` means they cancelled.
+#[tauri::command]
+pub async fn choose_project_directory(app: AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Open an Arcavex project")
+        .pick_folder(move |chosen| {
+            let _ = sender.send(chosen);
+        });
+    receiver
+        .await
+        .ok()
+        .flatten()
+        .map(|folder| folder.to_string())
+}
+
+#[tauri::command]
+pub async fn open_project(
+    state: tauri::State<'_, SharedState>,
+    path: String,
+) -> Result<Value, String> {
+    state.inner().open_project(&path).await
+}
+
+#[tauri::command]
+pub fn close_project(state: tauri::State<'_, SharedState>) {
+    state.close_project();
+}
+
+#[tauri::command]
+pub fn project_snapshot(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    state.project_snapshot_value()
+}
+
+#[tauri::command]
+pub async fn validate_project(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool("project_validate", json!({ "project": project }))
+        .await
+}
+
+#[tauri::command]
+pub fn active_target(state: tauri::State<'_, SharedState>) -> ProjectTarget {
+    state.active_target()
+}
+
+#[tauri::command]
+pub fn set_active_target(
+    state: tauri::State<'_, SharedState>,
+    target: ProjectTarget,
+) -> Result<ProjectTarget, String> {
+    state.inner().set_active_target(target)
+}
+
+#[tauri::command]
+pub fn render_status(state: tauri::State<'_, SharedState>) -> RenderStatus {
+    state.render_status()
+}
+
+#[tauri::command]
+pub fn request_render(state: tauri::State<'_, SharedState>) -> RenderStatus {
+    state.inner().request_render();
+    state.render_status()
+}
+
+#[tauri::command]
+pub async fn layer_tree(
+    state: tauri::State<'_, SharedState>,
+    mode: String,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let target = state.active_target();
+    state
+        .call_tool(
+            "layer_tree",
+            json!({
+                "project": project,
+                "mode": mode,
+                "format": target.format,
+                "locale": target.locale,
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn hit_test(
+    state: tauri::State<'_, SharedState>,
+    x_pt: f64,
+    y_pt: f64,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let target = state.active_target();
+    state
+        .call_tool(
+            "hit_test",
+            json!({
+                "project": project,
+                "x_pt": x_pt,
+                "y_pt": y_pt,
+                "format": target.format,
+                "locale": target.locale,
+            }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn ui_metadata(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool("project_ui_metadata", json!({ "project": project }))
+        .await
+}
+
+#[tauri::command]
+pub async fn set_ui_metadata(
+    state: tauri::State<'_, SharedState>,
+    metadata: Value,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state.announce_own_write("project.ui.yaml");
+    state
+        .call_tool(
+            "project_ui_metadata_set",
+            json!({ "project": project, "metadata": metadata }),
+        )
+        .await
+}
+
+/// The project files a transaction reports having replaced.
+fn files_changed_by(report: &Value) -> Vec<String> {
+    report
+        .get("changed")
+        .and_then(Value::as_array)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.get("path").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether an edit actually moved the project, and so whether the picture is now out of date.
+///
+/// A refused edit — a conflict, a policy refusal, a dead sidecar — wrote nothing, so re-rendering
+/// after one would discard a perfectly current proof and show a spinner for no reason. An accepted
+/// transaction that changed no file (a no-op reorder, an approval queued for review) is the same
+/// case.
+fn edit_changed_the_project(report: &Value) -> bool {
+    report.get("ok").and_then(Value::as_bool) == Some(true) && !files_changed_by(report).is_empty()
+}
+
+/// Save the picture currently on the bench to a file the person chooses.
+///
+/// The proof strip used to offer a download link, which a WebView does not treat as a download:
+/// it navigated the window to the PNG, replacing the whole application with a bare image and no
+/// way back, and wrote nothing to disk. Fifty minutes of rendering produced no file at all.
+///
+/// Copying the render the engine already wrote is what "export" means here — re-rendering could
+/// produce a different picture from the one being looked at.
+/// Resolution the bench proofs at.
+///
+/// A canvas declared in physical units renders at its authored dpi, so an A2 at 150 dpi is
+/// ~2480x3508 px and takes about five seconds — every committed edit paying that, for a picture
+/// the canvas then draws at a third of its size. Capping the *preview* halves it, and a canvas
+/// declared in pixels is unaffected: the same request returns a byte-identical file.
+///
+/// Export does not use this. `save_render_as` re-renders at the authored resolution first, so
+/// what lands on disk is the print-ready picture rather than the proofing one.
+const PREVIEW_DPI: u64 = 96;
+
+#[tauri::command]
+pub async fn save_render_as(
+    app: AppHandle,
+    state: tauri::State<'_, SharedState>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let status = state.render_status();
+    let output = status
+        .last_good
+        .ok_or_else(|| "There is no rendered picture to save yet.".to_owned())?;
+    // Proofing runs at PREVIEW_DPI, which is not what anyone wants in a file. Ask for the
+    // authored resolution before copying, so an exported A2 is the print-ready one.
+    let project = state.open_project_path()?;
+    let mut arguments = json!({ "project": project });
+    if let Some(format) = &output.key.format {
+        arguments["formats"] = json!([format]);
+    }
+    if let Some(locale) = &output.key.locale {
+        arguments["locales"] = json!([locale]);
+    }
+    let report = state.call_tool("project_preview", arguments).await?;
+    let full = crate::gateway::session::preview_to_display(&report)
+        .ok()
+        .and_then(|preview| preview.get("output_path").and_then(Value::as_str))
+        .map(std::path::PathBuf::from);
+
+    let source = full.unwrap_or_else(|| std::path::PathBuf::from(&output.source_path));
+    if !source.is_file() {
+        return Err("The rendered file is no longer where the engine left it.".to_owned());
+    }
+
+    let suggested = source
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "arcavex.png".to_owned());
+
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Save the rendered image")
+        .set_file_name(&suggested)
+        .add_filter("PNG image", &["png"])
+        .save_file(move |chosen| {
+            let _ = sender.send(chosen);
+        });
+
+    let Some(destination) = receiver.await.ok().flatten() else {
+        return Ok(None);
+    };
+    let destination = destination
+        .into_path()
+        .map_err(|error| format!("that destination cannot be written to: {error}"))?;
+    std::fs::copy(&source, &destination).map_err(|error| format!("saving failed: {error}"))?;
+    Ok(Some(destination.display().to_string()))
+}
+
+#[tauri::command]
+pub async fn editor_apply(
+    state: tauri::State<'_, SharedState>,
+    transaction: Value,
+) -> Result<Value, String> {
+    let report = state
+        .call_tool(
+            "arcavex_editor_apply",
+            json!({ "transaction": transaction }),
+        )
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_apply_authorized(
+    state: tauri::State<'_, SharedState>,
+    command_id: String,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let report = state
+        .call_tool(
+            "arcavex_editor_apply_authorized",
+            json!({ "project": project, "command_id": command_id }),
+        )
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_undo(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let report = state
+        .call_tool("arcavex_editor_undo", json!({ "project": project }))
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_redo(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    let report = state
+        .call_tool("arcavex_editor_redo", json!({ "project": project }))
+        .await?;
+    state.after_own_edit(&report);
+    Ok(report)
+}
+
+#[tauri::command]
+pub async fn editor_history(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool("arcavex_editor_history", json!({ "project": project }))
+        .await
+}
+
+#[tauri::command]
+pub async fn project_policy(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool("project_policy", json!({ "project": project }))
+        .await
+}
+
+#[tauri::command]
+pub async fn set_project_policy(
+    state: tauri::State<'_, SharedState>,
+    policy: Value,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state.announce_own_write("project.yaml");
+    state
+        .call_tool(
+            "project_policy_set",
+            json!({ "project": project, "policy": policy }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn list_proposals(state: tauri::State<'_, SharedState>) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool("project_proposal_list", json!({ "project": project }))
+        .await
+}
+
+#[tauri::command]
+pub async fn approve_proposal(
+    state: tauri::State<'_, SharedState>,
+    command_id: String,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool(
+            "project_proposal_approve",
+            json!({ "project": project, "command_id": command_id }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub async fn reject_proposal(
+    state: tauri::State<'_, SharedState>,
+    command_id: String,
+    reason: String,
+) -> Result<Value, String> {
+    let project = state.open_project_path()?;
+    state
+        .call_tool(
+            "project_proposal_reject",
+            json!({ "project": project, "command_id": command_id, "reason": reason }),
+        )
+        .await
+}
+
+#[tauri::command]
+pub fn activity(state: tauri::State<'_, SharedState>) -> Vec<ActivityEntry> {
+    state.activity()
+}
+
+#[tauri::command]
+pub fn settings(state: tauri::State<'_, SharedState>) -> DesktopSettings {
+    state.settings()
+}
+
+#[tauri::command]
+pub fn update_settings(
+    state: tauri::State<'_, SharedState>,
+    patch: Value,
+) -> Result<DesktopSettings, String> {
+    state.apply_settings_patch(patch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Tauri runs a synchronous command on a worker thread with no Tokio runtime, so a bare
+    /// `tokio::spawn` there panics — and this build aborts on panic, so the window vanishes with
+    /// no dialog. `request_render` and `set_active_target` are both synchronous commands, which
+    /// is why clicking Render or switching format or locale killed the application while an
+    /// edit-triggered render (reached from an async command) was fine.
+    ///
+    /// `tauri::async_runtime::spawn` works from any thread. This test asserts the gateway keeps
+    /// using it: the failure it guards costs a crash log to diagnose, not a red test.
+    #[test]
+    fn nothing_in_the_gateway_spawns_onto_an_ambient_runtime() {
+        // Only the code above the test module, and the needle assembled from parts, so this
+        // guard does not match its own explanation.
+        let source = include_str!("mod.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        let needle = concat!("tokio", "::spawn(");
+
+        for (number, line) in production.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or(line);
+            assert!(
+                !code.contains(needle),
+                "gateway/mod.rs:{} spawns with tokio::spawn; use tauri::async_runtime::spawn so                  a synchronous command does not panic for want of a runtime",
+                number + 1
+            );
+        }
+    }
+
+    #[test]
+    fn an_accepted_edit_that_wrote_files_makes_the_picture_stale() {
+        let report =
+            json!({"ok": true, "changed": [{"path": "template.yaml", "change": "modified"}]});
+
+        assert!(edit_changed_the_project(&report));
+        assert_eq!(files_changed_by(&report), vec!["template.yaml".to_owned()]);
+    }
+
+    #[test]
+    fn a_refused_edit_leaves_the_last_good_picture_alone() {
+        // A conflict wrote nothing at all, so what is on screen is still exactly right.
+        let conflicted = json!({
+            "ok": false,
+            "conflict": {"changed": [{"path": "data/event.yaml", "change": "modified"}]}
+        });
+
+        assert!(!edit_changed_the_project(&conflicted));
+        assert!(files_changed_by(&conflicted).is_empty());
+    }
+
+    #[test]
+    fn an_edit_that_changed_no_file_does_not_trigger_a_render() {
+        // Queued for review, or a reorder that moved a layer onto itself: accepted, but a no-op.
+        assert!(!edit_changed_the_project(
+            &json!({"ok": true, "changed": []})
+        ));
+        assert!(!edit_changed_the_project(&json!({"ok": true})));
+    }
+}

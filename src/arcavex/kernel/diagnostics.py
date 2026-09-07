@@ -29,6 +29,7 @@ NAMESPACES: tuple[str, ...] = (
     "ARC-LIB",  # template library / versioning
     "ARC-RUN",  # run manifests / rerun / diff
     "ARC-SKL",  # bundled skill installation
+    "ARC-EDT",  # semantic editor: locking, transactions, history
     "ARC-INT",  # internal
 )
 

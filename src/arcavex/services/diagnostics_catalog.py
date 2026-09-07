@@ -519,6 +519,21 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Provide a numeric value.",
         ),
         _e(
+            "ARC-IR-015",
+            "Invalid hit-test coordinate",
+            "A hit-test coordinate could not be converted to a number, or was NaN or infinity. "
+            "Selection geometry accepts only finite canvas-point coordinates.",
+            "Pass finite numeric x_pt and y_pt values in canvas points.",
+        ),
+        _e(
+            "ARC-IR-016",
+            "Invalid transform scale",
+            "A transform scale component is zero, negative, or not a finite number. A zero "
+            "scale collapses the node to nothing while it stays selectable, and a negative one "
+            "mirrors — a distinct operation this vocabulary does not express.",
+            "Use a positive number, or [sx, sy] with both components positive.",
+        ),
+        _e(
             "ARC-IR-020",
             "Duplicate node id",
             "Two nodes share the same id, which must be unique across the template.",
@@ -601,6 +616,15 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Node over-constrained",
             "A node resolves more than one position on an axis.",
             "Keep exactly one anchor per axis; size comes from the size spec.",
+        ),
+        _e(
+            "ARC-LAY-021",
+            "Stack sizes to its content but a child sizes to the stack",
+            "A stack uses 'fit_content' on an axis while one of its children asks for 'fill' or "
+            "a percentage of that same axis. Each is waiting for the other, so neither has a "
+            "size.",
+            "Give the child a fixed size or 'fit_content' on that axis, or give the stack a size "
+            "of its own.",
         ),
         _e(
             "ARC-LAY-032",
@@ -789,12 +813,6 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Remove the 'mask'; masks arrive in Phase 2.",
         ),
         _e(
-            "ARC-RND-901",
-            "Rotation/scale not supported yet",
-            "Rotation and scale transforms are not available in this build.",
-            "Use only translation transforms for now.",
-        ),
-        _e(
             "ARC-FX-900",
             "Effect declaration rejected",
             "A legacy code retained for compatibility; effects now compile, so real effect "
@@ -962,6 +980,135 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Reinstall from a wheel built with the skill included, or run from a source checkout.",
         ),
         _e(
+            "ARC-EDT-001",
+            "Project is locked by another writer",
+            "A semantic edit could not acquire the project mutation lock: another Arcavex "
+            "process — the desktop, an MCP client, or a CLI command — is writing to this "
+            "project and did not release the lock within the wait. Nothing was changed.",
+            "Wait for the other process to finish and retry. If nothing is running, remove the "
+            "stale .arcavex/project.lock file.",
+        ),
+        _e(
+            "ARC-EDT-002",
+            "Transaction write failed and was rolled back",
+            "Atomically replacing a project file failed partway through a transaction — disk "
+            "full, a permissions error, or the file held open by another program. Every file "
+            "the transaction had already replaced was restored from its backup, so the project "
+            "matches its state before the edit.",
+            "Check disk space and file permissions, close programs holding project files open, "
+            "then retry the edit.",
+        ),
+        _e(
+            "ARC-EDT-003",
+            "Unreadable history record skipped",
+            "A JSON record under .arcavex/history cannot be decoded or validated. The record is "
+            "skipped; undo/redo of the remaining entries still works.",
+            "Remove the named file under .arcavex/history to clear the warning.",
+        ),
+        _e(
+            "ARC-EDT-004",
+            "Structural edit target is invalid",
+            "A structural edit named a node or parent that does not exist, addressed a node "
+            "whose id is duplicated, tried to give children to a non-group node, grouped layers "
+            "that are not siblings, or chose a group id that already exists. Nothing was "
+            "changed.",
+            "Inspect the layer tree for current ids and structure, then retry the edit.",
+        ),
+        _e(
+            "ARC-EDT-005",
+            "Structural edit would corrupt the tree",
+            "The edit would delete or reparent the root node, or move a node into its own "
+            "descendant and create a cycle. These operations are never valid; nothing was "
+            "changed.",
+            "Choose a target outside the subtree being moved, and leave the root in place.",
+        ),
+        _e(
+            "ARC-EDT-006",
+            "Layer is locked",
+            "The addressed layer, or one of its ancestors, is locked in the project's editor "
+            "metadata. Locks are enforced at the engine boundary so an AI client cannot bypass "
+            "a lock the desktop shows.",
+            "Unlock the layer in the Layers panel, or edit an unlocked layer.",
+        ),
+        _e(
+            "ARC-EDT-007",
+            "Sibling anchors depend on this layer",
+            "Deleting the addressed layer would orphan constraint expressions on sibling "
+            "layers that anchor to it. The dependents are named in the message; nothing was "
+            "changed.",
+            "Delete the dependent layers too, or re-anchor them to another sibling first.",
+        ),
+        _e(
+            "ARC-EDT-008",
+            "Semantic editing requires a project-local template",
+            "The project pins a shared library template, which semantic editing cannot change "
+            "in place: the edit would alter every project that pins the same version. Nothing "
+            "was changed.",
+            "Clone the template into the project ('arcavex project clone') to get an editable "
+            "project-local template.yaml.",
+        ),
+        _e(
+            "ARC-EDT-009",
+            "Automation policy refuses this edit",
+            "The project's automation mode is read-only, so semantic mutations are refused at "
+            "the engine boundary for every client — desktop, MCP, and CLI alike. Nothing was "
+            "changed.",
+            "Change the automation mode in project settings to review or unrestricted.",
+        ),
+        _e(
+            "ARC-EDT-010",
+            "Invalid editor transaction",
+            "A submitted payload is not a valid semantic transaction: an unknown command kind, "
+            "an undeclared key, non-finite geometry, a non-canonical project path, or a "
+            "malformed revision. Nothing was executed.",
+            "Compose transactions against the editor-transaction schema and re-submit.",
+        ),
+        _e(
+            "ARC-EDT-011",
+            "Nothing to undo or redo",
+            "The history is empty in the requested direction, or an external edit moved the "
+            "project to a revision the history chain has never seen, which closes the line "
+            "rather than replaying over someone else's work.",
+            "Check the activity stream for the external change and continue editing forward.",
+        ),
+        _e(
+            "ARC-EDT-012",
+            "The project moved under this edit",
+            "The transaction was composed against an older project revision, so applying it "
+            "would overwrite work done in between. Nothing was changed; the files that moved "
+            "are named so the edit can be made again against the current version.",
+            "Re-read the project, compose the edit against the current revision, and re-submit.",
+        ),
+        _e(
+            "ARC-TPL-102",
+            "Locale rendered without content of its own",
+            "A locale whose text direction differs from the content was applied, but neither an "
+            "inline 'locales.<name>.data' nor a sibling '<data>.<locale>.yaml' supplied any text "
+            "for it. The direction and digit rules still apply, so untranslated copy is "
+            "bidi-reordered: an English time range renders reversed while looking entirely "
+            "normal.",
+            "Supply the locale's copy, or render without --locale to see the source direction.",
+        ),
+        _e(
+            "ARC-TPL-103",
+            "Locale content shadowed by the project's data",
+            "A template supplies text for this locale through 'locales.<name>.data', and the "
+            "project's own data file sets the same keys. User data outranks template data, so "
+            "the locale's copy is not what renders — a right-to-left layout can come out holding "
+            "the other language's words, which validates and looks deliberate.",
+            "Remove the key from the project's data file, or move the locale's copy into a "
+            "sibling '<data>.<locale>.yaml', which is applied over the base data instead.",
+        ),
+        _e(
+            "ARC-TPL-104",
+            "Paint style on a node that does not paint",
+            "A group or another non-painting node declares fill, stroke, stroke_width, or "
+            "corner_radius. The fields are valid style vocabulary, so nothing rejected them, and "
+            "nothing draws them either — the node renders exactly as if they were absent.",
+            "Give the node a shape child carrying the paint, or move the style onto the shape "
+            "that should show it.",
+        ),
+        _e(
             "ARC-EXP-001",
             "Export failed",
             "Writing the rendered surface to the output file failed.",
@@ -1021,6 +1168,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Use one of: draft, review, approved, published.",
         ),
         _e(
+            "ARC-PRJ-005",
+            "Declared project source is missing",
+            "A project snapshot could not find an active data file declared by project.yaml or "
+            "the required template.yaml in a project-owned template directory, so its revision "
+            "manifest is incomplete.",
+            "Restore the declared file or update project.yaml to reference an existing source.",
+        ),
+        _e(
             "ARC-PRJ-006",
             "Template upgrade or detach unavailable",
             "The operation needs a library-pinned template. The project's template is a local "
@@ -1037,6 +1192,61 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "available for it (spec §5.4).",
             "Edit the copied template directly. Re-pin the project to a library 'name@version' "
             "if you want upgrades back.",
+        ),
+        _e(
+            "ARC-PRJ-008",
+            "Invalid project UI metadata",
+            "The optional project.ui.yaml sidecar is not a version 1 mapping or contains an "
+            "unsupported layer/workspace field, invalid lock value, or invalid #RRGGBB color.",
+            "Use version 1, key layer metadata by stable authored ID, and keep workspace state "
+            "to the documented project-local fields.",
+        ),
+        _e(
+            "ARC-PRJ-009",
+            "Invalid proposal command ID",
+            "A proposal command ID is not a canonical lowercase UUIDv4, so it cannot safely and "
+            "deterministically identify a queue filename.",
+            "Generate a new canonical UUIDv4 and submit the proposal using its lowercase string.",
+        ),
+        _e(
+            "ARC-PRJ-010",
+            "Malformed proposal queue entry",
+            "A JSON record under .arcavex/pending cannot be decoded or validated, does not match "
+            "its filename, or names a different canonical project. Other valid records are still "
+            "listed.",
+            "Repair or remove the named queue JSON record, then list proposals again.",
+        ),
+        _e(
+            "ARC-PRJ-011",
+            "Proposal base revision is stale",
+            "The project revision has changed since the proposal was created. Authorization is "
+            "refused and both project source and the pending record remain unchanged.",
+            "Reload the project, inspect the changed revision manifest, and submit a new proposal "
+            "against the current project revision.",
+        ),
+        _e(
+            "ARC-PRJ-012",
+            "Proposal unavailable for this action",
+            "The requested proposal does not exist or its current pending/authorized/rejected "
+            "state does not permit the requested transition.",
+            "List proposals and choose a pending command, or submit a new command with a new UUID.",
+        ),
+        _e(
+            "ARC-PRJ-013",
+            "Invalid proposal record",
+            "A proposal has an invalid canonical project path, base project revision, actor, "
+            "created timestamp, state, or command payload that cannot be represented as JSON.",
+            "Provide a canonical project path, SHA-256 base revision, actor identity, "
+            "timezone-aware timestamp, and JSON-serializable command payload.",
+        ),
+        _e(
+            "ARC-PRJ-014",
+            "Unsafe project working path",
+            "An engine-managed .arcavex, pending queue, or proposal record path is a symlink, "
+            "directory junction, or resolves outside the canonical project root. The operation "
+            "is refused before following the path.",
+            "Replace linked working-state components with real directories and files contained "
+            "by the canonical project root.",
         ),
         _e(
             "ARC-LIB-001",
@@ -1248,6 +1458,33 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Choose a new or empty scaffold directory, and ensure the Arcavex home is writable.",
         ),
         _e(
+            "ARC-INT-010",
+            "Build commit unavailable",
+            "The runtime has no explicit source-commit metadata, so the engine cannot prove "
+            "which commit produced it. The handshake leaves build_commit null instead of "
+            "guessing from a development checkout or inventing an identifier.",
+            "For a release, provide ARCAVEX_BUILD_COMMIT from the trusted build pipeline. In an "
+            "interpreted development run, no action is required.",
+        ),
+        _e(
+            "ARC-INT-011",
+            "Executable artifact identity unavailable",
+            "Arcavex is running through an interpreter rather than a frozen executable, so there "
+            "is no Arcavex executable artifact whose path and SHA-256 can be reported honestly. "
+            "The Python interpreter is deliberately not presented as the engine artifact.",
+            "Use the frozen Arcavex executable when a release artifact identity is required. In "
+            "an interpreted development run, no action is required.",
+        ),
+        _e(
+            "ARC-INT-012",
+            "Executable artifact could not be hashed",
+            "The running frozen executable was identified, but its bytes could not be read to "
+            "compute the artifact SHA-256. The handshake retains the path and leaves the hash "
+            "null rather than reporting unverified identity.",
+            "Ensure the executable still exists and is readable, then retry. Reinstall the "
+            "Arcavex sidecar if the artifact was moved, replaced, or damaged.",
+        ),
+        _e(
             "ARC-INT-999",
             "Internal engine error",
             "An unexpected internal error occurred and was wrapped rather than crashing.",
@@ -1273,4 +1510,3 @@ def render_markdown(doc: DiagnosticDoc) -> str:
         f"{doc.summary}\n\n"
         f"**Typical fix:** {doc.fix}\n"
     )
-

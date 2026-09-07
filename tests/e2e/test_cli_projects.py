@@ -76,3 +76,101 @@ def test_set_status(project_dir: Path) -> None:
     )
     assert result.exit_code == 0
     assert json.loads(result.stdout)["status"] == "approved"
+
+
+def test_a_project_starts_from_the_templates_own_data_when_it_ships_some(
+    arcavex_home: Path, tmp_path: Path
+) -> None:
+    """A template's `data.yaml` is real content; `preview_data` is a thumbnail of it.
+
+    Scaffolding wrote the starter from `preview_data` even when the template shipped a full
+    `data.yaml` beside it, so an author who had just written their copy got abbreviated preview
+    strings instead and only noticed by reading the file. Preview data is the right starter when
+    that is all there is; it is the wrong one when the template ships the real thing.
+    """
+    template = tmp_path / "kit"
+    template.mkdir()
+    (template / "template.yaml").write_text(
+        "version: 0.1.0\n"
+        "formats: {square: {canvas: {width: 200px, height: 200px, dpi: 72}}}\n"
+        "variables: {headline: {type: string, required: true}}\n"
+        'preview_data: {headline: "Preview"}\n'
+        "root:\n"
+        "  type: group\n"
+        "  id: root\n"
+        "  children:\n"
+        "    - id: title\n"
+        "      type: text\n"
+        '      text: "{{ headline }}"\n'
+        "      style: {font: Inter, font_size: 20px, color: black}\n"
+        "      constraints:\n"
+        "        anchor: {top: parent.top, left: parent.left}\n"
+        "        size: {w: fill, h: fit_content}\n",
+        encoding="utf-8",
+    )
+    (template / "data.yaml").write_text('headline: "The real copy"\n', encoding="utf-8")
+
+    project = tmp_path / "post"
+    created = runner.invoke(
+        app, ["project", "new", str(project), "--template", str(template), "--json"]
+    )
+    assert created.exit_code == 0, created.output
+
+    starter = (project / "data" / "post.yaml").read_text(encoding="utf-8")
+    assert "The real copy" in starter, starter
+
+
+def test_a_project_falls_back_to_preview_data_when_the_template_ships_none(
+    arcavex_home: Path, tmp_path: Path
+) -> None:
+    """With no data.yaml beside the template, preview_data is still what makes it render."""
+    template = tmp_path / "kit"
+    template.mkdir()
+    (template / "template.yaml").write_text(
+        "version: 0.1.0\n"
+        "formats: {square: {canvas: {width: 200px, height: 200px, dpi: 72}}}\n"
+        "variables: {headline: {type: string, required: true}}\n"
+        'preview_data: {headline: "Preview"}\n'
+        "root:\n"
+        "  type: group\n"
+        "  id: root\n"
+        "  children:\n"
+        "    - id: title\n"
+        "      type: text\n"
+        '      text: "{{ headline }}"\n'
+        "      style: {font: Inter, font_size: 20px, color: black}\n"
+        "      constraints:\n"
+        "        anchor: {top: parent.top, left: parent.left}\n"
+        "        size: {w: fill, h: fit_content}\n",
+        encoding="utf-8",
+    )
+
+    project = tmp_path / "post"
+    assert (
+        runner.invoke(
+            app, ["project", "new", str(project), "--template", str(template), "--json"]
+        ).exit_code
+        == 0
+    )
+
+    assert "Preview" in (project / "data" / "post.yaml").read_text(encoding="utf-8")
+
+
+def test_rerun_accepts_the_run_id_that_list_runs_prints(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Listing runs and rerunning one should not need a fact the listing never mentions.
+
+    `list-runs` prints `run_id`; `rerun` took a directory. They are the same string only because
+    the id happens to name the directory under outputs/, which nothing says — so passing what
+    was just printed failed with "No run manifest at …".
+    """
+    rendered = runner.invoke(app, ["render", "--project", str(project_dir), "--json"])
+    assert rendered.exit_code == 0, rendered.output
+    run_id = json.loads(rendered.stdout)["run_id"]
+
+    monkeypatch.chdir(project_dir)
+    reran = runner.invoke(app, ["rerun", run_id, "--json"])
+
+    assert reran.exit_code == 0, reran.output
+    assert json.loads(reran.stdout)["ok"] is True
