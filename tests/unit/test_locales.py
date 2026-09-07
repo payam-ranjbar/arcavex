@@ -686,3 +686,37 @@ def test_a_child_cannot_fill_a_stack_that_is_sizing_to_it(tmp_path: Path) -> Non
 
     codes = [d.code for d in raised.value.diagnostics]
     assert "ARC-LAY-021" in codes, codes
+
+
+def test_no_warning_when_the_data_file_is_already_in_the_locales_script(tmp_path: Path) -> None:
+    """A Farsi data file rendered under `--locale fa` is the intended use, not a mistake.
+
+    The flagship example ships `data/en.yaml` and `data/fa.yaml` as two full data files rather
+    than a base plus a `.fa.yaml` overlay, so the locale "supplies no text of its own" in the
+    overlay sense while the copy is plainly Farsi. Warning there taught the quick start's first
+    bilingual render to cry wolf. The copy itself is the evidence: if any of it carries a strong
+    character of the locale's direction, it was written for that locale.
+    """
+    template = tmp_path / "t.yaml"
+    template.write_text(_RTL_ONLY_TPL, encoding="utf-8")
+    data = tmp_path / "farsi.yaml"
+    data.write_text('when: "۱۸:۰۰ تا ۲۰:۳۰"\n', encoding="utf-8")
+
+    result = Compiler().compile(template, data, "square", "fa", None)
+
+    assert result.document is not None, result.diagnostics
+    assert not [d for d in result.diagnostics if d.code == "ARC-TPL-102"]
+
+
+def test_the_warning_still_fires_for_english_data_under_a_farsi_locale(tmp_path: Path) -> None:
+    """The case the warning exists for: English copy, `--locale fa`, nothing translated."""
+    template = tmp_path / "t.yaml"
+    template.write_text(_RTL_ONLY_TPL, encoding="utf-8")
+    data = tmp_path / "english.yaml"
+    data.write_text('when: "6:00-8:30 PM"\n', encoding="utf-8")
+
+    result = Compiler().compile(template, data, "square", "fa", None)
+
+    warned = [d for d in result.diagnostics if d.code == "ARC-TPL-102"]
+    assert warned, [d.code for d in result.diagnostics]
+    assert "script" in warned[0].message

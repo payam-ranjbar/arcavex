@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arcavex.kernel.diagnostics import has_errors
 from arcavex.kernel.ir.models import CompiledGroup, CompiledShape, CompiledText
 from arcavex.services.template.compiler import Compiler
@@ -518,3 +520,233 @@ def test_list_rooted_data_file_rejected(tmp_path: Path) -> None:
     data.write_text("- 1\n- 2\n", encoding="utf-8")
     result = Compiler().compile(template, data, "square", None, None)
     assert any(d.code == "ARC-TPL-012" for d in result.diagnostics)
+
+
+# ------------------------------------------------------------- basis-free lengths refuse '%'
+_PERCENT_NODE = """
+version: 0.1.0
+formats:
+  square: {canvas: {width: 200px, height: 200px, dpi: 96}}
+root:
+  type: group
+  id: root
+  children:
+    - id: n
+      type: %(kind)s
+%(body)s
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 100px, h: 100px}
+"""
+
+
+def _percent_diag(tmp_path: Path, kind: str, body: str):  # noqa: ANN202
+    template = _write(tmp_path, _PERCENT_NODE % {"kind": kind, "body": body})
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is None
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-011", diag.model_dump()
+    assert diag.source is not None
+    assert "px" in (diag.hint or "") and "pt" in (diag.hint or "") and "mm" in (diag.hint or "")
+    return diag
+
+
+@pytest.mark.parametrize("field", ["stroke_width", "corner_radius", "letter_spacing", "font_size"])
+def test_percentage_style_length_is_a_located_error(tmp_path: Path, field: str) -> None:
+    """A style length has no parent basis, so '5%' is refused at validation, not at render."""
+    diag = _percent_diag(tmp_path, "shape", f"      style: {{fill: '#FF0000', {field}: 5%}}")
+    assert diag.source is not None
+    assert diag.source.keypath == f"root.children[0].style.{field}"
+    assert diag.source.line == 11
+
+
+def test_percentage_run_override_is_a_located_error(tmp_path: Path) -> None:
+    diag = _percent_diag(
+        tmp_path, "text", "      runs:\n        - {text: hi, font_size: 50%}"
+    )
+    assert diag.source is not None and diag.source.keypath == "root.children[0].runs[0].font_size"
+
+
+def test_percentage_fit_min_size_is_a_located_error(tmp_path: Path) -> None:
+    diag = _percent_diag(
+        tmp_path, "text", "      text: hi\n      fit: {policy: shrink_to_fit, min_size: 50%}"
+    )
+    assert diag.source is not None and diag.source.keypath == "root.children[0].fit.min_size"
+
+
+@pytest.mark.parametrize(
+    ("body", "keypath"),
+    [
+        ("      layout: vstack\n      gap: 5%", "root.children[0].gap"),
+        ("      layout: vstack\n      padding: 5%", "root.children[0].padding"),
+        ("      layout: vstack\n      padding: {top: 5%}", "root.children[0].padding.top"),
+    ],
+)
+def test_percentage_stack_spacing_is_a_located_error(
+    tmp_path: Path, body: str, keypath: str
+) -> None:
+    diag = _percent_diag(tmp_path, "group", body)
+    assert diag.source is not None and diag.source.keypath == keypath
+
+
+def test_percentage_size_clamp_is_a_located_error(tmp_path: Path) -> None:
+    template = _write(
+        tmp_path,
+        (_PERCENT_NODE % {"kind": "shape", "body": "      style: {fill: '#FF0000'}"}).replace(
+            "size: {w: 100px, h: 100px}", "size: {w: {value: 50%, min: 10%}, h: 100px}"
+        ),
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-011"
+    assert diag.source is not None
+    assert diag.source.keypath == "root.children[0].constraints.size.w.min"
+
+
+def test_percentage_canvas_dimension_is_a_located_error(tmp_path: Path) -> None:
+    template = _write(
+        tmp_path,
+        "version: 0.1.0\nformats:\n  square: {canvas: {width: 50%, height: 400px, dpi: 96}}\n"
+        "root: {type: group, id: root, children: []}\n",
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-011"
+    assert diag.source is not None and diag.source.keypath == "formats.square.canvas.width"
+
+
+# --------------------------------------------------------------------- italic is a boolean
+def _style_diag(tmp_path: Path, style: str, code: str):  # noqa: ANN202
+    template = _write(
+        tmp_path, _PERCENT_NODE % {"kind": "text", "body": f"      text: hi\n      style: {style}"}
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is None
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == code, diag.model_dump()
+    assert diag.source is not None
+    return diag
+
+
+@pytest.mark.parametrize("value", ['"no"', '"false"', '"yes"', "1", "0"])
+def test_italic_must_be_a_yaml_boolean(tmp_path: Path, value: str) -> None:
+    """A quoted word (or a number) was coerced with bool(), so `italic: "no"` rendered italic."""
+    diag = _style_diag(tmp_path, f"{{italic: {value}}}", "ARC-IR-014")
+    assert diag.source is not None
+    assert diag.source.keypath == "root.children[0].style.italic"
+    assert diag.source.line == 12
+    assert "boolean" in diag.message
+    assert "true or false" in (diag.hint or "")
+
+
+def test_run_italic_must_be_a_yaml_boolean(tmp_path: Path) -> None:
+    template = _write(
+        tmp_path,
+        _PERCENT_NODE % {"kind": "text", "body": '      runs:\n        - {text: hi, italic: "no"}'},
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    diag = next(d for d in result.diagnostics if d.is_error())
+    assert diag.code == "ARC-IR-014"
+    assert diag.source is not None and diag.source.keypath == "root.children[0].runs[0].italic"
+
+
+@pytest.mark.parametrize(("value", "expected"), [("true", True), ("false", False)])
+def test_italic_accepts_real_booleans(tmp_path: Path, value: str, expected: bool) -> None:
+    body = f"      text: hi\n      style: {{italic: {value}}}"
+    template = _write(tmp_path, _PERCENT_NODE % {"kind": "text", "body": body})
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+    assert result.document.root.children[0].style.italic is expected
+
+
+# ------------------------------------------------------------------- opacity stays in 0..1
+@pytest.mark.parametrize("value", ["1.5", "-0.1", "2", ".nan"])
+def test_opacity_outside_the_unit_interval_is_a_located_error(tmp_path: Path, value: str) -> None:
+    """`opacity: 1.5` validated and rendered opaque; the range is now checked at validation."""
+    diag = _style_diag(tmp_path, f"{{opacity: {value}}}", "ARC-IR-014")
+    assert diag.source is not None
+    assert diag.source.keypath == "root.children[0].style.opacity"
+    assert diag.source.line == 12
+    assert "0 to 1" in diag.message
+
+
+@pytest.mark.parametrize("value", ["0", "1", "0.5", "1.0"])
+def test_opacity_accepts_the_closed_unit_interval(tmp_path: Path, value: str) -> None:
+    template = _write(
+        tmp_path,
+        _PERCENT_NODE % {"kind": "shape", "body": f"      style: {{fill: red, opacity: {value}}}"},
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+    assert result.document.root.children[0].style.opacity == float(value)
+
+
+def test_missing_size_hint_names_the_span_and_inset_idioms(tmp_path: Path) -> None:
+    """ARC-LAY-032 says how to reach both edges, so an author does not reach for two anchors."""
+    template = _write(
+        tmp_path,
+        """
+version: 0.1.0
+formats:
+  square: {canvas: {width: 100px, height: 100px, dpi: 96}}
+root:
+  type: group
+  id: root
+  children:
+    - id: frame
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+    - id: bar
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {h: 10px}
+""",
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    whole = next(d for d in result.diagnostics if d.code == "ARC-LAY-032")
+    assert whole.hint is not None and "'fill'" in whole.hint and "vstack" in whole.hint
+    # The per-axis form is reached once the first node is fixed.
+    fixed = template.read_text(encoding="utf-8").replace(
+        "        anchor: {top: parent.top, left: parent.left}\n    - id: bar",
+        "        anchor: {top: parent.top, left: parent.left}\n        size: {w: fill, h: fill}"
+        "\n    - id: bar",
+    )
+    template.write_text(fixed, encoding="utf-8")
+    result = Compiler().compile(template, None, "square", None, None)
+    axis = next(d for d in result.diagnostics if d.code == "ARC-LAY-032")
+    assert axis.source is not None and axis.source.keypath is not None
+    assert axis.source.keypath.endswith("constraints.size.w")
+    assert axis.hint is not None and "'fill'" in axis.hint and "inset" in axis.hint
+
+
+def test_percent_anchor_offset_is_refused_with_the_reason_and_the_idiom(tmp_path: Path) -> None:
+    """ARC-LAY-012 for '+30%' says why (offsets are absolute) and what to write instead."""
+    for offset in ("+30%", "-10%", "+0.3*parent.height"):
+        template = _write(
+            tmp_path,
+            f"""
+version: 0.1.0
+formats:
+  square: {{canvas: {{width: 100px, height: 100px, dpi: 96}}}}
+root:
+  type: group
+  id: root
+  children:
+    - id: box
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {{top: parent.top{offset}, left: parent.left}}
+        size: {{w: 50%, h: 50%}}
+""",
+        )
+        result = Compiler().compile(template, None, "square", None, None)
+        diag = next(d for d in result.diagnostics if d.code == "ARC-LAY-012")
+        assert offset in diag.message
+        assert diag.hint is not None, offset
+        assert "absolute" in diag.hint and "center_y" in diag.hint and "size: {w: 30%}" in diag.hint
+        assert "{{" not in diag.hint  # the expression hint is for a different mistake

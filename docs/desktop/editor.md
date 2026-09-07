@@ -43,6 +43,9 @@ Refusals are values, not errors: they land in the **Edits** panel with their cod
 | [`ARC-EDT-009`](../diagnostics/ARC-EDT-009.md) | The project's automation mode is read-only. |
 | [`ARC-EDT-010`](../diagnostics/ARC-EDT-010.md) | The transaction itself is malformed. |
 | [`ARC-EDT-011`](../diagnostics/ARC-EDT-011.md) | There is nothing to undo or redo in that direction. |
+| [`ARC-EDT-012`](../diagnostics/ARC-EDT-012.md) | The project moved under the edit; the files that changed are named. |
+| [`ARC-EDT-013`](../diagnostics/ARC-EDT-013.md) | A format-scoped edit named no format, or one the template does not define. |
+| [`ARC-EDT-014`](../diagnostics/ARC-EDT-014.md) | A structural command or a display name was sent under `scope: format`; both are shared. |
 
 A refused transaction writes nothing. That is the guarantee the staged writer exists for: files
 are replaced atomically after the edited project compiles, and any failure restores every file it
@@ -58,6 +61,39 @@ rather than a diagnostic, and the conflict names the files that changed:
 
 "Someone changed the project" is not something a person can resolve; *that file changed* is.
 Reload, redo the edit, and it applies — the conflict is a rebase, not a dead end.
+
+## Editing one format
+
+A transaction carries two fields that are easy to confuse, so they have different names:
+
+- **`target`** (`{format, locale}`) is what the result is **validated and previewed against**. The
+  compile check that gates the commit runs for that format and locale, because that is what the
+  user was looking at. It never narrows a write.
+- **`scope`** is **what gets written**. The default, `shared`, edits the authored node that every
+  format and locale renders from. `format` writes each command as a `set` op into
+  `formats.<target.format>.patch` instead, so only that format changes; `target.format` is
+  required, and the report's `changed[].location` names the patch (`formats.story.patch`).
+
+The desktop always sends `scope: shared`: its inspector and canvas edit the shared design. The
+format scope exists for the CLI and for assistants over MCP, where "make the title smaller on the
+story" is a common request and, before this field existed, could only be answered by patching the
+template directly — which moves the project to a revision the undo history never saw. A
+format-scoped transaction is an ordinary history entry: undo and redo restore exact bytes like any
+other, and the engine-authored inverse restores the op's previous value or, when the override is
+new, drops it (`set_property` with `remove: true` means "drop this format's override" under
+`scope: format`).
+
+Two rules keep the patch honest. An override for a path that already has a `set` op replaces that
+op's value rather than appending a duplicate. And geometry builds on the format's *effective*
+values — a second drag in the story continues from where the story left the layer, not from the
+shared position — while the op's path follows the authored node, so repeated edits collapse into
+one override.
+
+Only field writes have a per-format form: `set_text`, `set_property`, `set_visibility`,
+`set_effects`, `translate`, `resize`, and `rotate`. `reorder`, `reparent`, `duplicate`, `delete`,
+`group`, and `splice_children` change the tree every format shares, and `set_display_name` writes
+project-wide UI metadata, so all of them are refused under `scope: format`
+([`ARC-EDT-014`](../diagnostics/ARC-EDT-014.md)) rather than silently applied to every format.
 
 ## What cannot be edited, and why it says so
 

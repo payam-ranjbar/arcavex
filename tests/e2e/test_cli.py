@@ -191,3 +191,35 @@ def test_missing_template_file_exit_3(tmp_path: Path) -> None:
         ["render", str(tmp_path / "nope.yaml"), "--format", "square", "-o", str(tmp_path / "o.png")]
     )
     assert proc.returncode == 3
+
+
+def test_render_json_output_path_is_absolute_and_human_line_stays_as_typed(
+    tmp_path: Path,
+) -> None:
+    """`-o hello.png` is relative to wherever the command ran. The human line quotes it as typed
+    (the quick start shows exactly that), but --json and the MCP result are read by an assistant
+    that may have run the command from another directory, so there the path must be absolute."""
+    args = [
+        "render", str(HELLO_TEMPLATE), "--data", str(HELLO_DATA), "--format", "square",
+        "-o", "hello.png",
+    ]
+    machine = _run([*args, "--json"], cwd=tmp_path)
+    assert machine.returncode == 0, machine.stderr
+    payload = json.loads(machine.stdout)
+    assert payload["output_path"] == str((tmp_path / "hello.png").resolve())
+    assert Path(payload["output_path"]).is_file()
+
+    human = _run([*args, "--no-color"], cwd=tmp_path)
+    assert human.returncode == 0, human.stderr
+    assert "Rendered hello.png" in human.stderr
+
+    # With no -o the default name is inferred; the human line still shows that name, not where
+    # it resolved to, and the JSON still says where the file is.
+    bare = _run([*args[:-2], "--no-color"], cwd=tmp_path)
+    assert bare.returncode == 0, bare.stderr
+    assert "inferred: output=basic-poster.square.png" in bare.stderr
+    assert "Rendered basic-poster.square.png" in bare.stderr
+    bare_json = _run([*args[:-2], "--json"], cwd=tmp_path)
+    bare_payload = json.loads(bare_json.stdout)
+    assert bare_payload["inferred"]["output"] == "basic-poster.square.png"
+    assert bare_payload["output_path"] == str((tmp_path / "basic-poster.square.png").resolve())

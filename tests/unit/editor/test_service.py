@@ -8,12 +8,14 @@ project on disk.
 
 from __future__ import annotations
 
+import textwrap
 import uuid
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from arcavex.kernel.editor import COMMAND_FIELDS, SemanticTransaction
 from arcavex.services.editor.service import EditorService
 from arcavex.services.library import Library
 from arcavex.services.project_policy import ProjectPolicyService
@@ -26,6 +28,7 @@ _TEMPLATE = """\
 version: 0.1.0
 formats:
   square: {canvas: {width: 200px, height: 200px, dpi: 72}}
+  story: {canvas: {width: 200px, height: 400px, dpi: 72}}
 preview_data: {}
 root:
   type: group
@@ -60,6 +63,7 @@ template: template.yaml
 locales: []
 formats:
   - square
+  - story
 data: data/data.yaml
 """
 
@@ -454,6 +458,33 @@ def test_a_malformed_transaction_names_every_field_it_is_missing(
     assert "required" in detail.lower()
 
 
+def test_an_empty_transaction_states_the_whole_shape_in_one_answer(
+    service: EditorService,
+) -> None:
+    """The skill promises that an empty transaction makes the engine state the exact shape.
+
+    It did state the envelope, but each command's fields only surfaced once the envelope was
+    already right -- so a caller learned `set_text` needs `layer_id` and `text` one round trip
+    later than promised. The hint has to carry every command kind with its fields, and the
+    optional `scope`/`target` semantics, so one refusal is enough to compose a valid
+    transaction.
+    """
+    report = service.apply({})
+
+    assert report.ok is False
+    message = " ".join(d.message for d in report.diagnostics if d.code == "ARC-EDT-010")
+    for field in ("command_id", "project_path", "base_project_revision", "actor", "commands"):
+        assert field in message, f"the message never names {field!r}: {message}"
+    hint = " ".join(d.hint or "" for d in report.diagnostics if d.code == "ARC-EDT-010")
+    assert "scope" in hint and "shared" in hint and "format" in hint
+    for kind, fields in COMMAND_FIELDS.items():
+        assert kind in hint, f"the hint never names command {kind!r}: {hint}"
+        for field in fields:
+            assert field.rstrip("?") in hint, f"{kind}.{field} missing from the hint: {hint}"
+    # The real field names, not the ones an older description guessed at.
+    assert "degrees" in hint and "remove_count" in hint
+
+
 def test_a_partly_formed_transaction_names_only_what_is_still_wrong(
     service: EditorService, project: Path, tmp_path: Path
 ) -> None:
@@ -652,3 +683,358 @@ def test_a_malformed_transaction_hides_none_of_its_problems(service: EditorServi
     assert "more" not in detail.split("nothing was executed.")[-1], detail
     for command_index in ("commands.0", "commands.1", "commands.2"):
         assert command_index in detail, f"{command_index} missing from: {detail}"
+
+
+# ---------------------------------------------------------------------- editing one format
+
+
+def _scoped(
+    project: Path, base: str, commands: list[dict[str, Any]], *, format_name: str | None = "story"
+) -> dict[str, Any]:
+    """A transaction asking for a format-only write, validated against that format."""
+    transaction = _transaction(project, base, commands)
+    transaction["target"] = {"format": format_name}
+    transaction["scope"] = "format"
+    return transaction
+
+
+def _format_patch(template_file: Path, format_name: str) -> Any:
+    raw = load_yaml(template_file)
+    return raw["formats"][format_name].get("patch")
+
+
+def test_scope_defaults_to_shared_and_shared_edits_the_authored_node(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """Every existing caller omits `scope`, so the default has to be the behaviour they had."""
+    transaction = _transaction(
+        project,
+        _revision(tmp_path, project),
+        [{"kind": "set_text", "layer_id": "title", "text": "New"}],
+    )
+    assert SemanticTransaction.model_validate(transaction).scope == "shared"
+    transaction["scope"] = "shared"
+
+    report = service.apply(transaction)
+
+    assert report.ok, [d.model_dump() for d in report.diagnostics]
+    raw = load_yaml(project / "template.yaml")
+    assert raw["root"]["children"][1]["text"] == "New"
+    assert all("patch" not in spec for spec in raw["formats"].values())
+    assert [(c.path, c.location) for c in report.changed] == [("template.yaml", None)]
+    assert report.inverse is not None and report.inverse.scope == "shared"
+
+
+def test_scope_format_writes_a_format_patch_and_leaves_the_shared_node_alone(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """`target` says what to validate against; `scope: format` asks for a format-only write.
+
+    An assistant sent `target: {format: story}` expecting a story-only change. The engine
+    applied it to the shared node, changed every format, and returned ok. With the explicit
+    scope the command becomes a `set` op in `formats.story.patch`, so the square keeps the
+    authored value, and the report says where the write landed.
+    """
+    base = _revision(tmp_path, project)
+
+    report = service.apply(
+        _scoped(
+            project,
+            base,
+            [
+                {
+                    "kind": "set_property",
+                    "layer_id": "title",
+                    "keypath": "style.font_size",
+                    "value": "40pt",
+                }
+            ],
+        )
+    )
+
+    assert report.ok, [d.model_dump() for d in report.diagnostics]
+    template = project / "template.yaml"
+    raw = load_yaml(template)
+    assert raw["root"]["children"][1]["style"]["font_size"] == "24pt", "the shared node changed"
+    assert _format_patch(template, "story") == [
+        {"set": "nodes.title.style.font_size", "value": "40pt"}
+    ]
+    assert "patch" not in raw["formats"]["square"]
+    text = template.read_text(encoding="utf-8")
+    assert "# a comment that must survive editing" in text, "round-trip must keep comments"
+    assert text.index("formats:") < text.index("root:"), "round-trip must keep key order"
+    assert [(c.path, c.location) for c in report.changed] == [
+        ("template.yaml", "formats.story.patch")
+    ]
+    assert report.changed_layer_ids == ["title"]
+    assert report.inverse is not None
+    assert report.inverse.scope == "format"
+    assert report.inverse.target.format == "story"
+    undo = report.inverse.commands[0]
+    assert undo.kind == "set_property"
+    assert undo.keypath == "style.font_size"  # type: ignore[union-attr]
+    # The override did not exist before, so undoing drops it rather than writing a value.
+    assert undo.remove is True  # type: ignore[union-attr]
+
+
+def test_scope_format_replaces_an_existing_override_rather_than_appending(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    def scoped(base: str, value: str) -> dict[str, Any]:
+        return _scoped(
+            project,
+            base,
+            [
+                {
+                    "kind": "set_property",
+                    "layer_id": "title",
+                    "keypath": "style.font_size",
+                    "value": value,
+                }
+            ],
+        )
+
+    first = service.apply(scoped(_revision(tmp_path, project), "40pt"))
+    assert first.ok and first.project_revision is not None
+    second = service.apply(scoped(first.project_revision, "44pt"))
+
+    assert second.ok, [d.model_dump() for d in second.diagnostics]
+    assert _format_patch(project / "template.yaml", "story") == [
+        {"set": "nodes.title.style.font_size", "value": "44pt"}
+    ]
+    # Undoing the second edit restores the first override, not the shared value.
+    assert second.inverse is not None
+    undo = second.inverse.commands[0]
+    assert undo.kind == "set_property"
+    assert undo.value == "40pt"  # type: ignore[union-attr]
+    assert undo.remove is False  # type: ignore[union-attr]
+
+
+def test_a_format_scoped_edit_round_trips_through_undo_redo_and_its_inverse(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """History must treat a format-scoped transaction exactly like a shared one."""
+    template = project / "template.yaml"
+    before = template.read_bytes()
+    applied = service.apply(
+        _scoped(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_text", "layer_id": "title", "text": "Story headline"}],
+        )
+    )
+    assert applied.ok, [d.model_dump() for d in applied.diagnostics]
+    after = template.read_bytes()
+    assert after != before
+    assert _format_patch(template, "story") == [
+        {"set": "nodes.title.text", "value": "Story headline"}
+    ]
+
+    undone = service.undo(project)
+    assert undone.ok, undone.diagnostics
+    assert template.read_bytes() == before
+    assert service.history(project).can_redo
+
+    redone = service.redo(project)
+    assert redone.ok, redone.diagnostics
+    assert template.read_bytes() == after
+    assert redone.project_revision == applied.project_revision
+
+    # The engine-authored inverse is executable in its own right and drops the override.
+    assert applied.inverse is not None
+    reverted = service.apply(applied.inverse.model_dump(mode="json"))
+    assert reverted.ok, [d.model_dump() for d in reverted.diagnostics]
+    raw = load_yaml(template)
+    assert "patch" not in raw["formats"]["story"], "an empty patch list must not linger"
+    assert raw["root"]["children"][1]["text"] == "Old headline"
+
+
+def test_geometry_under_scope_format_builds_on_the_formats_effective_values(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """A second drag in the story moves on from where the story left the badge, not from the
+    shared position, and the two drags collapse into one override."""
+
+    def drag(base: str, dx: float, dy: float) -> dict[str, Any]:
+        return _scoped(
+            project,
+            base,
+            [{"kind": "translate", "layer_ids": ["badge"], "dx_pt": dx, "dy_pt": dy}],
+        )
+
+    first = service.apply(drag(_revision(tmp_path, project), 12.0, -6.0))
+    assert first.ok and first.project_revision is not None
+    second = service.apply(drag(first.project_revision, 5.0, 2.0))
+
+    assert second.ok, [d.model_dump() for d in second.diagnostics]
+    assert _format_patch(project / "template.yaml", "story") == [
+        {"set": "nodes.badge.transform", "value": {"translate": [17.0, -4.0]}}
+    ]
+    raw = load_yaml(project / "template.yaml")
+    assert "transform" not in raw["root"]["children"][2], "the shared badge moved"
+
+
+def test_resize_and_rotate_under_scope_format_write_the_narrowest_override(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """A field the authored node already has is overridden at that field; one it lacks is
+    overridden at the nearest container the node does have."""
+    report = service.apply(
+        _scoped(
+            project,
+            _revision(tmp_path, project),
+            [
+                {"kind": "resize", "layer_id": "badge", "w_pt": 40.0, "h_pt": 20.0},
+                {"kind": "rotate", "layer_id": "badge", "degrees": 30.0},
+                {"kind": "set_visibility", "layer_id": "background", "visible": False},
+            ],
+        )
+    )
+
+    assert report.ok, [d.model_dump() for d in report.diagnostics]
+    assert _format_patch(project / "template.yaml", "story") == [
+        {"set": "nodes.badge.constraints.size.w", "value": "40pt"},
+        {"set": "nodes.badge.constraints.size.h", "value": "20pt"},
+        {"set": "nodes.badge.transform", "value": {"rotate": 30.0}},
+        {"set": "nodes.background.visible", "value": False},
+    ]
+    assert report.changed_layer_ids == ["background", "badge"]
+
+
+def test_scope_format_without_a_target_format_is_refused(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    before = (project / "template.yaml").read_bytes()
+
+    report = service.apply(
+        _scoped(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_text", "layer_id": "title", "text": "x"}],
+            format_name=None,
+        )
+    )
+
+    assert report.ok is False
+    assert [d.code for d in report.diagnostics] == ["ARC-EDT-013"]
+    assert (project / "template.yaml").read_bytes() == before
+
+
+def test_scope_format_naming_a_format_the_template_lacks_is_refused(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    """Patching a format that does not exist would conjure a canvas-less format spec."""
+    before = (project / "template.yaml").read_bytes()
+
+    report = service.apply(
+        _scoped(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_text", "layer_id": "title", "text": "x"}],
+            format_name="billboard",
+        )
+    )
+
+    assert report.ok is False
+    assert [d.code for d in report.diagnostics] == ["ARC-EDT-013"]
+    detail = " ".join(f"{d.message} {d.hint or ''}" for d in report.diagnostics)
+    assert "billboard" in detail
+    assert "square" in detail and "story" in detail, "the formats that exist must be named"
+    assert (project / "template.yaml").read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        {"kind": "reorder", "layer_id": "badge", "parent_id": "root", "index": 0},
+        {"kind": "reparent", "layer_id": "badge", "parent_id": "root", "index": 0},
+        {"kind": "delete", "layer_ids": ["badge"]},
+        {"kind": "duplicate", "layer_id": "badge"},
+        {"kind": "group", "layer_ids": ["title", "badge"], "group_id": "cluster"},
+        {"kind": "splice_children", "parent_id": "root", "index": 0, "entries": []},
+        {"kind": "set_display_name", "layer_id": "title", "display_name": "Headline"},
+    ],
+    ids=lambda command: str(command["kind"]),
+)
+def test_commands_that_cannot_be_scoped_to_one_format_are_refused(
+    service: EditorService, project: Path, tmp_path: Path, command: dict[str, Any]
+) -> None:
+    """Structure is shared by construction, and a display name is project-wide UI metadata.
+    Applying either under a format scope would be the silent shared write this fix removes."""
+    before = (project / "template.yaml").read_bytes()
+
+    report = service.apply(_scoped(project, _revision(tmp_path, project), [command]))
+
+    assert report.ok is False
+    assert [d.code for d in report.diagnostics] == ["ARC-EDT-014"]
+    detail = " ".join(f"{d.message} {d.hint or ''}" for d in report.diagnostics)
+    assert command["kind"] in detail
+    assert "shared" in detail
+    assert (project / "template.yaml").read_bytes() == before
+
+
+def test_a_lock_holds_under_scope_format(
+    service: EditorService, project: Path, tmp_path: Path
+) -> None:
+    from arcavex.kernel.api import LayerUIMetadata, ProjectUIMetadata
+
+    projects = _projects(tmp_path)
+    projects.save_ui_metadata(
+        projects.load(project),
+        ProjectUIMetadata(layers={"badge": LayerUIMetadata(locked=True)}),
+    )
+    before = (project / "template.yaml").read_bytes()
+
+    report = service.apply(
+        _scoped(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_visibility", "layer_id": "badge", "visible": False}],
+        )
+    )
+
+    assert report.ok is False
+    assert [d.code for d in report.diagnostics] == ["ARC-EDT-006"]
+    assert (project / "template.yaml").read_bytes() == before
+
+
+def test_scope_format_edits_the_formats_sidecar_of_a_split_template(
+    service: EditorService, tmp_path: Path
+) -> None:
+    """A split template keeps `formats` in formats.yaml; the override has to land there.
+
+    Writing a `formats:` section into template.yaml instead would define the section twice,
+    which the loader refuses (ARC-TPL-097) -- a confusing failure for an edit that named
+    nothing but a node and a format.
+    """
+    project = tmp_path / "split"
+    (project / "data").mkdir(parents=True)
+    head, _, rest = _TEMPLATE.partition("formats:\n")
+    formats_block, _, tail = rest.partition("preview_data:")
+    (project / "template.yaml").write_text(head + "preview_data:" + tail, encoding="utf-8")
+    (project / "formats.yaml").write_text(textwrap.dedent(formats_block), encoding="utf-8")
+    (project / "project.yaml").write_text(_PROJECT_MANIFEST, encoding="utf-8")
+    (project / "data" / "data.yaml").write_text("{}\n", encoding="utf-8")
+    template_before = (project / "template.yaml").read_bytes()
+    sidecar_before = (project / "formats.yaml").read_bytes()
+
+    report = service.apply(
+        _scoped(
+            project,
+            _revision(tmp_path, project),
+            [{"kind": "set_text", "layer_id": "title", "text": "Story headline"}],
+        )
+    )
+
+    assert report.ok, [d.model_dump() for d in report.diagnostics]
+    assert (project / "template.yaml").read_bytes() == template_before
+    assert load_yaml(project / "formats.yaml")["story"]["patch"] == [
+        {"set": "nodes.title.text", "value": "Story headline"}
+    ]
+    assert [(c.path, c.location) for c in report.changed] == [
+        ("formats.yaml", "formats.story.patch")
+    ]
+
+    undone = service.undo(project)
+    assert undone.ok, undone.diagnostics
+    assert (project / "formats.yaml").read_bytes() == sidecar_before

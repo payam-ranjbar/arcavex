@@ -16,8 +16,8 @@ Arcavex engine 0.1.0
 ## 1. Render the hello poster
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square -o hello.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square -o hello.png
 Rendered hello.png
 ```
 
@@ -25,8 +25,8 @@ The `-o` extension chooses the exporter. With no `-o`, Arcavex writes a determin
 and reports it first (on failure too, so you always learn what would have been written):
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square
 inferred: output=hello-poster.square.png
 Rendered hello-poster.square.png
 ```
@@ -37,9 +37,9 @@ Content is separate from the template — edit data, not the node tree. Copy the
 headline, and re-render:
 
 ```console
-$ cp event.yaml mydata.yaml
+$ cp examples/hello-poster/data.yaml mydata.yaml
 # edit mydata.yaml:  title: "My Event"
-$ arcavex render poster.yaml \
+$ arcavex render examples/hello-poster/template.yaml \
     --data mydata.yaml --format square -o mine.png
 Rendered mine.png
 ```
@@ -48,7 +48,7 @@ To see the contract a template expects before you edit — its variables, format
 functions — ask it:
 
 ```console
-$ arcavex template inspect poster.yaml
+$ arcavex template inspect examples/hello-poster/template.yaml
 variables (2):
   title: string (required) Main headline
   subtitle: string (optional) Supporting line under the title
@@ -63,28 +63,49 @@ nodes:
 The hello poster declares two canvases. Switch with `--format`:
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format story -o hello-story.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format story -o hello-story.png
 Rendered hello-story.png
 ```
 
 ## 4. Apply a locale
 
-The bilingual IPEN example declares `en` and `fa`. Requesting `--locale fa` applies its direction
-(RTL), digit policy (Persian digits), font stack, and any locale data overlay — reported as an
-inference:
+The bilingual Future Archive example declares `en` and `fa`, and ships a data file for each. Its
+photo treatment is an effect that ships *with the example* rather than with the engine, so add and
+enable that extension once before rendering it (without this the render refuses with
+`ARC-FX-910`):
+
+```console
+$ arcavex ext add examples/future-archive-poster/extensions/archive-print
+Added archive-print (enable it next)
+$ arcavex ext enable archive-print
+Enabled archive-print (active on the next run)
+```
+
+Requesting `--locale fa` with the Farsi data applies the locale's direction (RTL), digit policy
+(Persian digits), font stack, and its layout patch:
 
 ```console
 $ arcavex render examples/future-archive-poster/template.yaml \
-    --data examples/future-archive-poster/data/en.yaml --format square --locale fa -o ipen-fa.png
-inferred: data_overlay=data.fa.yaml
-Rendered ipen-fa.png
+    --data examples/future-archive-poster/data/fa.yaml --format square --locale fa -o fa-square.png
+Rendered fa-square.png
+```
+
+A locale is rules, not translation. Render the *English* data under `--locale fa` and the engine
+warns that none of the copy is in the locale's script — the words stay English, set right-to-left
+with Persian digits — rather than pretending that was a Farsi poster:
+
+```console
+$ arcavex render examples/future-archive-poster/template.yaml \
+    --data examples/future-archive-poster/data/en.yaml --format square --locale fa -o odd.png
+WARNING ARC-TPL-102 Locale 'fa' was applied but none of the copy is in its script …
+Rendered odd.png
 ```
 
 Requesting a locale the template does not declare is a located error, never a silent ignore:
 
 ```console
-$ arcavex render poster.yaml … --locale zz …
+$ arcavex render examples/hello-poster/template.yaml … --locale zz …
 ERROR ARC-TPL-100 Template does not declare locale 'zz'
   hint: Declare it under 'locales:', or use one of: (none).
 ```
@@ -96,24 +117,38 @@ sets lossy quality (JPEG, lossy WebP; default 90); `--lossless` selects lossless
 raster-embedded RGB at the target DPI with correct physical page size and trim/bleed boxes.
 
 ```console
-$ arcavex render poster.yaml -d event.yaml \
+$ arcavex render examples/hello-poster/template.yaml -d examples/hello-poster/data.yaml \
     -f square -o out.jpg --quality 85
 Rendered out.jpg
 
-$ arcavex render poster.yaml -d event.yaml \
+$ arcavex render examples/hello-poster/template.yaml -d examples/hello-poster/data.yaml \
     -f square -o out.webp --lossless
 Rendered out.webp
 
-$ arcavex render examples/future-archive-poster/template.yaml -d examples/future-archive-poster/data/en.yaml \
-    -f a4 --locale fa -o poster.pdf
-inferred: data_overlay=data.fa.yaml
+$ arcavex render examples/future-archive-poster/template.yaml -d examples/future-archive-poster/data/fa.yaml \
+    -f portrait --locale fa -o poster.pdf
 Rendered poster.pdf
 ```
 
 Every format is deterministic: identical inputs produce byte-identical files, with no embedded
 timestamps or run ids.
 
-## 6. Use a font that is not bundled
+## 6. Watch it change
+
+`preview` renders to a stable path under the Arcavex home instead of a file you name, and with
+`--watch` it keeps re-rendering there on every save of the template or its data. Open the printed
+path in a viewer that reloads when a file changes (most image viewers and browsers do), then edit:
+the picture follows about a second after each save. This is the loop to use while someone else, or
+an AI assistant, is editing the files.
+
+```console
+$ arcavex preview examples/hello-poster/template.yaml --data mydata.yaml --format square --watch
+```
+
+The command runs until you stop it (Ctrl-C). Without `--watch` it renders once and prints the same
+stable path; `--json` carries it as `output_path`.
+
+## 7. Use a font that is not bundled
 
 Four families ship with the engine, and they are the only fonts a template may name until you
 install more — system fonts are never used, because determinism requires it. `font list` shows
@@ -151,19 +186,19 @@ Lalezar, Vazirmatn. Install another with 'arcavex font add <path/to/font.ttf>'.
 
 `arcavex font remove FAMILY` removes one you installed; a bundled family is refused.
 
-## 7. Ask where a value came from, and what an error means
+## 8. Ask where a value came from, and what an error means
 
 `template inspect --resolved` reports the resolved direction/digits and each applied patch with its
 originating layer — the answer to "why is this value what it is?":
 
 ```console
 $ arcavex template inspect examples/future-archive-poster/template.yaml \
-    --resolved --format a4 --locale fa
-resolved format=a4 locale=fa direction=rtl digits=fa style=-
-  nodes.hero.constraints.size.h = 38% <- format:a4 (set)
-  nodes.title.style.font_size = 48pt <- format:a4 (set)
+    --resolved --format portrait --locale fa
+resolved format=portrait locale=fa direction=rtl digits=fa style=future-archive@0.1.0
+  nodes.photo-field.constraints.size.w = 540px <- format:portrait (set)
+  nodes.main-photo.constraints.size.w = 540px <- format:portrait (set)
+  nodes.title-primary.style.font_size = 126px <- format:portrait (set)
   …
-  nodes.accent-bar.transform.rotate = 4 <- locale:fa (set)
 ```
 
 Any diagnostic code the engine emits can be explained on the spot:
@@ -182,8 +217,8 @@ reference with '| default(...)'.
 - **Author your own template** → [tutorials/building-a-template.md](tutorials/building-a-template.md)
   (start from `arcavex template new`).
 - **Go bilingual** → the `examples/future-archive-poster/` system, which renders four ratios in
-  reference poster as a worked example.
+  two writing directions from one node tree, as a worked example.
 - **The full authoring vocabulary** → [template-schema.md](template-schema.md).
 - **Every command and flag** → [cli.md](cli.md).
 - **The flagship example** → the [reference poster](../examples/future-archive-poster/README.md),
-  5 formats × 2 locales from one node tree.
+  four formats × two locales from one node tree.

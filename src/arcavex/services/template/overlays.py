@@ -24,6 +24,20 @@ from arcavex.services.template.loader import line_of, node_line
 
 _DELETE = "!delete"
 
+#: The path root every patch layer may address: ``nodes.<id>[.<field>...]``.
+NODE_ROOT = "nodes"
+#: Template sections the top-level ``template patch`` operation may address besides nodes, each
+#: as ``<section>.<name>[.<field>...]`` (``style`` is a whole value, so it takes no name).
+TEMPLATE_SECTIONS: tuple[str, ...] = ("formats", "variables", "preview_data", "locales")
+STYLE_ROOT = "style"
+#: What a patch *embedded* in a format, a locale, or a project override may address. Keeping
+#: these node-only is deliberate: a format patch that could rewrite ``formats`` would make the
+#: layer order unreadable, and ``template inspect --resolved`` could no longer say where a
+#: canvas came from.
+NODES_ONLY: frozenset[str] = frozenset({NODE_ROOT})
+#: What the top-level ``template patch`` operation (CLI and MCP) may address.
+TEMPLATE_PATCH_ROOTS: frozenset[str] = frozenset({NODE_ROOT, *TEMPLATE_SECTIONS, STYLE_ROOT})
+
 
 @dataclass
 class PatchRecord:
@@ -133,6 +147,9 @@ def apply_patches(
     keypath_base: str,
     log: PatchLog,
     source_map: NodeSourceMap | None = None,
+    *,
+    allowed_roots: frozenset[str] = NODES_ONLY,
+    document: Any = None,
 ) -> None:
     """Apply an ordered patch list to the authored node AST in place.
 
@@ -143,6 +160,13 @@ def apply_patches(
         template_file: The source file, for located diagnostics.
         keypath_base: The keypath prefix of the patch list, for diagnostics.
         log: The provenance log to append applied operations to.
+        source_map: Node provenance to extend for inserted/replaced nodes.
+        allowed_roots: The path roots this layer may address. Every embedded layer (format,
+            locale, project override) keeps the default ``nodes``-only grammar; the top-level
+            ``template patch`` operation passes :data:`TEMPLATE_PATCH_ROOTS` so an author can
+            declare a format, a variable, preview data, a locale, or the style pack.
+        document: The whole template mapping, required whenever ``allowed_roots`` names a
+            template section — that is where those sections live (mutated in place).
     """
     for i, op in enumerate(ops):
         kp = f"{keypath_base}[{i}]"
@@ -158,13 +182,19 @@ def apply_patches(
             )
         verb = verbs[0]
         path = op[verb]
-        if not isinstance(path, str) or not path.startswith("nodes."):
-            raise _patch_error(
-                template_file, kp, line_of(op, verb),
-                f"patch path {path!r} must be 'nodes.<id>[.<field>...]'",
-            )
-        node_id, segments = _parse_path(path)
         line = line_of(op, verb)
+        root = _path_root(path, allowed_roots, template_file, kp, line)
+        if root != NODE_ROOT:
+            if document is None:  # pragma: no cover - a caller bug, not an authoring error
+                raise _patch_error(
+                    template_file, kp, line,
+                    f"patch path {path!r} addresses a template section, but this layer was "
+                    "given no template document to apply it to",
+                )
+            _apply_section_op(document, verb, path, op, template_file, kp, line)
+            log.add(layer, verb, path, op.get("value") if verb == "set" else None)
+            continue
+        node_id, segments = _parse_path(path)
         if verb == "set":
             value = op.get("value")
             _do_set(root_map, node_id, segments, value, template_file, kp, line)
@@ -177,6 +207,98 @@ def apply_patches(
             if source_map is not None:
                 index_node_sources(op.get("node"), template_file, f"{kp}.node", source_map)
         log.add(layer, verb, path, op.get("value") if verb == "set" else None)
+
+
+def _path_root(
+    path: Any, allowed_roots: frozenset[str], file: Path, kp: str, line: int | None
+) -> str:
+    """Return the root a patch path addresses, refusing anything outside ``allowed_roots``.
+
+    ``nodes`` and the four template sections need a second segment (the node id or the entry
+    name); ``style`` is a whole value and stands alone.
+    """
+    if not isinstance(path, str) or not path:
+        raise _patch_error(file, kp, line, _grammar_message(path, allowed_roots))
+    parts = path.split(".")
+    root = parts[0]
+    if root not in allowed_roots:
+        raise _patch_error(file, kp, line, _grammar_message(path, allowed_roots))
+    if root != STYLE_ROOT and (len(parts) < 2 or not parts[1]):
+        placeholder = "<id>" if root == NODE_ROOT else "<name>"
+        raise _patch_error(
+            file, kp, line,
+            f"patch path {path!r} needs a {'node id' if root == NODE_ROOT else 'entry name'}: "
+            f"'{root}.{placeholder}[.<field>...]'",
+        )
+    return root
+
+
+def _grammar_message(path: Any, allowed_roots: frozenset[str]) -> str:
+    if allowed_roots == NODES_ONLY:
+        return (
+            f"patch path {path!r} must be 'nodes.<id>[.<field>...]' (a patch embedded in a "
+            "format, a locale, or a project override addresses nodes only; template sections "
+            "such as 'formats' are edited with the top-level 'template patch' operation)"
+        )
+    return (
+        f"patch path {path!r} must be 'nodes.<id>[.<field>...]', 'formats.<name>[.<field>...]', "
+        "'variables.<name>[.<field>...]', 'preview_data.<key>[.<field>...]', "
+        "'locales.<name>[.<field>...]', or 'style'"
+    )
+
+
+def _apply_section_op(
+    document: Any, verb: str, path: str, op: dict[str, Any],
+    file: Path, kp: str, line: int | None,
+) -> None:
+    """Apply a ``set``/``remove`` to a template section (``formats.<name>...``, ``style``).
+
+    The section mapping is created when a ``set`` names an entry in a section the template
+    has not declared yet (a scaffold has no ``locales:``), placed ahead of ``root:`` so the
+    file still reads top-down. Deeper intermediate segments must exist, as for node fields;
+    list segments take an index, so ``formats.a4.patch.0.value`` reaches one embedded op.
+    """
+    section, *segments = path.split(".")
+    if verb in ("insert_before", "insert_after"):
+        raise _patch_error(
+            file, kp, line,
+            f"{verb} inserts a sibling node, so its path must be 'nodes.<id>'; to add an "
+            f"entry to {section!r} use 'set' with the path '{section}.<name>' and a 'value'",
+        )
+    if not isinstance(document, dict):
+        raise _patch_error(file, kp, line, "the template root is not a mapping")
+    if verb == "set":
+        value = op.get("value")
+        if not segments:  # the whole 'style' value
+            _insert_section(document, section, value)
+            return
+        container = document.get(section)
+        if container is None:
+            container = {}
+            _insert_section(document, section, container)
+        target: Any = container
+        for seg in segments[:-1]:
+            target = _step(target, seg, file, kp, line)
+        _assign(target, segments[-1], value, file, kp, line)
+        return
+    if section not in document:
+        raise _patch_error(file, kp, line, f"unknown patch path segment {section!r}")
+    if not segments:
+        del document[section]
+        return
+    target = document[section]
+    for seg in segments[:-1]:
+        target = _step(target, seg, file, kp, line)
+    _delete_leaf(target, segments[-1], file, kp, line)
+
+
+def _insert_section(document: Any, section: str, value: Any) -> None:
+    """Add (or replace) a top-level section, keeping ``root:`` the last key where possible."""
+    if section in document or not hasattr(document, "insert") or "root" not in document:
+        document[section] = value
+        return
+    position = list(document.keys()).index("root")
+    document.insert(position, section, value)
 
 
 def _parse_path(path: str) -> tuple[str, list[str]]:
@@ -264,13 +386,18 @@ def _do_remove(
     target = _node_of(entry)
     for seg in segments[:-1]:
         target = _step(target, seg, file, kp, line)
+    _delete_leaf(target, segments[-1], file, kp, line)
+
+
+def _delete_leaf(target: Any, seg: str, file: Path, kp: str, line: int | None) -> None:
+    """Delete the final segment: a list position (range-checked) or an existing mapping key."""
     if isinstance(target, list):
-        _step(target, segments[-1], file, kp, line)  # range-checks, and reports the same way
-        del target[int(segments[-1])]
+        _step(target, seg, file, kp, line)  # range-checks, and reports the same way
+        del target[int(seg)]
         return
-    if not isinstance(target, dict) or segments[-1] not in target:
-        raise _patch_error(file, kp, line, f"unknown patch path field {segments[-1]!r}")
-    del target[segments[-1]]
+    if not isinstance(target, dict) or seg not in target:
+        raise _patch_error(file, kp, line, f"unknown patch path field {seg!r}")
+    del target[seg]
 
 
 def _do_insert(
@@ -357,6 +484,8 @@ def _patch_error(file: Path, keypath: str, line: int | None, message: str) -> Di
             file=str(file),
             keypath=keypath,
             line=line,
-            hint="Patch ops are set/remove/insert_before/insert_after addressing 'nodes.<id>'.",
+            hint="Op shapes: {set: 'nodes.<id>.<field>', value: <v>} | "
+            "{remove: 'nodes.<id>[.<field>]'} | "
+            "{insert_before|insert_after: 'nodes.<id>', node: {...}}.",
         )
     )

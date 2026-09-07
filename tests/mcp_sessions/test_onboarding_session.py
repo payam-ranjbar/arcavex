@@ -13,6 +13,9 @@ cannot quietly reopen.
 
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -102,6 +105,26 @@ def test_a_template_can_be_scaffolded_over_mcp(tools: ArcavexTools, tmp_path: Pa
 
     assert report.ok, report.diagnostics
     assert (tmp_path / "seed" / "template.yaml").is_file()
+
+
+def test_a_print_size_can_be_chosen_when_scaffolding_over_mcp(
+    tools: ArcavexTools, tmp_path: Path
+) -> None:
+    """A poster brief usually names a paper size; the scaffold must be able to start there."""
+    report = tools.template_new(target=str(tmp_path / "poster"), formats=["a3", "square"])
+
+    assert report.ok, report.diagnostics
+    assert report.formats == ["a3", "square"] and report.format == "a3"
+    checked = tools.template_validate(template=str(tmp_path / "poster"), format="a3")
+    assert checked.ok, [d.model_dump() for d in checked.diagnostics]
+
+
+def test_an_unknown_preset_names_the_real_ones(tools: ArcavexTools, tmp_path: Path) -> None:
+    report = tools.template_new(target=str(tmp_path / "poster"), formats=["postcard"])
+
+    assert not report.ok
+    diag = report.diagnostics[0]
+    assert diag.code == "ARC-TPL-072" and diag.hint is not None and "tabloid" in diag.hint
 
 
 def test_a_scaffolded_template_validates_and_is_editable(
@@ -222,3 +245,68 @@ def test_rerunning_an_unknown_run_says_which_ones_exist(
 
     assert refused.ok is False
     assert any("Recorded runs" in (d.hint or "") for d in refused.diagnostics)
+
+
+# ------------------------------------------------------------------ first contact is clean
+
+
+def test_the_handshake_reports_the_engine_version_not_the_sdk_version() -> None:
+    """``serverInfo.version`` is what a client pins; it must be the engine's, not the library's."""
+    from arcavex import __version__
+
+    server = build_mcp_server(build_facade())
+
+    options = server._mcp_server.create_initialization_options()  # noqa: SLF001
+
+    assert options.server_version == __version__
+
+
+def test_serving_prints_no_library_warning_to_stderr() -> None:
+    """A warning on every spawn reads as "broken" to someone typing `arcavex mcp serve` first time.
+
+    pydantic-settings warns about an incomplete field in the MCP SDK's own settings model. The
+    model is built lazily, so the warning is raised when a server is *constructed*, not only when
+    the module is imported -- an earlier version of this test imported the module, passed, and left
+    every real `mcp serve` still printing it. This one spawns the server the way a host does and
+    reads what the host would read.
+
+    The assertion names the warning rather than requiring empty stderr, because Skia may also print
+    its harmless ICU probe line here (see `arcavex doctor`, which explains it).
+    """
+    completed = subprocess.run(
+        [sys.executable, "-m", "arcavex", "mcp", "serve"],
+        input=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"},
+                },
+            }
+        )
+        + "\n",
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=180,
+    )
+
+    assert '"serverInfo"' in completed.stdout, completed.stdout[:400]
+    assert "IncompleteFieldDefinitionWarning" not in completed.stderr, completed.stderr
+    assert "pydantic_settings" not in completed.stderr, completed.stderr
+
+
+def test_shape_generators_are_listed_over_mcp(tools: ArcavexTools) -> None:
+    """A shape node's 'generator:' vocabulary was learnable only from ARC-FX-912 refusals."""
+    report = tools.shape_list()
+
+    assert report.ok, report.diagnostics
+    by_name = {s.name: s for s in report.shapes}
+    assert {"starburst", "speech_bubble", "qr_code"} <= set(by_name)
+    params = {p.name: p for p in by_name["starburst"].params}
+    assert params["points"].default == 12 and params["points"].constraint == ">=3, <=120"
+    assert "arcavex_shape_list" in _INSTRUCTIONS
+    assert "shape_list" in {method for _name, method in _TOOL_METHODS}

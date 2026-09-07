@@ -73,3 +73,30 @@ def test_split_refuses_when_already_split(tmp_path: Path) -> None:
     second = facade.split_template(target)
     assert not second.ok
     assert any(d.code == "ARC-TPL-071" for d in second.diagnostics)
+
+
+def test_scaffold_readme_is_transport_neutral(tmp_path: Path) -> None:
+    """Each step names the CLI command and the MCP tool; the guide it points at is served."""
+    facade = build_facade()
+    target = tmp_path / "card"
+    assert facade.scaffold_template("card", target).ok
+    readme = (target / "README.md").read_text(encoding="utf-8")
+    for tool in (
+        "arcavex_render",
+        "arcavex_render_preview",
+        "arcavex_template_inspect",
+        "arcavex_template_patch",
+        "arcavex_template_validate",
+        "arcavex_layout_inspect",
+        "arcavex_data_set",
+        "arcavex_diagnostic_explain",
+        "arcavex_shape_list",
+    ):
+        assert tool in readme, tool
+    assert "skill://arcavex-design-studio/SKILL.md" in readme
+    assert "project README" not in readme
+    assert "arcavex template patch card --set nodes.title.style.color" in readme
+    assert '"width": "297mm"' in readme  # the print-format example is real JSON
+    assert "TITLE GOES HERE" in readme and "ARC-PRJ-015" in readme
+    template = (target / "template.yaml").read_text(encoding="utf-8")
+    assert "Phase 2" not in template and "template README" not in template

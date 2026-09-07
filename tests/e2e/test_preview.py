@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import threading
 import time
@@ -31,6 +32,62 @@ def test_preview_path_is_stable(tmp_path: Path) -> None:
     assert a.ok and b.ok
     assert a.output_path == b.output_path
     assert a.compile_ms is not None and a.render_ms is not None
+
+
+def test_preview_path_folds_every_pixel_changing_input(tmp_path: Path) -> None:
+    """Two variants of one template previewed side by side must land in two files.
+
+    The stable path used to key on the template alone, so ``--data b.yaml`` silently overwrote
+    the ``--data a.yaml`` preview a person was still looking at, and the file flipped between the
+    two. Every input that changes the pixels now takes part in the name, the same inputs always
+    give the same path (``--watch`` and the desktop re-read one file across renders), and the
+    plain template + format case keeps its historical path so existing viewers stay pointed at
+    the same file.
+    """
+    facade = build_facade()
+    template, data = _make_template(tmp_path)
+    other = tmp_path / "other.yaml"
+    other.write_text("title: Two\nsubtitle: second\n", encoding="utf-8")
+
+    plain = facade.preview_path(template, "square")
+    historical_key = hashlib.sha256(str(template.resolve()).encode("utf-8")).hexdigest()[:16]
+    assert plain.name == f"{historical_key}.square.png"
+
+    full = dict(data=data, locale="fa", dpi=96, style="paper@1.0.0")
+    assert facade.preview_path(template, "square", **full) == facade.preview_path(
+        template, "square", **full
+    )
+    # The directory and file spellings of a template still agree, variant or not (CR-4).
+    assert facade.preview_path(tmp_path, "square", data=data) == facade.preview_path(
+        template, "square", data=data
+    )
+
+    variants = [
+        plain,
+        facade.preview_path(template, "square", data=data),
+        facade.preview_path(template, "square", data=other),
+        facade.preview_path(template, "square", data=data, locale="fa"),
+        facade.preview_path(template, "square", data=data, dpi=72),
+        facade.preview_path(template, "square", data=data, style="./style.yaml"),
+    ]
+    assert len(set(variants)) == len(variants), variants
+    assert all(v.parent == plain.parent for v in variants)
+
+
+def test_two_data_variants_preview_to_two_files(tmp_path: Path) -> None:
+    facade = build_facade()
+    template, data = _make_template(tmp_path)
+    other = tmp_path / "other.yaml"
+    other.write_text("title: Two\nsubtitle: second\n", encoding="utf-8")
+    a = facade.render_preview(template, data, "square")
+    b = facade.render_preview(template, other, "square")
+    assert a.ok and b.ok
+    assert a.output_path != b.output_path
+    assert Path(a.output_path).is_file() and Path(b.output_path).is_file()
+    assert a.content_sha256 != b.content_sha256
+    # A re-render of the first variant lands back on its own file, untouched by the second.
+    again = facade.render_preview(template, data, "square")
+    assert again.output_path == a.output_path
 
 
 def test_preview_reports_timings_under_two_seconds(tmp_path: Path) -> None:

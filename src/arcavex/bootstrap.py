@@ -37,6 +37,7 @@ from arcavex.services.fonts import FontService
 from arcavex.services.fsutil import home_dir
 from arcavex.services.layers import LayerService
 from arcavex.services.library import Library
+from arcavex.services.mcp_hosts import McpHostService
 from arcavex.services.orchestrator import IR_VERSION, Orchestrator
 from arcavex.services.pipeline import render_to_file
 from arcavex.services.project_snapshot import ProjectSnapshotService
@@ -214,6 +215,8 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         # the desktop handshake, and the directory previews are actually written to identical.
         preview_root=home_dir() / "cache" / "preview",
         skills=SkillService(),
+        # Same principle: the hosts' own config locations are read on every call.
+        mcp_hosts=McpHostService(),
         budget=budget,
         engine_version=version,
         editor=_editor_service(ProjectService(Library()), text_service, compiler),

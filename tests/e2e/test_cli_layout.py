@@ -42,7 +42,8 @@ def test_layout_inspect_human_shows_anchors() -> None:
 
 
 def _overlap_template(tmp_path: Path) -> Path:
-    """A shadowed strip spilling over a clean neighbour, plus a genuine 4pt text collision."""
+    """A shadowed strip spilling over a clean neighbour, a genuine 4pt text collision, and two
+    swatches grazing by 1pt."""
     template = tmp_path / "overlaps.yaml"
     template.write_text(
         "version: 0.1.0\n"
@@ -66,7 +67,15 @@ def _overlap_template(tmp_path: Path) -> Path:
         "    - id: venue-2\n      type: text\n      text: Second venue line\n"
         "      style: {font: Inter, font_size: 14pt, color: '#000000'}\n"
         "      constraints: {anchor: {top: venue-1.bottom-4pt, left: parent.left+20pt}, "
-        "size: {w: 200pt, h: 40pt}}\n",
+        "size: {w: 200pt, h: 40pt}}\n"
+        "    - id: nick-1\n      type: shape\n      shape: rect\n"
+        "      style: {fill: '#33cc66'}\n"
+        "      constraints: {anchor: {top: parent.top+300pt, left: parent.left+20pt}, "
+        "size: {w: 100pt, h: 40pt}}\n"
+        "    - id: nick-2\n      type: shape\n      shape: rect\n"
+        "      style: {fill: '#66cc33'}\n"
+        "      constraints: {anchor: {top: nick-1.bottom-1pt, left: parent.left+20pt}, "
+        "size: {w: 100pt, h: 40pt}}\n",
         encoding="utf-8",
     )
     return template
@@ -88,17 +97,23 @@ def test_layout_inspect_human_prints_both_bounds_and_paint_bounds(tmp_path: Path
     assert max(len(line) for line in proc.stdout.splitlines()) <= 100
 
 
-def test_layout_inspect_human_demotes_halo_below_content(tmp_path: Path) -> None:
-    # The content collision gets the heading; the shadow spill is a subordinate section.
+def test_layout_inspect_human_demotes_touch_and_halo_below_content(tmp_path: Path) -> None:
+    # The content collision gets the heading; the graze and the shadow spill are subordinate
+    # sections, in that order, so the one real problem is the first line under the heading.
     proc = _run(
         ["layout", "inspect", str(_overlap_template(tmp_path)), "--format", "sq", "--no-color"]
     )
     assert proc.returncode == 0, proc.stderr
     out = proc.stdout
-    assert "overlaps: 1 content, 1 effect spill" in out
+    assert "overlaps: 1 content, 1 touch, 1 effect spill" in out
     assert "effect spill (paint bounds only" in out
-    # The content collision is listed above the spill subheading, not buried among it.
-    assert out.index("venue-1 ∩ venue-2") < out.index("effect spill (paint bounds only")
+    # The content collision is listed above both subheadings, not buried among them.
+    assert (
+        out.index("venue-1 ∩ venue-2")
+        < out.index("touch (")
+        < out.index("nick-1 ∩ nick-2")
+        < out.index("effect spill (paint bounds only")
+    )
 
 
 def test_layout_inspect_json_carries_overlap_kind(tmp_path: Path) -> None:
@@ -112,7 +127,31 @@ def test_layout_inspect_json_carries_overlap_kind(tmp_path: Path) -> None:
     assert by_pair == {
         frozenset(("strip", "tag")): "halo",
         frozenset(("venue-1", "venue-2")): "content",
+        frozenset(("nick-1", "nick-2")): "touch",
     }
+
+
+def test_layout_inspect_human_shows_the_sizes_a_shrink_moved_between(tmp_path: Path) -> None:
+    # A flagged shrink names both sizes and the loss, not only the box the text landed in.
+    template = tmp_path / "shrink.yaml"
+    template.write_text(
+        "version: 0.1.0\n"
+        "formats: {sq: {canvas: {width: 400px, height: 400px, dpi: 72}}}\n"
+        "root:\n  type: group\n  id: root\n  children:\n"
+        "    - id: headline\n      type: text\n      text: A headline that must shrink hard\n"
+        "      style: {font: Inter, font_size: 48pt, color: '#000000'}\n"
+        "      fit: {policy: shrink_to_fit, min_size: 10pt, max_lines: 1}\n"
+        "      constraints: {anchor: {top: parent.top+20pt, left: parent.left+20pt}, "
+        "size: {w: 300pt, h: fit_content}}\n",
+        encoding="utf-8",
+    )
+    proc = _run(["layout", "inspect", str(template), "--format", "sq", "--no-color"])
+    assert proc.returncode == 0, proc.stderr
+    (line,) = [ln for ln in proc.stdout.splitlines() if "overflow: shrunk" in ln]
+    assert "overflow: shrunk 48.0pt → " in line
+    assert "%) into 300.0x" in line
+    # Rich wraps at 80 columns when stdout is not a terminal; the line must fit unbroken.
+    assert max(len(ln) for ln in proc.stdout.splitlines()) <= 80
 
 
 def test_render_debug_flag(tmp_path: Path) -> None:

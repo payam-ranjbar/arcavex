@@ -40,14 +40,17 @@
     "changed": [
       {
         "change": "modified",
+        "location": "formats.story.patch",
         "path": "template.yaml"
       },
       {
         "change": "created",
+        "location": null,
         "path": "overrides/square.patch.yaml"
       },
       {
         "change": "deleted",
+        "location": null,
         "path": "overrides/story.patch.yaml"
       }
     ],
@@ -185,6 +188,7 @@
         }
       ],
       "project_path": "<arcavex-fixture-project>",
+      "scope": "shared",
       "target": {
         "format": "poster-a3",
         "locale": "fa-IR"
@@ -310,6 +314,7 @@
       }
     ],
     "project_path": "<arcavex-fixture-project>",
+    "scope": "shared",
     "target": {
       "format": "poster-a3",
       "locale": "fa-IR"
@@ -528,11 +533,13 @@
           },
           "origin": "repeat",
           "overflow": {
+            "base_size_pt": 48.0,
             "box_h_pt": 64.0,
             "box_w_pt": 300.0,
             "kind": "shrink",
             "measured_h_pt": 70.0,
-            "measured_w_pt": 310.0
+            "measured_w_pt": 310.0,
+            "resolved_size_pt": 44.0
           },
           "paint_bounds_pt": [
             8.0,
@@ -655,6 +662,8 @@
             }
           }
         ],
+        "dpi": 150,
+        "height_px": 2480,
         "inferred": {
           "format": "poster-a3",
           "locale": "fa-IR"
@@ -662,7 +671,8 @@
         "ok": true,
         "output_path": "/fixture/outputs/poster-a3.fa-IR.png",
         "render_ms": 84.25,
-        "response_version": 1
+        "response_version": 1,
+        "width_px": 1754
       }
     ],
     "response_version": 1

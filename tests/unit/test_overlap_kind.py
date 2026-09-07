@@ -176,20 +176,22 @@ def test_full_bleed_backdrop_stays_suppressed_and_its_shadow_grants_no_immunity(
     """DX-8 suppression still applies to a real backdrop, and only to a real backdrop.
 
     ``_is_backdrop`` reads the content box, so a heavily shadowed but small node cannot inflate
-    its way past the 90%-of-region threshold and have its containment silently dropped.
+    its way past the 90%-of-region threshold and have its containment silently dropped. The
+    shadowed panel is painted *over* the node it covers, so it is a lid hiding a sibling rather
+    than a plate beneath one (see test_layout_structure.py for that distinction).
     """
     report = _inspect(
         facade,
         tmp_path,
         _rect("bg", "top: parent.top, left: parent.left", size="{w: 100%, h: 100%}")
-        + _rect("panel", "top: parent.top+40pt, left: parent.left+40pt",
-                size="{w: 200pt, h: 200pt}", extra=_SHADOW)
         + _rect("swallowed", "top: parent.top+60pt, left: parent.left+60pt",
-                size="{w: 40pt, h: 40pt}"),
+                size="{w: 40pt, h: 40pt}")
+        + _rect("panel", "top: parent.top+40pt, left: parent.left+40pt",
+                size="{w: 200pt, h: 200pt}", extra=_SHADOW),
     )
     kinds = _kinds(report)
     # The genuine full-bleed backdrop enclosing both is still noise.
     assert frozenset(("bg", "panel")) not in kinds
     assert frozenset(("bg", "swallowed")) not in kinds
-    # The shadowed panel swallowing a sibling is a real bug and stays a content overlap.
+    # The shadowed panel painted over a sibling it covers hides it: a real bug, still content.
     assert kinds[frozenset(("panel", "swallowed"))] == "content"

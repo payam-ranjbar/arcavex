@@ -1,10 +1,10 @@
 """The extension authoring/lifecycle service backing ``arcavex ext`` and the facade (spec §7.2).
 
-Implements scaffold / validate / test / add / enable / disable / list over the added-extension
-state under the Arcavex home. It returns versioned kernel result models and never raises across
-the facade boundary. ``test`` runs the extension's golden fixtures in a **subprocess** so a crash
-in the effect is contained (spec §8.5) — that is crash containment for reliability, not a security
-sandbox: the code is trusted local code (spec §7.3).
+Implements scaffold / validate / test / add / enable / disable / remove / list over the
+added-extension state under the Arcavex home. It returns versioned kernel result models and never
+raises across the facade boundary. ``test`` runs the extension's golden fixtures in a **subprocess**
+so a crash in the effect is contained (spec §8.5) — that is crash containment for reliability, not a
+security sandbox: the code is trusted local code (spec §7.3).
 """
 
 from __future__ import annotations
@@ -367,6 +367,66 @@ class ExtensionService:
         assert updated is not None
         return ExtensionActionReport(ok=True, name=name, enabled=updated.enabled)
 
+    # -------------------------------------------------------------------- remove
+    def remove_extension(self, name: str, *, force: bool = False) -> ExtensionActionReport:
+        """Remove an added extension: drop its record, then delete its stored copy.
+
+        An enabled extension is refused unless ``force``. Its components are live for every run,
+        so removing it silently would turn each template that uses them into an unknown-effect
+        failure on the next start that says nothing about this command; ``ext disable`` first is
+        the deliberate path, and ``--force`` the shortcut for someone who knows that.
+
+        The record goes first, and the order is the point. Once the record is gone the loader never
+        looks at the directory again, so a copy that a failed delete leaves behind is inert (and
+        the next ``ext add`` of the same name replaces it). The other order would leave a record
+        pointing at nothing: an extension that fails to load at every engine start and an
+        ``ext list`` row with no components, which is the state a person cannot read their way out
+        of. The record write is atomic and locked; the delete is a plain directory removal.
+        """
+        record = self._state.get(name)
+        if record is None:
+            return self._unknown(name)
+        if record.enabled and not force:
+            return ExtensionActionReport(
+                ok=False,
+                name=name,
+                enabled=True,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-EXT-041",
+                        f"Extension {name!r} is enabled, so it was not removed",
+                        hint=f"Disable it first with 'arcavex ext disable {name}', or pass "
+                        "--force to remove it while enabled.",
+                    )
+                ],
+            )
+        self._state.remove(name)
+        stored = source_path(name, self._env)
+        if not stored.exists():
+            # The copy was already deleted by hand (the workaround this command replaces); the
+            # record was the only thing left to remove.
+            return ExtensionActionReport(ok=True, name=name, enabled=False)
+        try:
+            shutil.rmtree(stored)
+        except OSError as exc:
+            return ExtensionActionReport(
+                ok=False,
+                name=name,
+                enabled=False,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-EXT-060",
+                        f"Removed the record for {name!r} but could not delete its stored copy: "
+                        f"{exc.strerror or exc}",
+                        file=str(stored),
+                        hint="Nothing loads from that directory any more; delete it by hand.",
+                    )
+                ],
+            )
+        return ExtensionActionReport(
+            ok=True, name=name, enabled=False, removed_path=str(stored)
+        )
+
     def _unknown(self, name: str) -> ExtensionActionReport:
         added = ", ".join(r.name for r in self._state.records()) or "(none)"
         return ExtensionActionReport(
@@ -376,7 +436,8 @@ class ExtensionService:
                 diagnostic(
                     "ARC-EXT-040",
                     f"No added extension named {name!r}",
-                    hint=f"Add it first with 'arcavex ext add <path>'. Added: {added}.",
+                    hint=f"'arcavex ext list' shows the added extensions (currently: {added}); "
+                    "'arcavex ext add <dir>' adds one.",
                 )
             ],
         )

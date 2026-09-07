@@ -1,9 +1,11 @@
 """Color parsing and normalization.
 
 Colors are authored as hex (``#RGB`` / ``#RRGGBB`` / ``#RRGGBBAA``), ``rgb()`` /
-``rgba()`` functional notation, or a small set of named CSS basic colors. They are
-stored as normalized straight-alpha RGBA floats in the range ``[0, 1]``. Premultiplication
-and blend-space handling are the renderer's responsibility per the document color policy.
+``rgba()`` functional notation, or a small set of named CSS basic colors. ``transparent``
+and its CSS/SVG-style alias ``none`` both mean "no paint" (fully transparent black), so a
+stroke-only shape is written ``fill: none``. They are stored as normalized straight-alpha
+RGBA floats in the range ``[0, 1]``. Premultiplication and blend-space handling are the
+renderer's responsibility per the document color policy.
 """
 
 from __future__ import annotations
@@ -34,8 +36,11 @@ _NAMED: dict[str, tuple[int, int, int]] = {
     "purple": (128, 0, 128),
     "orange": (255, 165, 0),
     "transparent": (0, 0, 0),
+    # 'none' is how CSS and SVG spell "no paint"; authors reach for it before 'transparent',
+    # and refusing it read as "a shape must always be filled".
+    "none": (0, 0, 0),
 }
-_NAMED_ALPHA: dict[str, float] = {"transparent": 0.0}
+_NAMED_ALPHA: dict[str, float] = {"transparent": 0.0, "none": 0.0}
 
 _RGB_FUNC_RE = re.compile(
     r"^\s*rgba?\(\s*([^,]+),\s*([^,]+),\s*([^,]+?)\s*(?:,\s*([^,]+?)\s*)?\)\s*$",
@@ -54,7 +59,7 @@ class Color:
 
     @classmethod
     def parse(cls, raw: str) -> Color:
-        """Parse a color from hex, ``rgb()``/``rgba()``, or a named color.
+        """Parse a color from hex, ``rgb()``/``rgba()``, a named color, or ``none``.
 
         Args:
             raw: The authored color string.

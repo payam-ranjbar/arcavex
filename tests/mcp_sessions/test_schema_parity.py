@@ -45,6 +45,7 @@ from arcavex.kernel.api import (
     RerunReport,
     RunListReport,
     RunReport,
+    ShapeListReport,
     StyleInspectReport,
     StyleListReport,
     TemplateInspectReport,
@@ -99,6 +100,7 @@ _TOOL_OUTPUT_MODELS = {
     "arcavex_style_list": StyleListReport,
     "arcavex_style_inspect": StyleInspectReport,
     "arcavex_effects_list": EffectListReport,
+    "arcavex_shape_list": ShapeListReport,
     "arcavex_font_list": FontListReport,
     "arcavex_layout_inspect": LayoutReport,
     "arcavex_render": RenderResult,
@@ -117,7 +119,7 @@ def test_catalog_lists_every_declared_tool() -> None:
     """The built server exposes exactly the declared tool catalog (names)."""
     catalog = _catalog()
     assert set(catalog) == {name for name, _ in _TOOL_METHODS}
-    assert len(catalog) == len(_TOOL_METHODS) == 46
+    assert len(catalog) == len(_TOOL_METHODS) == 47
 
 
 def test_output_schemas_match_facade_models() -> None:
@@ -161,7 +163,7 @@ def test_every_tool_delegates_to_a_facade_method() -> None:
         "create_project", "list_projects", "project_status", "clone_project",
         "render_project", "record_render",
         "set_data", "import_data", "add_asset", "annotate_asset",
-        "list_styles", "inspect_style", "list_effects",
+        "list_styles", "inspect_style", "list_effects", "list_shapes",
         "render_preview", "inspect_layout", "render_file", "list_runs",
         "diff_runs", "rerun", "explain_diagnostic",
     ):

@@ -38,6 +38,14 @@ _FIT_EPS = 0.25
 # _FIT_EPS bounds how far a shaped extent may exceed the box. Sizes closer together than a
 # quarter point are indistinguishable once rasterized at any supported DPI.
 _SHRINK_SEARCH_EPS_PT = 0.25
+# A shrink_to_fit outcome is reported as ``shrunk`` only when the size moved by at least the
+# larger of these two: an absolute floor and a fraction of the base size. The search always lands
+# a little under the base once the base overflowed at all, so an "any shrink" flag fired for a
+# fifth of a point — a 0.13% box delta read as a shrink event. One point is four pixels at 300 dpi
+# and 2% is under the step between adjacent sizes on any type scale; neither is a change an author
+# would re-set a size over. The resolved size is reported exactly either way.
+_SHRINK_REPORT_MIN_PT = 1.0
+_SHRINK_REPORT_MIN_FRACTION = 0.02
 # Spec §4.3 caps measurement at 8 iterations per fit, which over the [min, base] range leaves a
 # bracket of (base - min) / 256 — finer than _SHRINK_SEARCH_EPS_PT for any realistic range, so
 # the tolerance above is what normally ends the loop and this is the hard ceiling.
@@ -219,7 +227,7 @@ class TextService:
             if hi - lo < _SHRINK_SEARCH_EPS_PT:
                 break
         bw, bh, bl = best_metrics
-        kind = "shrunk" if best < base_size - _FIT_EPS else "none"
+        kind = "shrunk" if shrink_is_visible(base_size, best) else "none"
         return _result(bw, bh, best_para, bl, best, kind)
 
     def _truncate(
@@ -420,6 +428,17 @@ class TextService:
 
 def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
+
+
+def shrink_is_visible(base_size_pt: float, resolved_size_pt: float) -> bool:
+    """Whether a shrink from ``base_size_pt`` to ``resolved_size_pt`` is large enough to flag.
+
+    The threshold is the larger of ``_SHRINK_REPORT_MIN_PT`` and ``_SHRINK_REPORT_MIN_FRACTION``
+    of the base size, so a sub-point move never counts and, at display sizes, neither does a
+    move under 2%.
+    """
+    threshold = max(_SHRINK_REPORT_MIN_PT, _SHRINK_REPORT_MIN_FRACTION * base_size_pt)
+    return base_size_pt - resolved_size_pt >= threshold
 
 
 def _result(

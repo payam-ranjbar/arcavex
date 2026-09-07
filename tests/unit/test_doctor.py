@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arcavex.bootstrap import build_facade
 from arcavex.services.doctor import run_doctor
 
@@ -66,3 +68,50 @@ def test_doctor_json_serializable() -> None:
     payload = report.model_dump(mode="json")
     assert payload["response_version"] == 1
     assert isinstance(payload["checks"], list)
+
+
+def _packaged_icu() -> Path | None:
+    """The `icudtl.dat` skia-python ships beside its module, if this build ships one.
+
+    Only the Windows wheels do. Where there is no packaged copy there is nothing for Skia's loader
+    to miss and nothing for doctor to explain, so the behaviour under test does not exist.
+    """
+    import skia
+
+    packaged = Path(skia.__file__).resolve().parent / "icudtl.dat"
+    return packaged if packaged.is_file() else None
+
+
+def test_icu_row_explains_skias_stderr_line_when_the_data_file_is_not_beside_python(
+    monkeypatch, tmp_path
+) -> None:
+    """A fresh install renders correctly and still prints "SkIcuLoader: datafile missing".
+
+    Skia's loader probes next to the base interpreter, does not find the file there, says so on
+    stderr, and then uses the copy inside skia-python. Shaping is fine, but the line lands above
+    doctor's own all-ok table and at the start of every MCP session, so doctor names it rather
+    than leaving a person to read it as a failure. Reproduced by pointing ``sys.base_prefix`` at
+    an empty directory, which is what a newly downloaded managed Python looks like.
+    """
+    if _packaged_icu() is None:
+        pytest.skip("this skia-python build ships no icudtl.dat, so the loader never misses one")
+    monkeypatch.setattr("arcavex.services.doctor.sys.base_prefix", str(tmp_path))
+
+    report = build_facade().doctor()
+    icu = next(check for check in report.checks if check.name == "icu")
+
+    assert icu.status == "ok", icu.detail
+    assert "SkIcuLoader" in icu.detail
+    assert str(tmp_path) in icu.detail
+    assert icu.hint is not None and "icudtl.dat" in icu.hint
+
+
+def test_icu_row_stays_plain_when_the_data_file_is_where_skia_looks(monkeypatch, tmp_path) -> None:
+    (tmp_path / "icudtl.dat").write_bytes(b"not really ICU, but present")
+    monkeypatch.setattr("arcavex.services.doctor.sys.base_prefix", str(tmp_path))
+
+    icu = next(c for c in build_facade().doctor().checks if c.name == "icu")
+
+    assert icu.status == "ok"
+    assert "SkIcuLoader" not in icu.detail
+    assert icu.hint is None

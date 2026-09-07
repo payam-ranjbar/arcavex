@@ -28,6 +28,7 @@ from arcavex.kernel.ir.models import (
     CompiledGroup,
     CompiledImage,
     CompiledNode,
+    CompiledPath,
     CompiledShape,
     CompiledText,
     EffectSpec,
@@ -36,6 +37,7 @@ from arcavex.kernel.ir.models import (
     OverflowState,
     ResolvedContent,
     ResolvedImage,
+    ResolvedPath,
     ResolvedRun,
     ResolvedShape,
     ResolvedText,
@@ -190,7 +192,9 @@ class AnchorLayoutSolver(LayoutSolver):
         sib_rects: dict[str, Rect] = {}
         out: list[tuple[CompiledNode, Rect]] = []
         for child in order:
-            rect = self._resolve_absolute(child, bounds, group.direction, sib_rects, measure)
+            rect = self._resolve_absolute(
+                child, bounds, group.direction, sib_rects, measure, warnings
+            )
             # Siblings anchor to the *post-rotation* AABB of a rotated node (spec §4.2), so a
             # node pinned to a 45°-rotated square's `bottom` sees the rotated extent (CR-14).
             sib_rects[child.id] = self._aabb_for(child, rect)
@@ -544,11 +548,56 @@ class AnchorLayoutSolver(LayoutSolver):
         group_dir: str,
         sib_rects: dict[str, Rect],
         measure: MeasureFn,
+        warnings: list[Diagnostic],
     ) -> Rect:
         w, h = self._resolve_size(node, parent, measure)
         x = self._resolve_pos(node, parent, group_dir, sib_rects, w, _HORIZONTAL, "horizontal")
         y = self._resolve_pos(node, parent, group_dir, sib_rects, h, _VERTICAL, "vertical")
+        self._warn_fill_overshoot(node, parent, x, w, "horizontal", warnings)
+        self._warn_fill_overshoot(node, parent, y, h, "vertical", warnings)
         return _qrect(x, y, w, h)
+
+    def _warn_fill_overshoot(
+        self,
+        node: CompiledNode,
+        parent: Rect,
+        start: float,
+        size: float,
+        axis: str,
+        warnings: list[Diagnostic],
+    ) -> None:
+        """Warn when a ``fill``-sized axis is anchored so that it reaches past its parent.
+
+        ``fill`` spans the whole parent, so any anchor offset pushes the far edge out by that
+        amount; the render silently clips it, which an author sees as "the frame is cut off on
+        the right" with nothing to explain why. Naming the overshoot says which of the two knobs
+        to turn: the size, not the anchor (an inset wants a percentage or a padded stack).
+        """
+        horizontal = axis == "horizontal"
+        spec = node.constraints.width if horizontal else node.constraints.height
+        if spec.mode != "fill":
+            return
+        parent_start = parent.x if horizontal else parent.y
+        parent_end = parent_start + (parent.w if horizontal else parent.h)
+        over = max(start + size - parent_end, parent_start - start)
+        if over <= GEOMETRY_QUANTUM_PT:
+            return
+        dim = "w" if horizontal else "h"
+        warnings.append(
+            diagnostic(
+                "ARC-LAY-033",
+                f"Node {node.id!r} is sized 'fill' on the {axis} axis but its anchor pushes it "
+                f"{over:.2f}pt past its parent",
+                severity="warning",
+                hint=(
+                    "'fill' spans the whole parent, so an anchor offset overshoots by that "
+                    f"amount. For an inset, keep the anchor and set '{dim}' to a percentage of "
+                    "the parent (or a fixed length), or wrap the content in a 'layout: vstack' "
+                    "group with 'padding' and give the child 'size: {w: fill, h: fill}'."
+                ),
+                **_loc(node),
+            )
+        )
 
     def _resolve_size(
         self, node: CompiledNode, parent: Rect, measure: MeasureFn
@@ -659,12 +708,22 @@ class AnchorLayoutSolver(LayoutSolver):
                 )
             )
         if len(present) > 1:
+            # Two anchors on one axis is almost always "I want it to reach both edges". Name
+            # the idioms that say that, or an author tries left+right five different ways.
+            edge, dim = ("left", "w") if axis == "horizontal" else ("top", "h")
             raise DiagnosticError(
                 diagnostic(
                     "ARC-LAY-031",
                     f"Node {node.id!r} is over-constrained on the {axis} axis: "
                     f"{', '.join(present)}",
-                    hint=f"Keep exactly one {axis} anchor; size comes from the size spec.",
+                    hint=(
+                        f"Keep exactly one {axis} anchor; size comes from the size spec. To "
+                        f"span the parent, anchor one edge and size to it: 'anchor: {{{edge}: "
+                        f"parent.{edge}}}', 'size: {{{dim}: fill}}' (or a percentage). For an "
+                        f"inset frame, anchor one edge with an offset and set '{dim}' to a "
+                        "percentage of the parent, or wrap the content in a 'layout: vstack' "
+                        "group with 'padding' and give the child 'size: {w: fill, h: fill}'."
+                    ),
                     **_loc(node),
                 )
             )
@@ -692,6 +751,18 @@ class AnchorLayoutSolver(LayoutSolver):
                     corner_radius_pt=node.style.corner_radius_pt,
                     generator=node.generator,
                     generator_params=node.generator_params,
+                ),
+                OverflowState(),
+            )
+        if isinstance(node, CompiledPath):
+            # Commands are already in points relative to the box origin; the backend translates
+            # them into place, so a path carries the same paint contract as a shape.
+            return (
+                ResolvedPath(
+                    commands=node.commands,
+                    fill=node.style.fill,
+                    stroke=node.style.stroke,
+                    stroke_width_pt=node.style.stroke_width_pt,
                 ),
                 OverflowState(),
             )
@@ -776,6 +847,7 @@ class AnchorLayoutSolver(LayoutSolver):
             measured_h_pt=_q(result.height_pt),
             box_w_pt=bounds.w,
             box_h_pt=bounds.h,
+            base_size_pt=base_size,
             resolved_size_pt=result.resolved_size_pt or base_size,
         )
         return resolved, overflow

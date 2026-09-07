@@ -131,6 +131,8 @@ _LEAF_LAYER = {
         "measured_h_pt": 70.0,
         "box_w_pt": 300.0,
         "box_h_pt": 64.0,
+        "base_size_pt": 48.0,
+        "resolved_size_pt": 44.0,
     },
     "source": {"file": "template.yaml", "keypath": "layers.title", "line": 42},
     "effects": [
@@ -259,6 +261,9 @@ def _fixture_inputs() -> dict[str, dict[str, Any]]:
                     "compile_ms": 12.5,
                     "render_ms": 84.25,
                     "content_sha256": _SHA256,
+                    "dpi": 150,
+                    "width_px": 1754,
+                    "height_px": 2480,
                     "inferred": {"format": "poster-a3", "locale": "fa-IR"},
                     "diagnostics": [_DIAGNOSTIC],
                 }
@@ -346,7 +351,7 @@ def _fixture_inputs() -> dict[str, dict[str, Any]]:
             "project_revision": _OTHER_SHA256,
             "render_revision": _SHA256,
             "changed": [
-                {"path": "template.yaml", "change": "modified"},
+                {"path": "template.yaml", "change": "modified", "location": "formats.story.patch"},
                 {"path": "overrides/square.patch.yaml", "change": "created"},
                 {"path": "overrides/story.patch.yaml", "change": "deleted"},
             ],

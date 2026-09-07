@@ -62,3 +62,40 @@ def test_rgb_out_of_range_rejected() -> None:
         Color.parse("rgb(300, 0, 0)")
     with pytest.raises(ValueError):
         Color.parse("rgba(0, 0, 0, 2)")
+
+
+def test_none_is_an_alias_of_transparent() -> None:
+    """'none' is how CSS and SVG spell no paint; refusing it read as 'a shape must be filled'."""
+    assert Color.parse("none").as_tuple() == Color.parse("transparent").as_tuple()
+    assert Color.parse("NONE").a == 0.0
+    assert Color.parse("none").canonical() == Color.parse("transparent").canonical()
+
+
+def test_fill_none_compiles_to_a_stroke_only_shape(tmp_path) -> None:  # noqa: ANN001
+    from arcavex.kernel.ir.models import CompiledShape
+    from arcavex.services.template.compiler import Compiler
+
+    template = tmp_path / "t.yaml"
+    template.write_text(
+        """\
+version: 0.1.0
+formats:
+  square: {canvas: {width: 200px, height: 200px, dpi: 96}}
+root:
+  type: group
+  id: root
+  children:
+    - id: frame
+      type: shape
+      shape: rect
+      style: {fill: none, stroke: "#ffffff", stroke_width: 4px}
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: fill, h: fill}}
+""",
+        encoding="utf-8",
+    )
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is not None, [d.model_dump() for d in result.diagnostics]
+    frame = result.document.root.children[0]
+    assert isinstance(frame, CompiledShape)
+    assert frame.style.fill == (0.0, 0.0, 0.0, 0.0)
+    assert frame.style.stroke == (1.0, 1.0, 1.0, 1.0)

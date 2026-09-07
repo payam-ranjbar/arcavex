@@ -6,8 +6,10 @@ measurement in the same unit. Traversal is document order with ``z`` already app
 layout solver.
 
 A node with no effects takes the direct path: draw its content (and, for a group, its
-children) straight onto the canvas, optionally rotated, masked, and faded. A node **with**
-effects is rendered offscreen: its content (or subtree) is rasterized into a pooled element
+children) straight onto the canvas, optionally rotated, masked, and faded — a shape or image
+fades through its paint alpha, a text node or a group through one layer so the whole node (and
+subtree) composites at its opacity exactly as the effects path composites its element. A node
+**with** effects is rendered offscreen: its content (or subtree) is rasterized into a pooled element
 surface covering the node's ``render_bounds`` (layout bounds grown by declared effect
 expansion), the category-aware effect plan runs on that raster — geometry rewrites the path
 pre-raster, a fused color filter recolors in one pass, raster passes and composite passes
@@ -43,6 +45,7 @@ from arcavex.kernel.ir.models import (
     LayoutNode,
     MaskSpec,
     ResolvedImage,
+    ResolvedPath,
     ResolvedShape,
     ResolvedText,
     SourceRef,
@@ -76,6 +79,12 @@ _DEBUG_LABEL_MAX_W_PT = 400.0
 _DEBUG_LABEL_PLACEMENT_TRIES = 32
 _DEBUG_LABEL_COLUMN_STEP = 0.5
 _EMPTY_PLAN = EffectPlan()
+# Node kinds whose opacity fades the node as one layer on the plain path. A shape or image
+# multiplies its own paint alpha instead. Text is drawn by the shaper with its run colours, and a
+# group's opacity belongs to its whole subtree (overlapping children must not double up), so
+# both composite through a layer carrying the same alpha paint the effects path composites its
+# element with — which is what makes the two paths agree byte-for-byte.
+_LAYER_FADED_KINDS = frozenset({"text", "group"})
 
 
 class SkiaBackend(RendererBackend):
@@ -166,7 +175,7 @@ class SkiaBackend(RendererBackend):
 
     # ------------------------------------------------------------------ plain path
     def _draw_plain(self, canvas: object, node: LayoutNode) -> None:
-        """Draw a node with no effects directly (rotation, mask, content, then children)."""
+        """Draw a node with no effects directly (rotation, mask, layer, content, then children)."""
         saves = 0
         if self._apply_local_transform(canvas, node):
             saves += 1
@@ -176,8 +185,15 @@ class SkiaBackend(RendererBackend):
                 canvas.save()  # type: ignore[attr-defined]
                 canvas.clipPath(path, skia.ClipOp.kIntersect, True)  # type: ignore[attr-defined]
                 saves += 1
+        # Same paint as _composite_back, so a faded node renders identically with or without an
+        # effects list. The layer takes the whole clip (no bounds hint): content may legitimately
+        # paint outside its box, and a hint would clip it.
+        layered = node.opacity < 1.0 and node.kind in _LAYER_FADED_KINDS
+        if layered:
+            canvas.saveLayer(None, _alpha_paint(node.opacity))  # type: ignore[attr-defined]
+            saves += 1
 
-        self._paint_content(canvas, node, node.opacity)
+        self._paint_content(canvas, node, 1.0 if layered else node.opacity)
 
         if node.kind == "group" and node.children:
             did_clip = False
@@ -272,8 +288,8 @@ class SkiaBackend(RendererBackend):
     ) -> None:
         """Paint the node's own content (and children) into the element surface, full opacity."""
         content = node.resolved_content
-        if isinstance(content, ResolvedShape) and plan.geometry:
-            self._paint_geometry_shape(ecanvas, node, content, plan)
+        if isinstance(content, (ResolvedShape, ResolvedPath)) and plan.geometry:
+            self._paint_geometry(ecanvas, node, content, plan)
         else:
             self._paint_content(ecanvas, node, 1.0)
         if node.kind == "group" and node.children:
@@ -287,20 +303,26 @@ class SkiaBackend(RendererBackend):
             if did_clip:
                 ecanvas.restore()  # type: ignore[attr-defined]
 
-    def _paint_geometry_shape(
-        self, canvas: object, node: LayoutNode, shape: ResolvedShape, plan: EffectPlan
+    def _paint_geometry(
+        self,
+        canvas: object,
+        node: LayoutNode,
+        content: ResolvedShape | ResolvedPath,
+        plan: EffectPlan,
     ) -> None:
-        """Apply geometry effects to the shape's path pre-raster, then fill/stroke the result."""
-        path = self._shape_path(shape, node.bounds, node.source)
+        """Apply geometry effects to the node's path pre-raster, then fill/stroke the result.
+
+        A shape's path is its primitive or generator outline; a path node's is its authored
+        ``d`` geometry. Both carry the same fill/stroke contract, so one routine serves both.
+        """
+        if isinstance(content, ResolvedShape):
+            path = self._shape_path(content, node.bounds, node.source)
+        else:
+            path = _path_geometry(content, node.bounds)
         for planned in plan.geometry:
             rng = effect_rng(self._seed, node.source_node_id, planned.index)
             path = planned.effect.apply(GeometryContext(path, planned.params, rng, node.bounds))
-        if shape.fill is not None:
-            canvas.drawPath(path, _fill_paint(shape.fill, 1.0))  # type: ignore[attr-defined]
-        if shape.stroke is not None and shape.stroke_width_pt > 0:
-            canvas.drawPath(  # type: ignore[attr-defined]
-                path, _stroke_paint(shape.stroke, shape.stroke_width_pt, 1.0)
-            )
+        _fill_and_stroke(canvas, path, content.fill, content.stroke, content.stroke_width_pt, 1.0)
 
     def _apply_color(self, image: object, color_filter: object) -> object:
         paint = skia.Paint()
@@ -317,12 +339,9 @@ class SkiaBackend(RendererBackend):
         """Draw the finished element image back onto the parent canvas at ``rb`` (points)."""
         canvas.save()  # type: ignore[attr-defined]
         self._apply_local_transform(canvas, node, save=False)
-        paint = skia.Paint()
-        if node.opacity < 1.0:
-            paint.setAlphaf(node.opacity)
         dst = skia.Rect.MakeXYWH(rb.x, rb.y, rb.w, rb.h)
         canvas.drawImageRect(  # type: ignore[attr-defined]
-            image, dst, skia.SamplingOptions(), paint
+            image, dst, skia.SamplingOptions(), _alpha_paint(node.opacity)
         )
         canvas.restore()  # type: ignore[attr-defined]
 
@@ -331,6 +350,11 @@ class SkiaBackend(RendererBackend):
         content = node.resolved_content
         if isinstance(content, ResolvedShape):
             self._draw_shape(canvas, node.bounds, content, opacity, node.source)
+        elif isinstance(content, ResolvedPath):
+            path = _path_geometry(content, node.bounds)
+            _fill_and_stroke(
+                canvas, path, content.fill, content.stroke, content.stroke_width_pt, opacity
+            )
         elif isinstance(content, ResolvedText):
             self._draw_text(canvas, node.bounds, content)
         elif isinstance(content, ResolvedImage):
@@ -385,12 +409,9 @@ class SkiaBackend(RendererBackend):
     ) -> None:
         if shape.generator is not None:
             path = self._shape_path(shape, bounds, source)
-            if shape.fill is not None:
-                canvas.drawPath(path, _fill_paint(shape.fill, opacity))  # type: ignore[attr-defined]
-            if shape.stroke is not None and shape.stroke_width_pt > 0:
-                canvas.drawPath(  # type: ignore[attr-defined]
-                    path, _stroke_paint(shape.stroke, shape.stroke_width_pt, opacity)
-                )
+            _fill_and_stroke(
+                canvas, path, shape.fill, shape.stroke, shape.stroke_width_pt, opacity
+            )
             return
         rect = _skrect(bounds)
         if shape.fill is not None:
@@ -679,8 +700,62 @@ def _visible(node: LayoutNode) -> bool:
     return node.visible and node.opacity > 0.0
 
 
+def _path_geometry(content: ResolvedPath, bounds: Rect) -> skia.Path:
+    """Build a path node's Skia path: its point-unit commands translated to the box origin."""
+    ox, oy = bounds.x, bounds.y
+    path = skia.Path()
+    for command in content.commands:
+        a = command.args
+        if command.op == "M":
+            path.moveTo(a[0] + ox, a[1] + oy)
+        elif command.op == "L":
+            path.lineTo(a[0] + ox, a[1] + oy)
+        elif command.op == "C":
+            path.cubicTo(a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy, a[4] + ox, a[5] + oy)
+        elif command.op == "Q":
+            path.quadTo(a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy)
+        elif command.op == "A":
+            # SVG's sweep flag 1 means clockwise, which is skia's kCW (whose int value is 0),
+            # so the flag maps by meaning, not by value.
+            path.arcTo(
+                a[0],
+                a[1],
+                a[2],
+                skia.Path.ArcSize.kLarge_ArcSize if a[3] else skia.Path.ArcSize.kSmall_ArcSize,
+                skia.PathDirection.kCW if a[4] else skia.PathDirection.kCCW,
+                a[5] + ox,
+                a[6] + oy,
+            )
+        else:
+            path.close()
+    return path
+
+
+def _fill_and_stroke(
+    canvas: object,
+    path: object,
+    fill: tuple[float, float, float, float] | None,
+    stroke: tuple[float, float, float, float] | None,
+    stroke_width_pt: float,
+    opacity: float,
+) -> None:
+    """Fill, then stroke, an arbitrary path with the shared shape paint rules."""
+    if fill is not None:
+        canvas.drawPath(path, _fill_paint(fill, opacity))  # type: ignore[attr-defined]
+    if stroke is not None and stroke_width_pt > 0:
+        canvas.drawPath(path, _stroke_paint(stroke, stroke_width_pt, opacity))  # type: ignore[attr-defined]
+
+
 def _skrect(bounds: Rect) -> object:
     return skia.Rect.MakeXYWH(bounds.x, bounds.y, bounds.w, bounds.h)
+
+
+def _alpha_paint(opacity: float) -> object:
+    """The paint that composites a whole node (element image or layer) at ``opacity``."""
+    paint = skia.Paint()
+    if opacity < 1.0:
+        paint.setAlphaf(opacity)
+    return paint
 
 
 def _fill_paint(color: tuple[float, float, float, float], opacity: float) -> object:

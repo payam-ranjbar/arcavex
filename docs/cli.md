@@ -45,12 +45,16 @@ arcavex 0.1.0
 | [`layout inspect`](#layout-inspect) | Report resolved geometry, anchors, overlaps. |
 | [`style …`](#style) | List/inspect installed style packs. |
 | [`effects …`](#effects) | List/inspect the registered effects. |
+| [`shapes …`](#shapes) | List/inspect the registered shape generators. |
 | [`font …`](#font) | List the available font families; install or remove a typeface. |
 | [`project …`](#project) | Project lifecycle: new/clone/set-status/upgrade. |
 | [`data …`](#data) | Project data authoring: set/import. |
 | [`asset …`](#asset) | Asset ingest/annotation. |
-| [`mcp …`](#mcp) | MCP authoring server: serve/tools. |
+| [`mcp …`](#mcp) | MCP authoring server: serve/tools; `install` registers it with an AI host. |
 | [`ext …`](#ext) | Trusted local extension lifecycle. |
+| [`editor …`](#editor) | Semantic project editing: apply a transaction, undo, redo, history. |
+| [`skill install`](#skill) | Install the bundled design skill into an AI assistant. |
+| [`desktop handshake`](#desktop) | What Arcavex Desktop checks before it trusts an engine. |
 
 ---
 
@@ -77,18 +81,18 @@ arcavex render [TEMPLATE] [OPTIONS]
 | `--debug` | Overlay node bounds, ids, baselines, and the safe-area margin. |
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square -o hello.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square -o hello.png
 Rendered hello.png
 ```
 
 With no `-o`, the default name is reported before rendering (on failure too):
 
 ```console
-$ arcavex render poster.yaml \
-    --data event.yaml --format square
-inferred: output=poster.square.png
-Rendered poster.square.png
+$ arcavex render examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square
+inferred: output=hello-poster.square.png
+Rendered hello-poster.square.png
 ```
 
 ## validate
@@ -112,7 +116,10 @@ arcavex preview [TEMPLATE] [OPTIONS]
 
 Adds `--watch` (re-render on every dependent-file save) and `--debug` to the render/validate flag
 set. Writes to a stable preview path under `$ARCAVEX_HOME/cache/preview` so an external viewer can
-watch one file.
+watch one file. The path is keyed on the template plus every input that changes the pixels
+(`--data`, `--locale`, `--dpi`, `--style`): the same command always lands on the same file, and two
+variants previewed side by side get two files rather than taking turns overwriting one. The path is
+printed first, whole, on its own line; the compile and render timings follow.
 
 ## doctor
 
@@ -203,7 +210,7 @@ Template authoring commands.
 
 | Subcommand | Purpose |
 |---|---|
-| `new DIR` | Scaffold a minimal renderable template (`template.yaml` + `data.yaml` + README). |
+| `new DIR [--format P …]` | Scaffold a minimal renderable template (`template.yaml` + `data.yaml` + README). `--format` (repeatable) picks the canvases from the preset table: `square`, `story`, `portrait`, `landscape` (px at 96 dpi) and `a4`, `a3`, `a2`, `letter`, `tabloid` (mm at 300 dpi, 3 mm bleed); the default is square + story. An unknown preset is `ARC-TPL-072`. |
 | `check PATH [-f -l --style]` | Validate a template without data (schema + structure + `preview_data`). |
 | `inspect PATH [--json] [--resolved -f -l]` | Report the authored contract; `--resolved` shows the resolved direction/digits and each applied patch with its originating layer. |
 | `split PATH` | Convert a one-file template into a split directory, losslessly. |
@@ -213,11 +220,13 @@ Template authoring commands.
 
 ```console
 $ arcavex template new ./mytpl
-Created ./mytpl (render with --format square)
+Created ./mytpl (formats: square, story; render with --format square)
+$ arcavex template new ./poster --format a3 --format square
+Created ./poster (formats: a3, square; render with --format a3)
 ```
 
 ```console
-$ arcavex template inspect poster.yaml
+$ arcavex template inspect examples/hello-poster/template.yaml
 variables (2):
   title: string (required) Main headline
   subtitle: string (optional) Supporting line under the title
@@ -226,7 +235,6 @@ nodes:
   root: group
   background: shape
   accent: shape
-  logo: image
   title: text
   subtitle: text
 functions:
@@ -236,7 +244,19 @@ functions:
 
 `template patch` takes one of `--set P --value V`, `--remove P`, `--insert-before P --node J`,
 `--insert-after P --node J`, or `--ops-file F`, with an optional `--base-sha256 H` guard that
-refuses the write if the file changed on disk since it was read (`ARC-TPL-110`).
+refuses the write if the file changed on disk since it was read (`ARC-TPL-110`). Paths address a
+node (`nodes.<id>[.<field>…]`) or, at this top level only, a template section: `formats.<name>`,
+`variables.<name>`, `preview_data.<key>`, `locales.<name>` (each with an optional field path) and
+`style` — see [Patches](template-schema.md#patches). The patched template is compiled for every
+declared format before the change is kept; an op that introduces an error is rolled back and
+refused with the located diagnostic.
+
+```console
+$ arcavex template patch ./mytpl --set formats.a3 \
+    --value '{"canvas": {"width": "297mm", "height": "420mm", "dpi": 300, "bleed": "3mm"}}'
+Patched mytpl/template.yaml (1 op(s), sha256 …)
+$ arcavex render ./mytpl --format a3 -o poster-a3.pdf
+```
 
 ## layout inspect
 
@@ -253,8 +273,8 @@ can allocate room for a blur or a tear. The two are equal unless the node is rot
 expanding effect.
 
 ```console
-$ arcavex layout inspect poster.yaml \
-    --data event.yaml --format square
+$ arcavex layout inspect examples/hello-poster/template.yaml \
+    --data examples/hello-poster/data.yaml --format square
 canvas 810x810pt (1080x1080px @ 96dpi) format=square locale=-
 root group bounds (0.0, 0.0, 810.0, 810.0)pt
   paint (0.0, 0.0, 810.0, 810.0)pt
@@ -264,15 +284,14 @@ root group bounds (0.0, 0.0, 810.0, 810.0)pt
     paint (105.3, 226.8, 599.4, 356.4)pt
     h: center_x = parent.center_x → 405.0pt
   …
-overlaps: 2 content, 0 effect spill
-  accent ∩ title at (145.8, 352.5, 518.4, 69.0)pt
-  accent ∩ subtitle at (145.8, 450.0, 518.4, 31.0)pt
 coverage: 100% of canvas
 ```
 
-Both of those are `content` overlaps and both are intentional — the text is meant to sit on the
-accent panel. `layout inspect` reports geometry; deciding which intersections are by design is
-still the author's call.
+Nothing is listed under `overlaps`, although `title` and `subtitle` both sit inside `accent`: the
+accent panel is a filled shape painted beneath them, which `layout inspect` treats as a plate —
+structure, not a collision (the rules are under *Overlap kinds* below). `layout inspect` reports
+geometry; where a pair does get reported, deciding whether it is by design is still the author's
+call.
 
 ### Overlap kinds
 
@@ -280,25 +299,38 @@ Every overlap carries a `kind` naming what actually collided:
 
 | `kind` | Condition | What to do |
 |---|---|---|
-| `content` | The nodes' layout `bounds` intersect. | A genuine collision. `rect_pt` is the colliding area itself, so its width or height is the correction to apply. |
+| `content` | The nodes' collision boxes intersect by more than a graze. | A genuine collision. `rect_pt` is the colliding area itself, so its width or height is the correction to apply. |
+| `touch` | The collision boxes intersect, but by no more than 1pt on the short side, or by under 2% of the smaller box's area. | A graze or a corner nick — a nudge at most, usually intended. `rect_pt` is the same content intersection. |
 | `halo` | Only the effect-grown `paint` boxes intersect. | Effect spill: one node's shadow, glow or torn-paper amplitude reaches over its neighbour. Usually the intended look. |
 
-Human output lists `content` overlaps first and demotes `halo` ones into a dimmed *effect spill*
-subsection. For a poster whose `strip` casts a drop-shadow across a 10pt gap to `tag`, while
-`venue-2` genuinely bites 4pt into `venue-1`:
+A node's collision box is its layout `bounds` (the post-rotation AABB, without effect growth).
+For an unrotated text node it is narrowed to the shaped text's width, placed by the paragraph
+alignment — the solver already measured that width, so a short centred word does not collide with
+whatever sits under the empty ends of its box. The height is not narrowed: nothing measures glyph
+ink vertically, so a font's leading still counts (Lalezar's line box is about 1.57× its size), and
+two lines set with negative leading are reported as `content` even where their glyphs clear.
+
+Human output lists `content` overlaps first and demotes `touch` and `halo` ones into dimmed
+subsections. For a poster whose `strip` casts a drop-shadow across a 10pt gap to `tag`, where
+`venue-2` genuinely bites 4pt into `venue-1`, and two swatches graze by 1pt:
 
 ```
-overlaps: 1 content, 1 effect spill
-  venue-1 ∩ venue-2 at (20.0, 236.0, 200.0, 4.0)pt
+overlaps: 1 content, 1 touch, 1 effect spill
+  venue-1 ∩ venue-2 at (20.0, 236.0, 100.5, 4.0)pt
+  touch (≤1pt deep, or under 2% of the smaller box — usually intended):
+    nick-1 ∩ nick-2 at (20.0, 339.0, 100.0, 1.0)pt
   effect spill (paint bounds only — usually intended):
     strip ∩ tag at (130.0, 20.0, 50.0, 40.0)pt
 ```
+
+The venue collision is 100.5pt wide, not the 200pt of the boxes: the rect is the intersection of
+the two lines' shaped widths, so it is the real collision, not the boxes'.
 
 `--json` and the `arcavex_layout_inspect` MCP tool carry `kind` on every overlap, so an agent
 filters on it directly rather than re-deriving the distinction from geometry:
 
 ```console
-$ arcavex layout inspect poster.yaml --format portrait --json \
+$ arcavex layout inspect examples/hello-poster/template.yaml --format square --json \
   | jq '[.overlaps[] | select(.kind == "content")]'
 ```
 
@@ -306,10 +338,16 @@ A rotated node contributes its axis-aligned bounding box, not its rotated outlin
 nodes that visually clear each other can therefore still report a `content` overlap; the per-node
 `paint` box is what makes that arithmetic checkable by hand.
 
-Full-bleed backdrops and groups that enclose their siblings are suppressed rather than reported —
-containment by a node covering ≥90% of its parent region, or by a group, is structure, not a
-collision. A node's shadow cannot buy it that exemption: the threshold is measured on the layout
-box, not the paint box.
+**Containment by structure is not reported.** A node fully inside a sibling that is a group, a
+backdrop covering ≥90% of the parent region, a stroke-only frame (its fill absent, `none`,
+`transparent` or alpha 0 — the outline is drawn *around* the node), or a filled plate painted
+beneath it (a card under its label; paint order is document order broken by `z`) is layering, not
+a collision, and the pair is left out. A filled shape painted *over* a sibling it fully covers
+hides that sibling and is still reported as `content`; a frame that only partially overlaps a
+neighbour runs its outline through it and is reported too. A node's shadow cannot buy it the
+backdrop exemption: the 90% threshold is measured on the layout box, not the paint box.
+Containment is judged on boxes, so a circle or generator outline that reaches inside its own box
+is not modelled — the same limitation as a rotated node's AABB.
 
 **Pairs are enumerated within each group.** Two nodes in different groups are never compared, so
 an empty `overlaps` list means no sibling collisions, not that nothing on the canvas collides —
@@ -317,6 +355,21 @@ on the reference poster, 20-22 intersecting cross-group pairs go unreported per 
 whole-canvas check, compare `bounds_pt` across the tree from `--json`. The reasoning and the
 measured trade-off are in
 [known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
+
+### Shrink outcomes
+
+A text node's `overflow` line names the fit outcome and, for `shrunk`, the sizes it moved between:
+
+```
+name-a text bounds (48.6, 62.0, 712.8, 209.0)pt
+  overflow: shrunk 150.0pt → 133.5pt (-11.0%) into 712.8x209.0pt
+```
+
+The box extents alone read as a width delta of a point or two — the fit search always lands the
+text just inside its box — which said nothing about how much smaller the type became. A shrink is
+flagged only when the size moved by at least the larger of 1pt and 2% of the authored size; a
+smaller move is a search artefact, and the node reports `kind: none` with `base_size_pt` and
+`resolved_size_pt` in `--json` still carrying the exact sizes.
 
 ## style
 
@@ -351,6 +404,30 @@ drop-shadow composite
 
 The full effect list and its usage notes are in
 [template-schema.md](template-schema.md#effects).
+
+## shapes
+
+| Subcommand | Purpose |
+|---|---|
+| `list [--json]` | List the registered shape generators (`generator:` on a shape node) and each param's type/default/range. |
+| `inspect NAME [--json]` | Show one generator's description and full parameter schema. |
+
+```console
+$ arcavex shapes list
+starburst A star/burst polygon inscribed in the node bounds.
+  points: integer (default=12) [>=3, <=120]
+  inner_ratio: number (default=0.5) [>0, <1]
+speech_bubble A speech-bubble path: rounded body plus a tail on one side.
+  corner: length (default=16.0) [>=0]
+  …
+qr_code A QR-code path (one filled square per dark module), scaled square within bounds.
+  data: string (required)
+  quiet_zone: integer (default=2) [>=0, <=8]
+```
+
+The same listing is the `arcavex_shape_list` MCP tool, and an `ARC-FX-912` refusal quotes the
+offending generator's parameters in its hint. Units and notes are in
+[template-schema.md](template-schema.md#shape-generator-parameters).
 
 ## font
 
@@ -444,11 +521,131 @@ MCP authoring server (spec §6.2).
 | Subcommand | Purpose |
 |---|---|
 | `serve` | Start the stdio MCP authoring server (blocks until the client disconnects). |
-| `tools [--json]` | Print the 25-tool catalog (names, descriptions, input/output schemas). |
+| `tools [--json]` | Print the tool catalog (names, descriptions, input/output schemas). |
+| `install [--target T …] [--list] [--print] [--force] [--command PATH]` | Register the server with every AI host present on this machine, or the named ones: `claude-code`, `claude-desktop`, `codex` (`desktop` and `chatgpt` are aliases). `--list` shows each host's state without writing; `--print` shows the snippet to paste by hand; `--force` replaces an existing `arcavex` entry; `--command` registers another executable. |
+
+Tool arguments are checked before dispatch. An unknown key, a missing required key, or a value of
+the wrong type is refused with the same coded envelope every other refusal uses — `ok: false` and a
+`diagnostics` list carrying `ARC-MCP-010` (unknown argument), `ARC-MCP-011` (missing argument), or
+`ARC-MCP-012` (invalid value), each with a hint naming the tool's accepted arguments — never a
+silent pass and never raw validator text. Every parameter in the catalog's `inputSchema` carries a
+description (units, accepted values, what a path is relative to), and every schema sets
+`additionalProperties: false` so a well-behaved client refuses an unknown key locally.
+`arcavex_project_render` takes `dpi` as one integer or as a `{"<format>": dpi}` table; the CLI's
+`--dpi` remains a single integer.
 
 Every MCP tool is a thin wrapper over one facade method and returns the same versioned pydantic
 result as the CLI's `--json`. See [architecture.md](architecture.md#mcp-parity) and the
 [MCP section of the README](../README.md#mcp-authoring-surface-62).
+
+### Connecting a host
+
+`mcp install` registers the server with the assistants on this machine, so nobody has to find a
+config file and type an absolute path into it. It knows three hosts. Claude Code is registered
+through `claude mcp add` at user scope — the scope that works in every project without an approval
+prompt — and its own file is never edited. Claude Desktop has no CLI, so its
+`claude_desktop_config.json` is edited in place: every other key is kept, the file's indentation
+too, the write is atomic, and the previous content stays beside it as `.bak`. Codex goes through
+`codex mcp add` when the CLI is on PATH and otherwise gets a `[mcp_servers.arcavex]` table in
+`~/.codex/config.toml`, appended (or, with `--force`, swapped) by text so nothing else in the file
+is reformatted. A host that is not installed is skipped with a notice; with no `--target`, `ok`
+means every host that is here has been registered.
+
+```console
+$ arcavex mcp install --list
+target          location                                                        state
+Claude Code     claude mcp (user scope)                                         registered
+Claude Desktop  C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json  not registered
+Codex CLI       C:\Users\you\.codex\config.toml                                host not found
+command: C:\Users\you\arcavex\.venv\Scripts\arcavex.exe mcp serve
+```
+
+The command registered is the engine that ran `mcp install`: the frozen executable, or the
+`arcavex` console script beside the running interpreter, or `python -m arcavex` — always as
+absolute paths, and always printed so you can see exactly what a host will run. `--command PATH`
+registers that executable instead (as `PATH mcp serve`).
+
+`--print` writes nothing and prints, per host, exactly what a person would paste to do it by hand.
+The same snippet is in the hint when a host named with `--target` is not installed
+(`ARC-MCP-002`).
+
+```console
+$ arcavex mcp install --print
+Claude Code  claude mcp (user scope)
+Registered for every project; 'claude mcp list' shows it under user scope.
+claude mcp add -s user arcavex -- C:\Users\you\arcavex\.venv\Scripts\arcavex.exe mcp serve
+
+Claude Desktop  C:\Users\you\AppData\Roaming\Claude\claude_desktop_config.json
+Quit and reopen Claude Desktop after registering; it reads the file at start.
+{
+  "mcpServers": {
+    "arcavex": {
+      "command": "C:\\Users\\you\\arcavex\\.venv\\Scripts\\arcavex.exe",
+      "args": [
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}
+
+Codex CLI  C:\Users\you\.codex\config.toml
+The ChatGPT desktop app cannot run a local MCP server; Codex is the OpenAI host that can.
+[mcp_servers.arcavex]
+command = "C:\\Users\\you\\arcavex\\.venv\\Scripts\\arcavex.exe"
+args = ["mcp", "serve"]
+
+command: C:\Users\you\arcavex\.venv\Scripts\arcavex.exe mcp serve
+```
+
+An existing `arcavex` entry is refused with `ARC-MCP-003`; `--force` replaces it. Each host reads
+its configuration when it starts: open a new Claude Code session, quit and reopen Claude Desktop,
+start a new Codex session. The plain-language walkthrough for someone setting up an assistant is
+[connect-your-assistant.md](connect-your-assistant.md).
+
+## editor
+
+Semantic project editing: the same transactions Arcavex Desktop submits, from the command line.
+A transaction names the project revision it was composed against and is applied atomically; a
+conflict or a refused command writes nothing and reports why. The model, the command kinds, and
+every refusal are in [desktop/editor.md](desktop/editor.md).
+
+| Subcommand | Purpose |
+|---|---|
+| `apply FILE [--project P]` | Execute one semantic transaction (JSON); a refusal reports conflicts or diagnostics. |
+| `undo [--project P]` | Restore the project state before its newest applied history entry. |
+| `redo [--project P]` | Re-apply the oldest undone history entry. |
+| `history [--project P]` | Show the undo/redo timeline and whether an external edit branched it. |
+
+## skill
+
+Install the bundled design skill — the document that teaches an AI assistant this engine's
+authoring loop, art direction, multi-format and locale work, and verification — into the
+assistant's own skill directory.
+
+| Subcommand | Purpose |
+|---|---|
+| `install [--target T …] [--path DIR] [--project] [--force] [--list]` | Copy the skill to every known harness, or the named ones (`claude-code`, `agents`; `codex` and `chatgpt` alias `agents`), or an explicit `--path`. `--project` installs into the current directory so the skill travels with a repository. `--list` shows every destination without writing. |
+
+```console
+$ arcavex skill install --list
+target                           path                                              state
+Claude Code                      C:\Users\you\.claude\skills\arcavex-design-studio  not installed
+Codex / ChatGPT (Agent Skills    C:\Users\you\.agents\skills\arcavex-design-studio  not installed
+standard)
+```
+
+A host reads its skills when it starts, so restart the assistant (or open a new session) after
+installing. The same document is also served by the MCP server as the resource
+`skill://arcavex-design-studio/SKILL.md`, for clients that connect over MCP rather than a shell.
+
+## desktop
+
+Commands Arcavex Desktop uses to check the engine it launches; not part of the authoring loop.
+
+| Subcommand | Purpose |
+|---|---|
+| `handshake [--json]` | Report engine identity, compatibility versions, paths, capabilities, and health. |
 
 ## ext
 
@@ -463,4 +660,5 @@ Trusted local extension commands (spec §7). Full walkthrough in
 | `add DIR` | Validate and add a local extension to the Arcavex home, recorded disabled. |
 | `enable NAME` | Enable an added extension (its components register on the next run). |
 | `disable NAME` | Disable an added extension (deregistered on the next run). |
+| `remove NAME [--force]` | Remove an added extension: its stored copy and its state entry. An enabled one is refused (`ARC-EXT-041`) unless `--force`; disable it first. |
 | `list` | List every added extension, its enabled state, and its components. |

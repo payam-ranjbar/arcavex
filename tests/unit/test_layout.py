@@ -211,3 +211,75 @@ def test_fit_content_on_shape_errors(tmp_path: Path) -> None:
     with pytest.raises(DiagnosticError) as exc:
         AnchorLayoutSolver().solve(doc, fake_measure)
     assert exc.value.diagnostics[0].code == "ARC-LAY-020"
+
+
+def test_fill_with_an_offset_warns_about_the_overshoot(tmp_path: Path) -> None:
+    """'fill' spans the whole parent, so an offset pushes it out by that amount (ARC-LAY-033)."""
+    doc = _compile(
+        tmp_path,
+        HEADER
+        + """
+    - id: frame
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {top: parent.top+24px, left: parent.left+24px}
+        size: {w: fill, h: fill}
+""",
+    )
+    layout = AnchorLayoutSolver().solve(doc, fake_measure)
+    assert [w.code for w in layout.warnings] == ["ARC-LAY-033", "ARC-LAY-033"]
+    horizontal, vertical = layout.warnings
+    assert horizontal.severity == "warning"
+    assert "horizontal" in horizontal.message and "18.00pt" in horizontal.message  # 24px @96
+    assert "vertical" in vertical.message
+    assert horizontal.hint is not None
+    assert "percentage" in horizontal.hint and "vstack" in horizontal.hint
+    assert horizontal.source is not None and horizontal.source.keypath is not None
+    # The render is not refused: the node still resolves to the overshooting box.
+    frame = _find(layout.root, "frame")
+    assert (frame.bounds.x, frame.bounds.w) == (18.0, 300.0)
+
+
+def test_fill_anchored_flush_does_not_warn(tmp_path: Path) -> None:
+    doc = _compile(
+        tmp_path,
+        HEADER
+        + """
+    - id: bg
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {bottom: parent.bottom, right: parent.right}
+        size: {w: fill, h: fill}
+    - id: inset
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {top: parent.top+24px, left: parent.left+24px}
+        size: {w: 80%, h: 80%}
+""",
+    )
+    layout = AnchorLayoutSolver().solve(doc, fake_measure)
+    assert layout.warnings == ()
+
+
+def test_over_constrained_hint_names_the_span_and_inset_idioms(tmp_path: Path) -> None:
+    """An author who writes left+right wants both edges; the refusal must say how to get them."""
+    doc = _compile(
+        tmp_path,
+        HEADER
+        + """
+    - id: frame
+      type: shape
+      shape: rect
+      constraints:
+        anchor: {left: parent.left+24px, right: parent.right-24px, top: parent.top}
+        size: {w: 50%, h: 50%}
+""",
+    )
+    with pytest.raises(DiagnosticError) as exc:
+        AnchorLayoutSolver().solve(doc, fake_measure)
+    diag = exc.value.diagnostics[0]
+    assert diag.code == "ARC-LAY-031" and diag.hint is not None
+    assert "size: {w: fill}" in diag.hint and "percentage" in diag.hint and "vstack" in diag.hint

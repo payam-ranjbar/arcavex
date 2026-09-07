@@ -120,3 +120,49 @@ def test_qr_code_data_from_expression(facade, tmp_path) -> None:  # noqa: ANN001
     out = tmp_path / "qr.png"
     result = facade.render_file(template, format_name="sq", output=out)
     assert result.ok, [d.model_dump() for d in result.diagnostics]
+
+
+def test_list_shapes_reports_schema(arcavex_home: Path) -> None:
+    """The generator counterpart of effects list: names, descriptions, params with ranges.
+
+    Built under an isolated home for the reason test_list_effects_reports_schema gives: the
+    module facade loads whatever extensions the developer has installed.
+    """
+    from arcavex.bootstrap import build_facade
+    from arcavex.builtin.shapes_core import builtin_shapes
+
+    assert arcavex_home.is_dir()
+    report = build_facade().list_shapes()
+    assert report.ok and report.response_version == 1
+    by_name = {s.name: s for s in report.shapes}
+    assert set(by_name) == {g.name for g in builtin_shapes()}
+    star = by_name["starburst"]
+    assert star.description and "star" in star.description.lower()
+    params = {p.name: p for p in star.params}
+    assert params["points"].type == "integer" and params["points"].default == 12
+    assert params["points"].constraint == ">=3, <=120"
+    assert params["inner_ratio"].constraint == ">0, <1"
+    bubble = {p.name: p for p in by_name["speech_bubble"].params}
+    assert bubble["corner"].type == "length" and bubble["side"].default == "bottom"
+    qr = {p.name: p for p in by_name["qr_code"].params}
+    assert qr["data"].required and qr["data"].default is None
+
+
+def test_invalid_generator_params_hint_enumerates_the_schema(facade, tmp_path) -> None:  # noqa: ANN001
+    """ARC-FX-912 answers the question it raises: which parameters *are* valid, and their ranges."""
+    template = _write(
+        tmp_path,
+        "formats: {sq: {canvas: {width: 100px, height: 100px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      generator: starburst\n"
+        "      params: {bogus: 1}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: fill, h: fill}}\n",
+    )
+    diags = facade.validate_template(template, format_name="sq")
+    diag = next(d for d in diags if d.code == "ARC-FX-912")
+    assert "bogus" in diag.message
+    assert diag.hint is not None
+    assert "'starburst' takes: points (integer, default 12, >=3, <=120)" in diag.hint
+    assert "inner_ratio (number, default 0.5, >0, <1)" in diag.hint
+    assert "shapes list" in diag.hint and "arcavex_shape_list" in diag.hint

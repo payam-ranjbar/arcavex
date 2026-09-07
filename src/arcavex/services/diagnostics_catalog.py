@@ -123,7 +123,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-TPL-021",
             "Format is ambiguous",
             "No format was specified and the template defines more than one.",
-            "Pass --format with one of the declared format names.",
+            "Pass a format (--format on the CLI, the 'format' argument over MCP) naming one of "
+            "the declared format names.",
         ),
         _e(
             "ARC-TPL-022",
@@ -212,6 +213,17 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "A text node's 'fit' block has an invalid value: 'policy' must be wrap/shrink_to_fit/"
             "truncate and 'overflow' must be clip/allow/error.",
             "Correct the fit policy or overflow value; add 'min_size' for shrink_to_fit.",
+        ),
+        _e(
+            "ARC-TPL-042",
+            "Malformed path data",
+            "A path node's 'd' is missing, empty, or not valid SVG path data: it does not start "
+            "with a move (M/m), uses a letter that is not one of M L H V C S Q T A Z, is short "
+            "of numbers for a command, or gives an arc a flag other than 0 or 1. The hint quotes "
+            "the offending token and its offset. Coordinates are pixels from the node box's "
+            "top-left corner, converted to points at the format's dpi like any bare-px length.",
+            "Fix the quoted token. Write commands as a letter followed by its numbers, e.g. "
+            "'M 0 0 L 100 0 L 100 100 Z'; upper-case is absolute, lower-case relative.",
         ),
         _e(
             "ARC-TPL-051",
@@ -383,17 +395,35 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-TPL-091",
             "Locale application not supported yet",
             "Applying a requested locale (direction, digit policy, overlays) is Phase 2.",
-            "Drop --locale for now; locale files are still parsed for shape.",
+            "Drop the locale option (--locale on the CLI, 'locale' over MCP) for now; locale "
+            "files are still parsed for shape.",
+        ),
+        _e(
+            "ARC-TPL-072",
+            "Unknown format preset",
+            "'template new --format' (or the MCP tool's 'formats' argument) named a canvas "
+            "preset that does not exist. The presets are square, story, portrait, landscape "
+            "(pixels at 96 dpi) and a4, a3, a2, letter, tabloid (millimetres at 300 dpi with a "
+            "3mm bleed). Nothing is written when a name is unknown.",
+            "Use one of the preset names, or scaffold with the defaults and declare the canvas "
+            "you need with 'template patch --set formats.<name> --value {\"canvas\": {...}}'.",
         ),
         _e(
             "ARC-TPL-092",
             "Invalid patch operation",
-            "A format or locale patch is malformed: an op is not a mapping, does not have "
-            "exactly one of set/remove/insert_before/insert_after, addresses a path that is not "
-            "'nodes.<id>[.<field>...]', targets a node id or field that does not exist, or an "
-            "insert has no 'node' body.",
-            "Fix the patch op: address an existing authored node id, use one verb per op, and "
-            "give inserts a 'node:' mapping.",
+            "A patch op is malformed: it is not a mapping, does not have exactly one of "
+            "set/remove/insert_before/insert_after, addresses a path outside the grammar, "
+            "targets a node id or field that does not exist, or an insert has no 'node' body. "
+            "A patch embedded in a format, a locale, or a project override addresses nodes only "
+            "('nodes.<id>[.<field>...]'). The top-level 'template patch' operation (CLI and MCP) "
+            "may also address the template's sections: 'formats.<name>', 'variables.<name>', "
+            "'preview_data.<key>', 'locales.<name>' (each with an optional field path, list "
+            "indexes included) and the whole 'style' value — with set/remove only.",
+            "Write the op in one of these shapes: {set: 'nodes.<id>.<field>', value: <v>}, "
+            "{remove: 'nodes.<id>[.<field>]'}, or {insert_before | insert_after: 'nodes.<id>', "
+            "node: {...}} — one verb per op, addressing an existing authored node id. From "
+            "'template patch' a section entry works the same way: "
+            "{set: 'formats.a3', value: {canvas: {...}}}; inserts stay node-only.",
         ),
         _e(
             "ARC-TPL-110",
@@ -426,9 +456,9 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-TPL-100",
             "Undeclared locale",
-            "A locale was requested with --locale that the template does not declare, so its "
-            "direction, digits, fonts, data, and patch are unknown. Arcavex never silently "
-            "ignores a requested locale.",
+            "A requested locale (--locale on the CLI, 'locale' over MCP) is not declared by the "
+            "template, so its direction, digits, fonts, data, and patch are unknown. Arcavex "
+            "never silently ignores a requested locale.",
             "Declare the locale under 'locales:' in the template, or request one the template "
             "already defines.",
         ),
@@ -491,11 +521,15 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-IR-011",
             "Invalid dimension",
-            "A dimension value could not be parsed. In a size axis, a bare value must be a "
-            "number with a unit (px/pt/mm), a percentage, or one of the size keywords 'fill', "
-            "'fit_content', and 'aspect(W:H)'.",
-            "Use a number with a unit (e.g. '40pt', '210mm', '1080px'), a percentage, or a "
-            "size keyword ('fill', 'fit_content', 'aspect(3:4)').",
+            "A dimension value could not be parsed, or a percentage was written where nothing "
+            "exists to take a percentage of. In a size axis, a bare value must be a number with "
+            "a unit (px/pt/mm), a percentage of the parent's extent, or one of the size keywords "
+            "'fill', 'fit_content', and 'aspect(W:H)'. Every other length — the style lengths "
+            "(font_size, stroke_width, corner_radius, letter_spacing) and run overrides, a "
+            "stack's gap and padding, a size axis's min/max clamps, a text fit's min_size, and "
+            "the canvas itself — has no parent basis and takes px, pt, or mm only.",
+            "Use a number with a unit (e.g. '40pt', '210mm', '1080px'); in a size axis a "
+            "percentage or a size keyword ('fill', 'fit_content', 'aspect(3:4)') is also valid.",
         ),
         _e(
             "ARC-IR-012",
@@ -514,9 +548,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-IR-014",
-            "Value is not a number",
-            "A field that must be numeric received a non-numeric value.",
-            "Provide a numeric value.",
+            "Value has the wrong type or is out of range",
+            "A field received a value it cannot take: a word where a number is required "
+            "('font_weight: bold'), a quoted string where a YAML boolean is required ('italic: "
+            "\"no\"' is a string, and used to be coerced to true), or a number outside the "
+            "field's range ('opacity: 1.5'; opacity runs from 0 to 1). The message names the "
+            "field and the kind of value it takes.",
+            "Provide a value of the kind the message names — a number within the stated range, "
+            "or an unquoted true/false.",
         ),
         _e(
             "ARC-IR-015",
@@ -542,8 +581,11 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-IR-030",
             "Invalid color",
-            "A color value could not be parsed.",
-            "Use #hex, rgb()/rgba(), or a named color.",
+            "A color value could not be parsed. Colors are '#RGB'/'#RRGGBB'/'#RRGGBBAA', "
+            "'rgb()'/'rgba()' with in-range channels, a named CSS basic color, or 'none' / "
+            "'transparent' for no paint.",
+            "Use #hex, rgb()/rgba(), or a named color; for a stroke-only shape write 'fill: "
+            "none' (an alias of 'transparent') with a 'stroke' and a 'stroke_width'.",
         ),
         _e(
             "ARC-IR-040",
@@ -568,12 +610,19 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-LAY-012",
             "Invalid anchor offset",
             "An anchor offset could not be parsed into a fixed distance, usually a malformed "
-            "unit (missing number or unknown suffix). '{{ }}' expressions ARE evaluated inside "
-            "constraint strings before the offset is parsed, so a leftover brace means a "
-            "malformed or nested expression rather than an unsupported feature.",
-            "Use an offset such as '+20px', '+20pt', or '-6mm'. Per-item offsets from "
-            "expressions work — e.g. 'top: parent.top+{{ loop.index * 90 }}pt' — as long as the "
-            "expression resolves to a numeric distance.",
+            "unit (missing number or unknown suffix). Offsets are absolute lengths: a "
+            "percentage ('+30%') or a reference to another node's size ('+0.3*parent.height') "
+            "is refused because an offset has no parent extent to be a fraction of — the "
+            "parent's size belongs to the size spec, where '%' is understood. '{{ }}' "
+            "expressions ARE evaluated inside constraint strings before the offset is parsed, "
+            "so a leftover brace means a malformed or nested expression rather than an "
+            "unsupported feature.",
+            "Use an offset such as '+20px', '+20pt', or '-6mm'. To place a node relative to "
+            "the parent's size, anchor to 'parent.center_x'/'parent.center_y' or to a "
+            "sibling's edge (e.g. 'top: title.bottom+12pt') and express the size in % "
+            "('size: {w: 30%}'). Per-item offsets from expressions work — e.g. "
+            "'top: parent.top+{{ loop.index * 90 }}pt' — as long as the expression resolves to "
+            "a numeric distance.",
         ),
         _e(
             "ARC-LAY-013",
@@ -614,8 +663,16 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-LAY-031",
             "Node over-constrained",
-            "A node resolves more than one position on an axis.",
-            "Keep exactly one anchor per axis; size comes from the size spec.",
+            "A node resolves more than one position on an axis — for example both 'left' and "
+            "'right' — because two anchors were given where the engine positions with exactly "
+            "one anchor and one size per axis. Two anchors is almost always a way of saying "
+            "\"reach both edges\", and that is said with the size.",
+            "Keep exactly one anchor per axis; size comes from the size spec. To span the "
+            "parent, anchor one edge and size to it — 'anchor: {left: parent.left}', "
+            "'size: {w: fill}' (or a percentage). For an inset frame, anchor one edge with an "
+            "offset and set that axis to a percentage of the parent, or wrap the content in a "
+            "'layout: vstack' group with 'padding' and give the child 'size: {w: fill, h: "
+            "fill}'.",
         ),
         _e(
             "ARC-LAY-021",
@@ -629,9 +686,28 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-LAY-032",
             "Node missing a size",
-            "A node has constraints but no complete size for one or both axes.",
+            "A node has constraints but no complete size for one or both axes. Anchors only "
+            "position a node; every axis also needs a size, and a second anchor is not a way "
+            "to give one (that is ARC-LAY-031).",
             "Add 'size: {w: ..., h: ...}' — each of fixed (e.g. 100px), a %, 'fill', "
-            "'fit_content', or {aspect: 'W:H'}.",
+            "'fit_content' (text only), or {aspect: 'W:H'}. To span the parent on an axis use "
+            "'fill' with one anchor on that axis; for an inset frame, anchor one edge and use "
+            "a % of the parent, or wrap the content in a 'layout: vstack' group with 'padding' "
+            "and give the child 'size: {w: fill, h: fill}'.",
+        ),
+        _e(
+            "ARC-LAY-033",
+            "Fill-sized node overshoots its parent",
+            "A node sized 'fill' on an axis is anchored with an offset (or to a sibling's "
+            "edge), so the far edge lands past the parent by that amount. 'fill' spans the "
+            "whole parent; it does not shrink to what the anchor leaves. This is a warning, not "
+            "an error: the render succeeds and the overshoot is clipped, which is what an "
+            "author sees as \"the frame is cut off on one side\". The message names the "
+            "overshoot in points.",
+            "For an inset, keep the anchor and size that axis as a percentage of the parent (or "
+            "a fixed length), or wrap the content in a 'layout: vstack' group with 'padding' "
+            "and give the child 'size: {w: fill, h: fill}'. If reaching past the parent is "
+            "intended, the warning can be ignored.",
         ),
         _e(
             "ARC-LAY-050",
@@ -846,8 +922,12 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-FX-910",
             "Unknown effect",
-            "A node references an effect name that is not registered.",
-            "Use a registered effect (the message lists them), or add it as an extension.",
+            "A node references an effect name that is not registered. Besides a typo, this is "
+            "what an effect provided by an extension looks like before that extension is added "
+            "and enabled; some shipped examples bundle one.",
+            "Use a registered effect (the message lists them), or add and enable the extension "
+            "that provides it: 'arcavex ext add <dir>', then 'arcavex ext enable <name>'; "
+            "'arcavex ext list' shows added extensions and their state.",
         ),
         _e(
             "ARC-FX-911",
@@ -859,10 +939,14 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-FX-912",
             "Invalid shape-generator parameters",
-            "A shape generator's parameters failed validation against its schema, or the "
-            "generator raised while building its path.",
-            "Check each parameter against the generator's documented schema; the message lists "
-            "every offending field so you can fix them in one pass.",
+            "A shape generator's parameters failed validation against its schema (an unknown "
+            "name, a wrong type, or an out-of-range value), or the generator raised while "
+            "building its path. The message lists every offending field and the hint "
+            "enumerates the generator's real parameters with their types, defaults, and ranges.",
+            "Fix the named fields against the parameters the hint lists. 'arcavex shapes list' "
+            "(MCP: arcavex_shape_list) lists every registered generator and its schema, and "
+            "'arcavex shapes inspect <name>' shows one; the same table is in "
+            "docs/template-schema.md under 'Shape generator parameters'.",
         ),
         _e(
             "ARC-FX-913",
@@ -980,6 +1064,49 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Reinstall from a wheel built with the skill included, or run from a source checkout.",
         ),
         _e(
+            "ARC-MCP-001",
+            "Unknown MCP host",
+            "'arcavex mcp install --target' was given a name that is not a host this command knows "
+            "how to register with. The hosts are fixed because each has its own registration "
+            "mechanism — Claude Code's and Codex's CLIs, Claude Desktop's config file — and a name "
+            "outside that set has none.",
+            "Use claude-code, claude-desktop, or codex ('desktop' and 'chatgpt' are aliases). For "
+            "any other MCP client, 'arcavex mcp install --print' shows the command line to "
+            "register as a stdio server.",
+        ),
+        _e(
+            "ARC-MCP-002",
+            "MCP host not found on this machine",
+            "The host is not installed here: 'claude' or 'codex' is not on PATH, or Claude "
+            "Desktop's config directory does not exist. Nothing was written. In a default run (no "
+            "--target) this is an informational notice, because a machine with only one assistant "
+            "on it has done everything it can; for a host named with --target it is an error, and "
+            "the hint carries the exact snippet to paste by hand.",
+            "Install the host and run 'arcavex mcp install' again, or register by hand with the "
+            "snippet from 'arcavex mcp install --print'.",
+        ),
+        _e(
+            "ARC-MCP-003",
+            "MCP server already registered with this host",
+            "The host already has a server named 'arcavex'. Registration stops rather than "
+            "replacing it, because it may point at a different engine on purpose — a frozen build, "
+            "another virtual environment — or carry settings a person added.",
+            "Pass '--force' to replace it with this engine's command; '--list' shows which hosts "
+            "are registered.",
+        ),
+        _e(
+            "ARC-MCP-004",
+            "Could not register the MCP server",
+            "Either the host's CLI ('claude mcp add', 'codex mcp add') exited with an error, or "
+            "the host's config file could not be updated: it is not valid JSON/TOML, its top "
+            "level is not the expected shape, the existing 'arcavex' entry is written in a "
+            "layout this command cannot rewrite safely, or the write itself failed. The message "
+            "carries what the CLI or the OS said. A file is only ever replaced atomically with "
+            "its previous content kept beside it as '.bak', so a failure leaves it as it was.",
+            "Fix what the message reports — repair the file, or move it aside — and run again; or "
+            "paste the snippet from 'arcavex mcp install --print' into the file yourself.",
+        ),
+        _e(
             "ARC-EDT-001",
             "Project is locked by another writer",
             "A semantic edit could not acquire the project mutation lock: another Arcavex "
@@ -1080,14 +1207,40 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Re-read the project, compose the edit against the current revision, and re-submit.",
         ),
         _e(
+            "ARC-EDT-013",
+            "No usable target format for a format-scoped edit",
+            "The transaction asked for scope 'format' — write each command as an override in "
+            "formats.<name>.patch so only that format changes — but target.format named no "
+            "format, named one the template does not define, or the format's spec is not a "
+            "mapping a patch list can be added to. Nothing was changed.",
+            "Set target: {format: <name>} to a format the template defines, or use scope: "
+            "shared to edit the authored node every format renders.",
+        ),
+        _e(
+            "ARC-EDT-014",
+            "Command cannot be scoped to one format",
+            "Under scope 'format' a command must have a per-format form: a field write the "
+            "engine can express as a 'set' op in formats.<name>.patch. Structural commands "
+            "(reorder, reparent, duplicate, delete, group, splice_children) change the tree "
+            "every format shares, and set_display_name writes project-wide UI metadata, so "
+            "neither can be written for one format alone. Nothing was changed.",
+            "Use scope: shared for structural changes and display names. A per-format structure "
+            "needs a hand-written formats.<name>.patch with insert_before, insert_after, or "
+            "remove ops (arcavex_template_patch).",
+        ),
+        _e(
             "ARC-TPL-102",
-            "Locale rendered without content of its own",
-            "A locale whose text direction differs from the content was applied, but neither an "
-            "inline 'locales.<name>.data' nor a sibling '<data>.<locale>.yaml' supplied any text "
-            "for it. The direction and digit rules still apply, so untranslated copy is "
-            "bidi-reordered: an English time range renders reversed while looking entirely "
-            "normal.",
-            "Supply the locale's copy, or render without --locale to see the source direction.",
+            "Locale applied to copy written in another script",
+            "A locale whose text direction differs from the source was applied, but none of the "
+            "copy it was given reads in that direction: neither an inline 'locales.<name>.data' "
+            "nor a sibling '<data>.<locale>.yaml' supplied any text, and the data (or the "
+            "template's own text) carries no character of the locale's script. The direction and "
+            "digit rules still apply, so untranslated copy is bidi-reordered: an English time "
+            "range renders reversed while looking entirely normal. Data already written in the "
+            "locale's script is the intended use and is not reported.",
+            "Pass data written in the locale (a data file, a sibling '<data>.<locale>.yaml' "
+            "overlay, or inline 'locales.<name>.data'), or render without a locale to see the "
+            "source direction.",
         ),
         _e(
             "ARC-TPL-103",
@@ -1141,9 +1294,11 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-PRJ-001",
             "No project found",
             "No project.yaml was found in the current directory or any parent, and no valid "
-            "--project path was given, so there is no project to act on.",
-            "Run inside a project directory, pass --project <dir>, or create one with "
-            "'arcavex project new'.",
+            "project directory was given (--project on the CLI, the 'project' argument over "
+            "MCP), so there is no project to act on.",
+            "Run inside a project directory, pass the project directory explicitly (--project "
+            "<dir> on the CLI, 'project' over MCP), or create one (arcavex project new / "
+            "arcavex_project_create).",
         ),
         _e(
             "ARC-PRJ-002",
@@ -1247,6 +1402,18 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "is refused before following the path.",
             "Replace linked working-state components with real directories and files contained "
             "by the canonical project root.",
+        ),
+        _e(
+            "ARC-PRJ-015",
+            "Project data still holds scaffold placeholder copy",
+            "'project new' seeds a project's data from the template's own data.yaml, and a "
+            "template made by 'template new' ships placeholder values there ('TITLE GOES HERE', "
+            "'SUBTITLE GOES HERE'). One or more variables still hold exactly those values, so "
+            "the project's render and preview print the placeholder — while a preview of the "
+            "bare template shows its preview_data instead, which is why the two can disagree. "
+            "This is a warning: the render succeeds and the message names the variables.",
+            "Write the real copy: 'arcavex data set <variable> \"...\"' (MCP: arcavex_data_set) "
+            "or 'data import', or edit the project's data file directly, then render again.",
         ),
         _e(
             "ARC-LIB-001",
@@ -1414,8 +1581,18 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-EXT-040",
             "Unknown extension",
-            "An enable/disable command named an extension that has not been added.",
-            "Add it first with 'arcavex ext add <path>'; 'arcavex ext list' shows what is added.",
+            "An enable, disable, or remove command named an extension that has not been added.",
+            "'arcavex ext list' shows what is added; add one first with 'arcavex ext add <dir>'.",
+        ),
+        _e(
+            "ARC-EXT-041",
+            "Enabled extension not removed",
+            "'ext remove' named an extension that is enabled, and --force was not given. Its "
+            "components are live for every run, so removing it silently would make each template "
+            "that uses them fail on the next start with an unknown-effect error that says nothing "
+            "about the removal.",
+            "Disable it first with 'arcavex ext disable <name>' and remove it again, or pass "
+            "--force to remove it while enabled.",
         ),
         _e(
             "ARC-EXT-050",
@@ -1452,10 +1629,39 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-EXT-060",
-            "Extension scaffold or add target problem",
-            "'ext scaffold' will not write into a non-empty directory, or 'ext add' could not "
-            "copy the extension into the Arcavex home.",
-            "Choose a new or empty scaffold directory, and ensure the Arcavex home is writable.",
+            "Extension scaffold, add, or remove target problem",
+            "'ext scaffold' will not write into a non-empty directory; 'ext add' could not copy "
+            "the extension into the Arcavex home; or 'ext remove' dropped the extension's record "
+            "but could not delete its stored copy (nothing loads from that directory any more).",
+            "Choose a new or empty scaffold directory, ensure the Arcavex home is writable, or "
+            "delete the leftover directory the message names by hand.",
+        ),
+        _e(
+            "ARC-MCP-010",
+            "Unknown tool argument",
+            "An MCP tool call carried an argument key the tool does not declare (for example "
+            "'format' on arcavex_template_new, or 'scale' on arcavex_render). The call is refused "
+            "before anything runs: an unknown option that was silently dropped would look exactly "
+            "like one that took effect.",
+            "Use only the arguments in the tool's inputSchema ('arcavex mcp tools --json' lists "
+            "them, and the hint names them); the option you meant may belong to another tool.",
+        ),
+        _e(
+            "ARC-MCP-011",
+            "Missing required tool argument",
+            "An MCP tool call omitted an argument the tool requires, so there is nothing to act "
+            "on.",
+            "Pass the named argument; the hint lists the tool's required and optional arguments "
+            "with what each one means.",
+        ),
+        _e(
+            "ARC-MCP-012",
+            "Invalid tool argument value",
+            "An MCP tool call passed a value of the wrong type, or outside the accepted values, "
+            "for an argument (for example dpi: 'high', or a mode that is not one of the listed "
+            "literals).",
+            "Pass a value of the type the hint states; lists and mappings are JSON values, not "
+            "prose.",
         ),
         _e(
             "ARC-INT-010",

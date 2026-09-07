@@ -47,10 +47,12 @@ from arcavex.kernel.ir.models import (
     CompiledNode,
     LayoutDocument,
     LayoutNode,
+    ResolvedShape,
+    ResolvedText,
     SourceRef,
 )
-from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Rect
-from arcavex.kernel.pipeline import layout_and_render
+from arcavex.kernel.ir.units import GEOMETRY_QUANTUM_PT, Matrix3, Rect
+from arcavex.kernel.pipeline import layout_and_render, surface_px
 from arcavex.kernel.registry import Registries
 
 _EXPORTER_BY_EXT: dict[str, str] = {
@@ -85,6 +87,17 @@ _GEOMETRY_EPS_PT = 10 * GEOMETRY_QUANTUM_PT
 # explicit authoring flag would replace it; see docs/backlog.md.
 _BACKDROP_AREA_FRACTION = 0.9
 
+# An intersection no deeper than this on its short side, or smaller than this fraction of the
+# smaller of the two boxes, is a graze and is reported as ``touch`` rather than ``content``. One
+# point is where a correction stops being visible: 1.3px at 96 dpi, inside the anti-aliased edge a
+# rasterizer draws anyway. Two percent of the smaller box's area is the corner-nick regime — along
+# a full edge it is a sliver 2% of that box's depth, at a corner an overlap of ~14% of each side —
+# a nudge, not a re-layout. Both are measured on the collision boxes (``_collision_rect``): a text
+# node's line box is taller than its glyphs, so a graze that only reaches a font's leading still
+# counts by the leading's full depth.
+_TOUCH_MAX_DEPTH_PT = 1.0
+_TOUCH_MAX_AREA_FRACTION = 0.02
+
 # Resolution of the canvas-coverage grid used by `covered_fraction` and `free_regions`. 64x64
 # over the shortest supported canvas edge is a cell of a few points, fine enough to locate an
 # empty slab and coarse enough to stay O(1) per node. Coverage is therefore an approximation
@@ -112,6 +125,28 @@ _FiniteMatrix = tuple[
     FiniteFloat,
     FiniteFloat,
 ]
+
+
+def _preview_variant(
+    data: Path | None, locale: str | None, dpi: int | None, style: str | None
+) -> str:
+    """Spell out the preview inputs beyond template + format that change the rendered pixels.
+
+    Empty when none is given, which is what keeps the plain preview path historical. Each part is
+    tagged with its name so a locale that happens to spell like a style reference, or a style file
+    that happens to equal a data path, cannot fold to the same key. The data path is resolved so
+    ``./data.yaml`` and its absolute spelling share one preview.
+    """
+    parts: list[str] = []
+    if data is not None:
+        parts.append(f"data={Path(data).resolve()}")
+    if locale is not None:
+        parts.append(f"locale={locale}")
+    if dpi is not None:
+        parts.append(f"dpi={dpi}")
+    if style is not None:
+        parts.append(f"style={style}")
+    return "\n".join(parts)
 
 
 def _output_name(stem: str, fmt: str, locale: str | None) -> str:
@@ -150,6 +185,26 @@ def _hit_point(x_pt: float | str, y_pt: float | str) -> tuple[float, float]:
         )
     return point
 
+
+
+def _fit_dpi(document: CompiledDocument, dpi: int | None, max_px: int | None) -> int | None:
+    """Lower ``dpi`` so the longer canvas side fits within ``max_px`` pixels; never raise it.
+
+    ``None`` in means "the declared canvas dpi", and stays ``None`` when the bound does not bite,
+    so a preview without a bound renders exactly as it always has. The floor keeps the rounded
+    pixel size at or under the bound.
+    """
+    if max_px is None:
+        return dpi
+    canvas = document.canvas
+    effective = dpi if dpi is not None else canvas.dpi
+    longest_pt = max(canvas.width_pt, canvas.height_pt)
+    if longest_pt <= 0:
+        return dpi
+    fitted = int((max_px * 72.0) // longest_pt)
+    if fitted >= effective:
+        return dpi
+    return max(1, fitted)
 
 def _dedupe(diagnostics: list[Diagnostic]) -> list[Diagnostic]:
     """Remove duplicate diagnostics while preserving first-seen order."""
@@ -219,6 +274,9 @@ class ProjectInputs:
     patch_ops: list[Any] | None
     patch_file: Path | None
     targets: list[tuple[str, str | None]]
+    #: Project-level findings that hold for every target (e.g. ``ARC-PRJ-015`` placeholder copy
+    #: still in the data file), reported once by validate/preview rather than per target.
+    diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
 @dataclass
@@ -382,6 +440,32 @@ class EffectListReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class ShapeInfo(BaseModel):
+    """A registered shape generator (``generator:`` on a shape node) and its parameter schema.
+
+    Parameters reuse :class:`EffectParamInfo`: a generator's ``params`` follow the same
+    conventions as an effect's (a bare number is points, lengths take ``pt``/``mm``), so the
+    discovery output reads the same way.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    description: str | None = None
+    params: list[EffectParamInfo] = Field(default_factory=list)
+
+
+class ShapeListReport(BaseModel):
+    """The result of ``arcavex shapes list`` — every registered shape generator and its params."""
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    shapes: list[ShapeInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 # ----------------------------------------------------------------------------- fonts (§4.3)
 class FontFileInfo(BaseModel):
     """One font file backing a family, and whether it came from the install directory."""
@@ -406,6 +490,11 @@ class FontFamilyInfo(BaseModel):
     family: str
     bundled: bool
     installed: bool
+    # ``available`` answers the question a caller is actually asking — "may a template name this
+    # family?" — and is true for every family listed; a bundled family that only said
+    # ``installed: false`` was read as "not usable". ``source`` says where it came from in a word.
+    available: bool
+    source: Literal["bundled", "installed", "bundled+installed"]
     files: list[FontFileInfo] = Field(default_factory=list)
 
 
@@ -496,6 +585,62 @@ class SkillServiceProtocol(Protocol):
     ) -> SkillInstallReport: ...
 
 
+class McpTargetInfo(BaseModel):
+    """One AI host ``arcavex mcp install`` can register the MCP server with.
+
+    ``location`` is where the registration lives — the config file this command edits, or the
+    host CLI that owns it — and ``snippet`` is what a person would paste to make the same
+    registration by hand, so ``--print`` and a host-not-found diagnostic can show the manual
+    route. ``available`` says whether the host is present on this machine at all.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    key: str
+    label: str
+    location: str
+    available: bool
+    registered: bool
+    snippet: str
+    note: str | None = None
+
+
+class McpInstallReport(BaseModel):
+    """The result of ``arcavex mcp install`` / ``--list`` / ``--print``.
+
+    ``command`` is the exact command line registered (or that would be) — absolute paths, so it
+    works from any working directory the host starts it in. ``targets`` describes every host
+    considered and ``installed`` names, by key, the ones written this run, so a no-op (already
+    registered, no ``--force``) is distinguishable from a write.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    command: list[str] = Field(default_factory=list)
+    targets: list[McpTargetInfo] = Field(default_factory=list)
+    installed: list[str] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class McpHostServiceProtocol(Protocol):
+    """The MCP host registrar injected by bootstrap.
+
+    Returns versioned kernel result models and does not raise across the facade boundary.
+    """
+
+    def list_targets(self, *, command: Path | None) -> McpInstallReport: ...
+
+    def install(
+        self,
+        *,
+        targets: list[str] | None,
+        command: Path | None,
+        force: bool,
+    ) -> McpInstallReport: ...
+
+
 class FontServiceProtocol(Protocol):
     """The font install/inspect service injected by bootstrap (spec §4.3).
 
@@ -512,7 +657,14 @@ class FontServiceProtocol(Protocol):
 
 
 class RenderResult(BaseModel):
-    """The result of a render request."""
+    """The result of a render request.
+
+    ``output_path`` is the absolute path of the written file: the CLI's ``--json`` and the MCP
+    render tool are read by an assistant that may have run the command from another directory,
+    where a path relative to the engine's working directory opens nothing. ``inferred["output"]``
+    is different in kind — the default *name* the engine chose when no output was given,
+    relative to the working directory exactly as the human ``inferred:`` line reports it.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -955,7 +1107,11 @@ class TemplateResolvedReport(BaseModel):
 
 
 class ScaffoldResult(BaseModel):
-    """The result of ``arcavex template new``."""
+    """The result of ``arcavex template new``.
+
+    ``format`` is the first declared format (the one the human line says to render with);
+    ``formats`` lists every canvas the scaffold declared, in preset order.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -963,6 +1119,7 @@ class ScaffoldResult(BaseModel):
     ok: bool
     path: str | None = None
     format: str | None = None
+    formats: list[str] = Field(default_factory=list)
     files: list[str] = Field(default_factory=list)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -1059,7 +1216,11 @@ class ExtensionTestReport(BaseModel):
 
 
 class ExtensionActionReport(BaseModel):
-    """The result of ``arcavex ext add/enable/disable`` — the extension's new state."""
+    """The result of ``arcavex ext add/enable/disable/remove`` — the extension's new state.
+
+    ``removed_path`` is set by ``remove`` to the stored copy it deleted, so the report says what
+    left the disk; it stays ``None`` when there was no copy to delete.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -1067,6 +1228,7 @@ class ExtensionActionReport(BaseModel):
     ok: bool
     name: str | None = None
     enabled: bool = False
+    removed_path: str | None = None
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -1094,6 +1256,8 @@ class ExtensionServiceProtocol(Protocol):
 
     def disable_extension(self, name: str) -> ExtensionActionReport: ...
 
+    def remove_extension(self, name: str, *, force: bool) -> ExtensionActionReport: ...
+
 
 class SplitResult(BaseModel):
     """The result of ``arcavex template split``."""
@@ -1111,10 +1275,12 @@ class PatchOp(BaseModel):
     """One path-addressed template mutation (spec §4.1.4), the AI authoring contract.
 
     Exactly one of ``set``/``remove``/``insert_before``/``insert_after`` names the addressed
-    path ``nodes.<id>[.<field>...]``; ``value`` carries a ``set`` payload and ``node`` the
-    mapping an insert introduces. This is the SAME grammar the format/locale/project override
-    layers use, applied here to the template file itself so an agent edits a stable node id
-    rather than a text span.
+    path; ``value`` carries a ``set`` payload and ``node`` the mapping an insert introduces. A
+    path is ``nodes.<id>[.<field>...]`` (the only form inserts take) or, because this is the
+    top-level operation, a template section: ``formats.<name>``, ``variables.<name>``,
+    ``preview_data.<key>``, ``locales.<name>`` (each with an optional field path) or ``style``.
+    This is the SAME grammar the format/locale/project override layers use for nodes, applied
+    here to the template file itself so an agent edits a stable node id rather than a text span.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -1226,6 +1392,11 @@ class PreviewResult(BaseModel):
     compile_ms: float | None = None
     render_ms: float | None = None
     content_sha256: str | None = None
+    # The dpi the image was rendered at and its pixel size: the declared canvas dpi unless a
+    # ``dpi`` override or a ``max_px`` bound applied, so a caller never has to guess from the file.
+    dpi: int | None = None
+    width_px: int | None = None
+    height_px: int | None = None
     inferred: dict[str, str] = Field(default_factory=dict)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
@@ -1254,7 +1425,15 @@ class AnchorDerivation(BaseModel):
 
 
 class OverflowReport(BaseModel):
-    """A node's text-overflow outcome, echoed for inspection."""
+    """A node's text-overflow outcome, echoed for inspection.
+
+    ``base_size_pt`` is the authored font size the fit started from and ``resolved_size_pt`` the
+    size actually painted, so a ``shrunk`` outcome is judged from the sizes themselves rather
+    than from the box extents. ``kind`` is ``shrunk`` only when the size moved by at least the
+    larger of 1pt and 2% of the base; a smaller move is a fit-search artefact, left at ``none``
+    with the exact resolved size still reported. Both fields are additive under
+    response_version 1 and default to ``None`` (spec §2 rule 5).
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -1263,6 +1442,8 @@ class OverflowReport(BaseModel):
     measured_h_pt: float
     box_w_pt: float
     box_h_pt: float
+    base_size_pt: float | None = None
+    resolved_size_pt: float | None = None
 
 
 class LayoutNodeReport(BaseModel):
@@ -1284,16 +1465,28 @@ class LayoutNodeReport(BaseModel):
     children: list[LayoutNodeReport] = Field(default_factory=list)
 
 
+OverlapKind = Literal["content", "touch", "halo"]
+
+
 class SiblingOverlap(BaseModel):
     """Two sibling nodes whose resolved bounds intersect, classified by what collides.
 
     ``kind``:
 
-    - ``content`` — the nodes' layout bounds (post-rotation AABB, no effect growth) intersect.
-      ``rect_pt`` is the colliding area, so its size is the depth to correct.
+    - ``content`` — the nodes' collision boxes intersect: the layout bounds (post-rotation AABB,
+      no effect growth), narrowed for an unrotated text node to its shaped width along the
+      paragraph alignment. ``rect_pt`` is the colliding area, so its size is the depth to correct.
+    - ``touch`` — the collision boxes intersect, but by no more than 1pt on the short side or by
+      under 2% of the smaller box's area: a graze or a corner nick, usually intended. ``rect_pt``
+      is the same content intersection.
     - ``halo`` — only the effect-grown ``paint_bounds`` intersect: the drop-shadow, glow or
       torn-paper amplitude of one node reaches over its neighbour. ``rect_pt`` is then the
       paint intersection, the only one that exists.
+
+    Containment by structure is not reported at all: a group, a backdrop covering ≥90% of the
+    parent region, a stroke-only frame (absent or transparent fill) drawn around the node, or a
+    filled plate painted beneath it. A filled shape painted *over* a sibling it fully covers
+    hides that sibling and is still ``content``.
 
     Scope: pairs are enumerated per group, so two nodes in different groups are never compared.
     An empty list means no sibling collisions, not that nothing on the canvas collides — on the
@@ -1309,7 +1502,7 @@ class SiblingOverlap(BaseModel):
     rect_pt: tuple[float, float, float, float]
     # Additive under response_version 1 and defaulted, so a payload serialised before the field
     # existed still parses and a consumer that ignores it is unaffected (spec §2 rule 5).
-    kind: Literal["content", "halo"] = "content"
+    kind: OverlapKind = "content"
 
 
 class LayoutReport(BaseModel):
@@ -1472,8 +1665,10 @@ class HitTestReport(BaseModel):
 class AuthoringProtocol(Protocol):
     """Template authoring operations injected by bootstrap (scaffold/inspect/split)."""
 
-    def scaffold(self, name: str, target: Path) -> ScaffoldResult:
-        """Scaffold a new renderable template directory at ``target``."""
+    def scaffold(
+        self, name: str, target: Path, formats: list[str] | None = None
+    ) -> ScaffoldResult:
+        """Scaffold a new renderable template directory at ``target`` declaring ``formats``."""
         ...
 
     def inspect(self, template: Path) -> TemplateInspectReport:
@@ -1871,7 +2066,7 @@ class OrchestratorProtocol(Protocol):
         project: Path | None,
         formats: list[str] | None,
         locales: list[str] | None,
-        dpi: int | None,
+        dpi: int | dict[str, int] | None,
     ) -> RunReport: ...
 
     def record_render(
@@ -1969,6 +2164,7 @@ class Facade:
         extension_load_diagnostics: list[Diagnostic] | None = None,
         fonts: FontServiceProtocol | None = None,
         skills: SkillServiceProtocol | None = None,
+        mcp_hosts: McpHostServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
         desktop: DesktopServiceProtocol | None = None,
@@ -2002,6 +2198,7 @@ class Facade:
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
         self._fonts = fonts
         self._skills = skills
+        self._mcp_hosts = mcp_hosts
         self._budget = budget
         self._engine_version = engine_version
         self._desktop = desktop
@@ -2310,7 +2507,8 @@ class Facade:
 
         return RenderResult(
             ok=True,
-            output_path=report.path,
+            # Absolute, so the path means the same thing to a reader in any working directory.
+            output_path=str(Path(report.path).resolve()),
             diagnostics=diagnostics,
             content_sha256=report.content_sha256,
             inferred=inferred,
@@ -2559,13 +2757,38 @@ class Facade:
                     EffectInfo(
                         name=name,
                         category=effect.kind.value,
-                        params=_effect_param_infos(effect.param_schema),
+                        params=param_infos(effect.param_schema),
                     )
                 )
             return EffectListReport(ok=True, effects=infos)
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return EffectListReport(
                 ok=False, diagnostics=[internal_error("effects list failed", detail=repr(exc))]
+            )
+
+    def list_shapes(self) -> ShapeListReport:
+        """List every registered shape generator with its parameter schema. Never raises.
+
+        The generator counterpart of :meth:`list_effects`: nothing over the CLI or MCP listed
+        the ``generator:`` names a shape node may use, so an author learned ``starburst``'s
+        parameters from an ``ARC-FX-912`` refusal or from source. Each entry carries the
+        generator's one-line description and its params' names, types, defaults, and ranges.
+        """
+        try:
+            shapes: list[ShapeInfo] = []
+            for name in self._registries.shapes.names():
+                generator = self._registries.shapes.get(name)
+                shapes.append(
+                    ShapeInfo(
+                        name=name,
+                        description=_first_doc_line(generator.__doc__),
+                        params=param_infos(generator.param_schema),
+                    )
+                )
+            return ShapeListReport(ok=True, shapes=shapes)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ShapeListReport(
+                ok=False, diagnostics=[internal_error("shapes list failed", detail=repr(exc))]
             )
 
     # ------------------------------------------------------------------ extensions (§7)
@@ -2650,6 +2873,17 @@ class Facade:
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return ExtensionActionReport(
                 ok=False, diagnostics=[internal_error("ext disable failed", detail=repr(exc))]
+            )
+
+    def remove_extension(self, name: str, *, force: bool = False) -> ExtensionActionReport:
+        """Remove an added extension's stored copy and record; enabled needs ``force``. No raise."""
+        if self._extensions is None:  # pragma: no cover - always wired in production
+            return ExtensionActionReport(ok=False, diagnostics=[_unwired("extensions")])
+        try:
+            return self._extensions.remove_extension(name, force=force)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return ExtensionActionReport(
+                ok=False, diagnostics=[internal_error("ext remove failed", detail=repr(exc))]
             )
 
     # ----------------------------------------------------------------------- fonts (§4.3)
@@ -2738,12 +2972,55 @@ class Facade:
                 diagnostics=[internal_error("skill install failed", detail=repr(exc))],
             )
 
-    def scaffold_template(self, name: str, target: Path) -> ScaffoldResult:
-        """Scaffold a new renderable one-file template directory. Never raises."""
+    # ------------------------------------------------------------------------ mcp install
+    def list_mcp_targets(self, command: Path | None = None) -> McpInstallReport:
+        """Describe every AI host the MCP server can be registered with. Never raises."""
+        if self._mcp_hosts is None:  # pragma: no cover - always wired in production
+            return McpInstallReport(ok=False, diagnostics=[_unwired("mcp hosts")])
+        try:
+            return self._mcp_hosts.list_targets(
+                command=None if command is None else Path(command)
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return McpInstallReport(
+                ok=False,
+                diagnostics=[internal_error("mcp target list failed", detail=repr(exc))],
+            )
+
+    def install_mcp(
+        self,
+        targets: list[str] | None = None,
+        command: Path | None = None,
+        force: bool = False,
+    ) -> McpInstallReport:
+        """Register the MCP server with one or more AI hosts. Never raises."""
+        if self._mcp_hosts is None:  # pragma: no cover - always wired in production
+            return McpInstallReport(ok=False, diagnostics=[_unwired("mcp hosts")])
+        try:
+            return self._mcp_hosts.install(
+                targets=targets,
+                command=None if command is None else Path(command),
+                force=force,
+            )
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return McpInstallReport(
+                ok=False,
+                diagnostics=[internal_error("mcp install failed", detail=repr(exc))],
+            )
+
+    def scaffold_template(
+        self, name: str, target: Path, formats: list[str] | None = None
+    ) -> ScaffoldResult:
+        """Scaffold a new renderable one-file template directory. Never raises.
+
+        ``formats`` names the canvas presets to declare (``square``, ``story``, ``portrait``,
+        ``landscape``, ``a4``, ``a3``, ``a2``, ``letter``, ``tabloid``); the default is
+        square + story. An unknown preset is a located ``ARC-TPL-072`` listing them.
+        """
         if self._authoring is None:  # pragma: no cover - always wired in production
             return ScaffoldResult(ok=False, diagnostics=[_unwired("authoring")])
         try:
-            return self._authoring.scaffold(name, Path(target))
+            return self._authoring.scaffold(name, Path(target), formats)
         except DiagnosticError as exc:
             return ScaffoldResult(ok=False, diagnostics=list(exc.diagnostics))
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
@@ -2843,22 +3120,45 @@ class Facade:
             )
 
     # -------------------------------------------------------------------- preview
-    def preview_path(self, template: Path, format_name: str) -> Path:
-        """Return the stable preview output path for a template + format.
+    def preview_path(
+        self,
+        template: Path,
+        format_name: str,
+        *,
+        data: Path | None = None,
+        locale: str | None = None,
+        dpi: int | None = None,
+        style: str | None = None,
+    ) -> Path:
+        """Return the stable preview output path for a template + format and its variant inputs.
 
         The path is derived from the resolved ``template.yaml`` so the same template always
         previews to the same file regardless of whether the caller passed the directory or the
         file (§4.1.1 path equivalence, CR-4), under ``$ARCAVEX_HOME/cache/preview`` or an OS
         temp directory.
+
+        Every other input that changes the pixels — the data file, the locale, the DPI, the style
+        pack — takes part in the name when it is given, so two variants of one template previewed
+        side by side land in two files instead of taking turns overwriting one. The same inputs
+        always give the same path (``--watch`` and the desktop re-read one file across renders),
+        and with none of them given the historical template + format path is unchanged, so
+        existing callers keep the file they are already watching.
         """
         try:
             _root_dir, template_yaml = self._compiler.resolve_paths(template)
             base = template_yaml
         except Exception:  # noqa: BLE001 - fall back to the raw path when resolution fails
             base = Path(template)
-        key = hashlib.sha256(str(base.resolve()).encode("utf-8")).hexdigest()[:16]
+        key_source = str(base.resolve())
+        variant = _preview_variant(data, locale, dpi, style)
+        if variant:
+            key_source += "\n" + variant
+        key = hashlib.sha256(key_source.encode("utf-8")).hexdigest()[:16]
+        # The locale is short and already file-safe (project previews name it the same way), so
+        # it is spelled out too: a person looking at the cache can tell the ``fa`` preview apart.
+        segment = f".{locale}" if locale else ""
         root = self._resolve_preview_root()
-        return root / f"{key}.{format_name}.png"
+        return root / f"{key}.{format_name}{segment}.png"
 
     def render_preview(
         self,
@@ -2870,16 +3170,20 @@ class Facade:
         dpi: int | None = None,
         changed_file: str | None = None,
         debug: bool = False,
+        max_px: int | None = None,
     ) -> PreviewResult:
         """Render to the stable preview path atomically, with compile/render timings.
 
         Never raises and never creates a recorded run. On failure the previous preview file is
         left untouched (the atomic temp+replace only runs on success), so a viewer keeps the
         last good image (spec §6.3). With ``debug`` the preview carries the layout overlay.
+        ``max_px`` bounds the longer image side in pixels by lowering the dpi (never raising
+        it), so iterating on a poster-sized format does not cost a poster-sized image per call;
+        the result reports the ``dpi`` and pixel size actually rendered.
         """
         try:
             return self._render_preview_inner(
-                template, data, format_name, locale, style, dpi, changed_file, debug
+                template, data, format_name, locale, style, dpi, changed_file, debug, max_px
             )
         except DiagnosticError as exc:
             return PreviewResult(
@@ -2903,6 +3207,7 @@ class Facade:
         dpi: int | None,
         changed_file: str | None,
         debug: bool = False,
+        max_px: int | None = None,
     ) -> PreviewResult:
         compile_start = time.perf_counter()
         compiled = self._compiler.compile(template, data, format_name, locale, style)
@@ -2919,13 +3224,17 @@ class Facade:
             )
 
         resolved_format = compiled.format_name or "out"
-        out_path = self.preview_path(template, resolved_format)
+        out_path = self.preview_path(
+            template, resolved_format, data=data, locale=locale, dpi=dpi, style=style
+        )
 
+        render_dpi = _fit_dpi(compiled.document, dpi, max_px)
         render_start = time.perf_counter()
-        surface, _, warnings = self._layout_and_render(compiled.document, dpi, debug=debug)
+        surface, _, warnings = self._layout_and_render(compiled.document, render_dpi, debug=debug)
         diagnostics.extend(warnings)
-        report = self._export_replace(surface, out_path, dpi)
+        report = self._export_replace(surface, out_path, render_dpi)
         render_ms = (time.perf_counter() - render_start) * 1000.0
+        width_px, height_px = surface_px(compiled.document, render_dpi)
 
         return PreviewResult(
             ok=True,
@@ -2934,6 +3243,9 @@ class Facade:
             compile_ms=compile_ms,
             render_ms=render_ms,
             content_sha256=report.content_sha256,
+            dpi=render_dpi if render_dpi is not None else compiled.document.canvas.dpi,
+            width_px=width_px,
+            height_px=height_px,
             inferred=inferred,
             diagnostics=diagnostics,
         )
@@ -3144,9 +3456,14 @@ class Facade:
         project: Path | None = None,
         formats: list[str] | None = None,
         locales: list[str] | None = None,
-        dpi: int | None = None,
+        dpi: int | dict[str, int] | None = None,
     ) -> RunReport:
-        """Render the active project's formats × locales into a recorded run. Never raises."""
+        """Render the active project's formats × locales into a recorded run. Never raises.
+
+        ``dpi`` is one integer for every format, a ``{"<format>": dpi}`` table for formats that
+        differ (a social tile and an A2 poster share no sensible dpi), or ``None`` to render each
+        format at its own declared canvas dpi (unless project.yaml or the environment sets one).
+        """
         return self._guard_project(
             lambda o: o.render_project(start, project, formats, locales, dpi), RunReport
         )
@@ -3209,7 +3526,7 @@ class Facade:
             return CheckResult(
                 ok=False, diagnostics=[internal_error("Project validate failed", detail=repr(exc))]
             )
-        diagnostics: list[Diagnostic] = []
+        diagnostics: list[Diagnostic] = list(inputs.diagnostics)
         for fmt, locale in inputs.targets:
             diagnostics.extend(self._validate_project_target(inputs, fmt, locale))
         diagnostics = _dedupe(diagnostics)
@@ -3254,11 +3571,16 @@ class Facade:
             self._preview_project_target(inputs, fmt, locale, dpi)
             for fmt, locale in inputs.targets
         ]
-        return PreviewProjectReport(ok=all(p.ok for p in previews), previews=previews)
+        return PreviewProjectReport(
+            ok=all(p.ok for p in previews),
+            previews=previews,
+            diagnostics=list(inputs.diagnostics),
+        )
 
     def _preview_project_target(
         self, inputs: ProjectInputs, format_name: str | None, locale: str | None, dpi: int | None
     ) -> PreviewResult:
+        compile_start = time.perf_counter()
         try:
             compiled = self._compiler.compile(
                 inputs.template_dir, inputs.data_path, format_name, locale, inputs.style,
@@ -3266,24 +3588,35 @@ class Facade:
             )
         except DiagnosticError as exc:
             return PreviewResult(ok=False, diagnostics=list(exc.diagnostics))
+        compile_ms = (time.perf_counter() - compile_start) * 1000.0
         diagnostics = list(compiled.diagnostics)
         if compiled.document is None or has_errors(diagnostics):
-            return PreviewResult(ok=False, diagnostics=diagnostics)
+            return PreviewResult(ok=False, compile_ms=compile_ms, diagnostics=diagnostics)
         resolved_format = compiled.format_name or "out"
         key = hashlib.sha256(
             f"{inputs.name}:{inputs.ref}:{resolved_format}:{locale or ''}".encode()
         ).hexdigest()[:16]
         seg = f".{locale}" if locale else ""
         out_path = self._resolve_preview_root() / f"{key}.{resolved_format}{seg}.png"
+        render_start = time.perf_counter()
         try:
             report, warnings = self._render_document(compiled.document, out_path, dpi)
         except DiagnosticError as exc:
-            return PreviewResult(ok=False, diagnostics=diagnostics + list(exc.diagnostics))
+            return PreviewResult(
+                ok=False, compile_ms=compile_ms, diagnostics=diagnostics + list(exc.diagnostics)
+            )
+        render_ms = (time.perf_counter() - render_start) * 1000.0
         diagnostics.extend(warnings)
+        width_px, height_px = surface_px(compiled.document, dpi)
         return PreviewResult(
             ok=True,
             output_path=str(out_path),
+            compile_ms=compile_ms,
+            render_ms=render_ms,
             content_sha256=report.content_sha256,
+            dpi=dpi if dpi is not None else compiled.document.canvas.dpi,
+            width_px=width_px,
+            height_px=height_px,
             inferred=dict(compiled.inferred),
             diagnostics=diagnostics,
         )
@@ -3434,11 +3767,13 @@ def _unwired(what: str) -> Diagnostic:
     return internal_error(f"{what} service is not wired")
 
 
-def _effect_param_infos(schema: type[BaseModel]) -> list[EffectParamInfo]:
-    """Project a pydantic effect param schema onto reportable field infos (DX-6).
+def param_infos(schema: type[BaseModel]) -> list[EffectParamInfo]:
+    """Project a pydantic component param schema onto reportable field infos (DX-6).
 
-    Type names are author-facing: a length param (points/mm/px) reports ``length`` and a colour
-    param reports ``colour``, detected from the field's ``BeforeValidator`` rather than a raw
+    Shared by ``effects list``, ``shapes list``, and the compiler's ``ARC-FX-912`` hint, so a
+    parameter is described the same way wherever an author meets it. Type names are
+    author-facing: a length param (points/mm/px) reports ``length`` and a colour param reports
+    ``colour``, detected from the field's ``BeforeValidator`` rather than a raw
     ``number``/``array`` so the discovery output tells an author what unit grammar to use.
     """
     out: list[EffectParamInfo] = []
@@ -3496,6 +3831,14 @@ def _plain_default(value: Any) -> Any:
     if isinstance(value, tuple):
         return list(value)
     return value
+
+
+def _first_doc_line(doc: str | None) -> str | None:
+    """The first line of a docstring, as a component's one-line description."""
+    if not doc:
+        return None
+    lines = [line.strip() for line in doc.strip().splitlines()]
+    return lines[0] if lines and lines[0] else None
 
 
 def _style_summary(pack: StylePackProtocol) -> StyleSummary:
@@ -3560,6 +3903,8 @@ def _build_node_report(
             measured_h_pt=layout.overflow.measured_h_pt,
             box_w_pt=layout.overflow.box_w_pt,
             box_h_pt=layout.overflow.box_h_pt,
+            base_size_pt=layout.overflow.base_size_pt,
+            resolved_size_pt=layout.overflow.resolved_size_pt,
         )
     anchors = _derive_anchors(compiled, layout, group_dir, parent_stack)
 
@@ -3664,51 +4009,155 @@ def _content_aabb(node: LayoutNode) -> Rect:
     return Rect(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
 
 
+def _collision_rects(node: LayoutNode) -> tuple[Rect, Rect]:
+    """The ``(content, paint)`` boxes a node's ink and effects can occupy.
+
+    ``content`` is ``_content_aabb``, narrowed for text to the shaped width. The solver records
+    the widest line's advance width in ``overflow.measured_w_pt`` and the renderer places the
+    paragraph inside its box by the paragraph alignment, so for an unrotated, unscaled text node
+    the horizontal extent of the painted glyphs is known without another measurement pass: a
+    short centred word does not reach its box's ends. That extent is the advance width, which
+    glyph ink can exceed by a side bearing or an italic overhang — about a point, the ``touch``
+    depth. The height stays the line box: nothing measures glyph ink vertically, so a font's
+    leading (Lalezar's line box is ~1.57x its size) still counts as content. A rotated or scaled
+    node keeps its AABB, because the alignment offset is not an axis-aligned quantity there.
+
+    ``paint`` is the effect-grown box. When the content box was narrowed, the same per-side
+    growth is applied to the narrowed box: a glow surrounds the word, not the empty ends of its
+    box, and without this a plain text node would report a ``halo`` against whatever sits under
+    those ends.
+    """
+    content = _content_aabb(node)
+    paint = _canvas_paint_bounds(node)
+    narrowed = _text_extent(node, content)
+    if narrowed is None:
+        return content, paint
+    grown = Rect(
+        narrowed.x - (content.x - paint.x),
+        narrowed.y - (content.y - paint.y),
+        narrowed.w + (paint.w - content.w),
+        narrowed.h + (paint.h - content.h),
+    )
+    return narrowed, grown
+
+
+def _text_extent(node: LayoutNode, rect: Rect) -> Rect | None:
+    """``rect`` narrowed to the node's shaped text width, or ``None`` when that is not known."""
+    text = node.resolved_content
+    if not isinstance(text, ResolvedText):
+        return None
+    width = node.overflow.measured_w_pt
+    if width <= 0.0 or width >= rect.w - _GEOMETRY_EPS_PT:
+        return None
+    if not _is_translation(node.absolute_transform):
+        return None
+    align = _physical_align(text.align, text.direction)
+    if align == "left":
+        offset = 0.0
+    elif align == "right":
+        offset = rect.w - width
+    else:
+        offset = (rect.w - width) / 2.0
+    return Rect(rect.x + offset, rect.y, width, rect.h)
+
+
+def _is_translation(m: Matrix3) -> bool:
+    """Whether the affine map moves points without rotating, scaling or shearing them."""
+    eps = 1e-9
+    return (
+        abs(m.a - 1.0) <= eps and abs(m.b) <= eps and abs(m.c) <= eps and abs(m.d - 1.0) <= eps
+    )
+
+
+def _physical_align(align: str, direction: str) -> str:
+    """Resolve a logical ``start``/``end`` alignment to a side, as the text service lays it out."""
+    if align in ("left", "right", "center"):
+        return align
+    if align == "end":
+        return "left" if direction == "rtl" else "right"
+    return "right" if direction == "rtl" else "left"
+
+
 def _classify_overlap(
     ca: Rect, cb: Rect, pa: Rect, pb: Rect
-) -> tuple[Literal["content", "halo"], tuple[float, float, float, float]] | None:
-    """Classify a sibling pair from its content and paint rects, or ``None`` if they clear.
+) -> tuple[OverlapKind, tuple[float, float, float, float]] | None:
+    """Classify a sibling pair from its collision and paint rects, or ``None`` if they clear.
 
     Content wins when the ink footprints themselves intersect, and the rect reported is then the
     content intersection — so the number an author reads is the real collision depth rather than
-    a blur radius. Otherwise only the effect-grown boxes touch, which is spill.
+    a blur radius; an intersection too shallow or too small to be a collision is a ``touch``.
+    Otherwise only the effect-grown boxes touch, which is spill.
     """
     content = _intersection(ca, cb)
     if content is not None:
-        return "content", content
+        return ("touch" if _is_touch(content, ca, cb) else "content"), content
     halo = _intersection(pa, pb)
     if halo is not None:
         return "halo", halo
     return None
 
 
+def _is_touch(inter: tuple[float, float, float, float], ca: Rect, cb: Rect) -> bool:
+    """Whether an intersection is a graze: ≤1pt on its short side, or <2% of the smaller box."""
+    _, _, w, h = inter
+    if min(w, h) <= _TOUCH_MAX_DEPTH_PT + _GEOMETRY_EPS_PT:
+        return True
+    smaller = min(ca.w * ca.h, cb.w * cb.h)
+    return smaller > 0.0 and w * h < _TOUCH_MAX_AREA_FRACTION * smaller
+
+
 def _collect_overlaps(
     children: tuple[LayoutNode, ...], overlaps: list[SiblingOverlap], region: object
 ) -> None:
-    visible = [(c, _content_aabb(c)) for c in children if c.visible]
+    # ``children`` is in paint order (document order broken by ``z``), so in every pair below
+    # ``a`` is painted beneath ``b``.
+    visible = [(c, *_collision_rects(c)) for c in children if c.visible]
     for i in range(len(visible)):
         for j in range(i + 1, len(visible)):
-            (a, ca), (b, cb) = visible[i], visible[j]
-            classified = _classify_overlap(
-                ca,
-                cb,
-                _canvas_paint_bounds(a),
-                _canvas_paint_bounds(b),
-            )
+            (a, ca, pa), (b, cb, pb) = visible[i], visible[j]
+            classified = _classify_overlap(ca, cb, pa, pb)
             if classified is None:
                 continue
-            # DX-8/RR2-9: containment is suppressed as noise only when the *container* is a
-            # backdrop — a group, or a full-bleed node covering nearly the whole parent region.
-            # A regular content node that fully swallows a sibling is a genuine bug and is still
-            # reported, rather than hidden just because it happens to enclose the other.
-            if _contains(ca, cb) and _is_backdrop(a, ca, region):
+            # DX-8/RR2-9/BX-42: containment is suppressed as noise only when the *container* is
+            # structure — a backdrop, a stroke-only frame, or a filled plate painted beneath the
+            # node. A filled shape that fully covers a sibling painted before it hides that
+            # sibling, which is a genuine bug and is still reported.
+            if _contains(ca, cb) and _is_structure(a, ca, region, beneath=True):
                 continue
-            if _contains(cb, ca) and _is_backdrop(b, cb, region):
+            if _contains(cb, ca) and _is_structure(b, cb, region, beneath=False):
                 continue
             kind, rect = classified
             overlaps.append(
                 SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect, kind=kind)
             )
+
+
+def _is_structure(node: LayoutNode, content: Rect, region: object, *, beneath: bool) -> bool:
+    """Whether ``node``, which fully contains a sibling, is that sibling's structure.
+
+    Three containers legitimately enclose a sibling: a backdrop (``_is_backdrop``: a group, or a
+    leaf covering nearly the whole parent region); a stroke-only frame, whose fill is absent or
+    transparent so its only ink is the outline drawn *around* the sibling; and a filled plate
+    painted ``beneath`` the sibling — a card or a label panel. A plate painted over the sibling
+    hides it, so that pair stays a reported collision. Containment is judged on boxes: a circle
+    or generator outline that reaches inside its box is not modelled, the same limitation as a
+    rotated node's AABB.
+    """
+    if _is_backdrop(node, content, region):
+        return True
+    shape = node.resolved_content
+    if not isinstance(shape, ResolvedShape):
+        return False
+    return beneath or not _has_fill(shape)
+
+
+def _has_fill(shape: ResolvedShape) -> bool:
+    """Whether the shape paints an interior: a fill that is present and not fully transparent.
+
+    ``fill: none``/``transparent`` and an explicit zero alpha all arrive here as ``None`` or an
+    RGBA with alpha 0, so a stroke-only frame is recognised however it was spelled.
+    """
+    return shape.fill is not None and shape.fill[3] > 0.0
 
 
 def _is_backdrop(node: LayoutNode, content: Rect, region: object) -> bool:

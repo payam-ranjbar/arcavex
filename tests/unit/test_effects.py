@@ -316,6 +316,28 @@ def test_unknown_effect_is_located(facade, tmp_path) -> None:  # noqa: ANN001
     assert d.source is not None and "sparkle" in d.message
 
 
+def test_unknown_effect_hint_says_how_to_get_one(facade, tmp_path) -> None:  # noqa: ANN001
+    """A shipped example needs its bundled extension added and enabled before it renders, and a
+    beginner hit ARC-FX-910 on the README's own command with a hint that only listed the effects
+    already registered — nothing about how an extension gets one registered."""
+    template = _write(
+        tmp_path,
+        "formats: {sq: {canvas: {width: 64px, height: 64px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      shape: rect\n"
+        "      effects: [{name: archive-print, params: {}}]\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+            "size: {w: fill, h: fill}}\n",
+    )
+    diags = facade.validate_template(template, format_name="sq")
+    d = next(d for d in diags if d.code == "ARC-FX-910")
+    assert d.hint is not None
+    assert "Registered effects:" in d.hint
+    assert "arcavex ext add <dir>" in d.hint
+    assert "arcavex ext enable <name>" in d.hint
+    assert "arcavex ext list" in d.hint
+
+
 def test_invalid_effect_params_located(facade, tmp_path) -> None:  # noqa: ANN001
     template = _write(
         tmp_path,

@@ -29,6 +29,7 @@ from arcavex.kernel.api import (
     Facade,
     FontListReport,
     LayoutReport,
+    McpInstallReport,
     PatchOp,
     PreviewResult,
     ProjectStatusReport,
@@ -59,6 +60,8 @@ style_app = typer.Typer(add_completion=False, help="Style-pack commands.")
 app.add_typer(style_app, name="style")
 effects_app = typer.Typer(add_completion=False, help="Effect catalog commands.")
 app.add_typer(effects_app, name="effects")
+shapes_app = typer.Typer(add_completion=False, help="Shape generator catalog commands.")
+app.add_typer(shapes_app, name="shapes")
 project_app = typer.Typer(add_completion=False, help="Project lifecycle commands.")
 app.add_typer(project_app, name="project")
 data_app = typer.Typer(add_completion=False, help="Project data authoring commands.")
@@ -116,7 +119,8 @@ EXIT_INTERNAL = 5
 # ARC-AST-* = missing/undecodable asset; MISSING_FONT_CODE = font family not loaded;
 # ARC-RND-030 = the file 'font add' was pointed at does not exist, which is the same
 # "a named input is not there" class as a missing asset and so shares its exit code.
-_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE, "ARC-RND-030"}
+# ARC-MCP-002 = an AI host named with --target is not installed on this machine: the same class.
+_MISSING_CODES = {"ARC-TPL-001", MISSING_FONT_CODE, "ARC-RND-030", "ARC-MCP-002"}
 _MISSING_PREFIXES = ("ARC-AST",)
 # Resource-limit codes that map to exit 4: the expression budget, the repeat iteration cap, and
 # the per-render surface budgets (dimension/pixels/memory/wall-clock, spec §8.3).
@@ -327,7 +331,12 @@ def render(
         _report_inferences(console, remaining, quiet)
         _print_diagnostics(console, result.diagnostics, quiet)
         if result.ok and not quiet:
-            console.print(f"[green]Rendered[/green] {result.output_path}")
+            # The structured output_path is absolute for readers elsewhere; a person at the
+            # prompt is told the name they typed, or the inferred name they were just shown.
+            shown = str(output) if output is not None else result.inferred.get("output")
+            console.print(
+                f"[green]Rendered[/green] {_esc(shown or result.output_path)}", soft_wrap=True
+            )
     raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
 
 
@@ -685,11 +694,16 @@ def _print_preview_line(
     if quiet:
         return
     if res.ok:
+        # The path comes first, alone on its line, and is never folded by Rich: a person pastes it
+        # into a viewer and an assistant reads it back, and in an 80-column terminal it used to
+        # trail the timings and wrap mid-filename. soft_wrap leaves any folding to the terminal,
+        # which keeps the characters contiguous for copy and paste.
+        console.print(_esc(res.output_path or ""), soft_wrap=True)
         # In one-shot mode there is no change to report, so drop the watch-only 'changed='.
-        prefix = f"changed={res.changed_file} " if (watching and res.changed_file) else ""
+        prefix = f"changed={_esc(res.changed_file)} " if (watching and res.changed_file) else ""
         console.print(
-            f"{prefix}compile={res.compile_ms:.1f}ms "
-            f"render={res.render_ms:.1f}ms -> {res.output_path}"
+            f"{prefix}compile={res.compile_ms:.1f}ms render={res.render_ms:.1f}ms",
+            soft_wrap=True,
         )
     else:
         # A prior good preview is only "kept" if one was ever written (DX-10).
@@ -703,6 +717,11 @@ def _print_preview_line(
 @template_app.command("new")
 def template_new(
     target: Path = typer.Argument(..., help="Directory to scaffold the template into."),
+    formats: list[str] | None = typer.Option(
+        None, "--format", "-f",
+        help="Canvas preset to declare (repeatable): square, story, portrait, landscape, a4, "
+        "a3, a2, letter, tabloid. Default: square and story.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
@@ -712,7 +731,7 @@ def template_new(
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
     facade = _build_facade_or_exit(console, quiet)
-    result = facade.scaffold_template(target.name, target)
+    result = facade.scaffold_template(target.name, target, formats or None)
     if json_out:
         _emit_json(result)
     else:
@@ -720,7 +739,7 @@ def template_new(
         if result.ok and not quiet:
             console.print(
                 f"[green]Created[/green] {result.path} "
-                f"(render with --format {result.format})"
+                f"(formats: {', '.join(result.formats)}; render with --format {result.format})"
             )
     raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
 
@@ -879,13 +898,16 @@ def template_split(
 def template_patch(
     template: Path = typer.Argument(..., help="Template file or directory to patch in place."),
     set_path: str | None = typer.Option(
-        None, "--set", help="Set 'nodes.<id>[.<field>]' to --value."
+        None, "--set",
+        help="Set 'nodes.<id>[.<field>]', 'formats.<name>[.<field>]', 'variables.<name>', "
+        "'preview_data.<key>', 'locales.<name>', or 'style' to --value.",
     ),
     value: str | None = typer.Option(
         None, "--value", help="Value for --set (parsed as JSON, else a string)."
     ),
     remove_path: str | None = typer.Option(
-        None, "--remove", help="Remove the node or field at 'nodes.<id>[.<field>]'."
+        None, "--remove",
+        help="Remove the node, field, or section entry at the path (same roots as --set).",
     ),
     insert_before: str | None = typer.Option(
         None, "--insert-before", help="Insert --node before 'nodes.<id>'."
@@ -909,7 +931,9 @@ def template_patch(
     """Apply path-addressed set/remove/insert ops to a template on disk (comment-preserving).
 
     The AI mutation contract (spec §4.1.4), also reachable from the CLI: each op addresses a
-    stable node id. Pass one op via the flags, or a batch via --ops-file.
+    stable node id or, at this top level, a template section (a format, a variable, preview
+    data, a locale, the style pack). Pass one op via the flags, or a batch via --ops-file. The
+    patched template must still compile for every declared format, or the op is rolled back.
     """
     if json_out:
         _force_utf8_stdout()
@@ -1005,21 +1029,32 @@ def _rect_pt(rect: tuple[float, float, float, float]) -> str:
 
 
 def _print_overlaps(console: Console, report: LayoutReport) -> None:
-    """Print sibling overlaps with effect spill demoted below content collisions.
+    """Print sibling overlaps with grazes and effect spill demoted below content collisions.
 
-    A halo is one node's shadow or tear reaching over its neighbour — usually the intended look.
-    Listing it alongside a real collision is what made the real one impossible to spot, so the
-    ``content`` overlaps get the heading and the ``halo`` ones a dimmed, indented subsection.
+    A touch is two boxes grazing by a point or a corner nick; a halo is one node's shadow or tear
+    reaching over its neighbour. Both are usually the intended look, and listing them alongside
+    a real collision is what made the real one impossible to spot, so the ``content`` overlaps
+    get the heading and the other two kinds a dimmed, indented subsection each.
     """
     content = [ov for ov in report.overlaps if ov.kind == "content"]
+    touch = [ov for ov in report.overlaps if ov.kind == "touch"]
     halo = [ov for ov in report.overlaps if ov.kind == "halo"]
     console.print(
-        f"[bold]overlaps[/bold]: {len(content)} content, {len(halo)} effect spill"
+        f"[bold]overlaps[/bold]: {len(content)} content, {len(touch)} touch, "
+        f"{len(halo)} effect spill"
     )
     for ov in content:
         console.print(f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}")
     if not content:
         console.print("  [dim]no content collisions[/dim]")
+    if touch:
+        console.print(
+            "  [dim]touch (≤1pt deep, or under 2% of the smaller box — usually intended):[/dim]"
+        )
+        for ov in touch:
+            console.print(
+                f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
+            )
     if halo:
         console.print("  [dim]effect spill (paint bounds only — usually intended):[/dim]")
         for ov in halo:
@@ -1048,11 +1083,23 @@ def _print_layout_node(console: Console, node: object, depth: int) -> None:
         )
     if n.overflow is not None and n.overflow.kind != "none":  # type: ignore[attr-defined]
         o = n.overflow  # type: ignore[attr-defined]
-        console.print(
-            f"{pad}  [yellow]overflow[/yellow]: {o.kind} "
-            f"(measured {o.measured_w_pt:.1f}x{o.measured_h_pt:.1f}pt "
-            f"in {o.box_w_pt:.1f}x{o.box_h_pt:.1f}pt)"
-        )
+        if o.kind == "shrunk" and o.base_size_pt and o.resolved_size_pt:
+            # A shrink names both sizes and the loss. The measured extents are dropped here:
+            # after a shrink the text sits just inside its box by definition, so they read as a
+            # width delta of a point or two and said nothing about how much smaller the type
+            # became — and with them the line wrapped mid-number at 80 columns.
+            loss = o.resolved_size_pt / o.base_size_pt - 1.0
+            console.print(
+                f"{pad}  [yellow]overflow[/yellow]: shrunk {o.base_size_pt:.1f}pt → "
+                f"{o.resolved_size_pt:.1f}pt ({loss:+.1%}) "
+                f"into {o.box_w_pt:.1f}x{o.box_h_pt:.1f}pt"
+            )
+        else:
+            console.print(
+                f"{pad}  [yellow]overflow[/yellow]: {o.kind} "
+                f"(measured {o.measured_w_pt:.1f}x{o.measured_h_pt:.1f}pt "
+                f"in {o.box_w_pt:.1f}x{o.box_h_pt:.1f}pt)"
+            )
     for child in n.children:  # type: ignore[attr-defined]
         _print_layout_node(console, child, depth + 1)
 
@@ -1187,10 +1234,74 @@ def _print_effect_info(console: Console, effect: object) -> None:
     console.print(
         f"[cyan]{_esc(e.name)}[/cyan] [dim]{e.category}[/dim]"  # type: ignore[attr-defined]
     )
-    for p in e.params:  # type: ignore[attr-defined]
+    _print_param_rows(console, e.params)  # type: ignore[attr-defined]
+
+
+def _print_param_rows(console: Console, params: object) -> None:
+    """One indented row per component parameter: name, type, default/required, range."""
+    for p in params:  # type: ignore[attr-defined]
         req = "required" if p.required else f"default={p.default!r}"
         rng = f" [{p.constraint}]" if p.constraint else ""
         console.print(f"  {_esc(p.name)}: {p.type} ({req}){_esc(rng)}")
+
+
+@shapes_app.command("list")
+def shapes_list(
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """List the registered shape generators and each param's type/default/range."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_shapes()
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        if not report.ok:
+            _print_diagnostics(console, report.diagnostics, quiet)
+        else:
+            for shape in report.shapes:
+                _print_shape_info(console, shape)
+    raise typer.Exit(EXIT_OK if report.ok else EXIT_VALIDATION)
+
+
+@shapes_app.command("inspect")
+def shapes_inspect(
+    name: str = typer.Argument(..., help="Generator name, e.g. 'starburst'."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Show one shape generator's description and full parameter schema."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.list_shapes()
+    match = next((s for s in report.shapes if s.name == name), None)
+    if match is None:
+        if not quiet:
+            available = ", ".join(s.name for s in report.shapes) or "(none)"
+            console.print(
+                f"[red]unknown shape generator[/red] {_esc(name)}\n"
+                f"  [dim]registered generators:[/dim] {_esc(available)}"
+            )
+        raise typer.Exit(EXIT_VALIDATION)
+    if json_out:
+        _emit_json(match)
+    elif not quiet:
+        _print_shape_info(console, match)
+    raise typer.Exit(EXIT_OK)
+
+
+def _print_shape_info(console: Console, shape: object) -> None:
+    s = shape  # ShapeInfo
+    description = f" [dim]{_esc(s.description)}[/dim]" if s.description else ""  # type: ignore[attr-defined]
+    console.print(f"[cyan]{_esc(s.name)}[/cyan]{description}")  # type: ignore[attr-defined]
+    _print_param_rows(console, s.params)  # type: ignore[attr-defined]
 
 
 def _emit_run_report(
@@ -1758,6 +1869,113 @@ def mcp_tools(
     raise typer.Exit(EXIT_OK)
 
 
+@mcp_app.command("install")
+def mcp_install(
+    target: list[str] = typer.Option(
+        [],
+        "--target",
+        "-t",
+        help="Host to register with: claude-code, claude-desktop, codex ('desktop' and 'chatgpt' "
+        "are aliases). Repeatable. Default: every host present on this machine.",
+    ),
+    list_only: bool = typer.Option(
+        False,
+        "--list",
+        help="Show every host and whether the server is registered there; write nothing.",
+    ),
+    print_only: bool = typer.Option(
+        False, "--print", help="Print the snippet to paste for each host; write nothing."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Replace an existing 'arcavex' registration."
+    ),
+    command: Path | None = typer.Option(
+        None,
+        "--command",
+        help="Register this executable instead of the running engine; the host runs it as "
+        "'<PATH> mcp serve'.",
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Register the MCP server with Claude Code, Claude Desktop, or Codex."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    if list_only or print_only:
+        report = facade.list_mcp_targets(command)
+    else:
+        report = facade.install_mcp(list(target) or None, command, force)
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_mcp_report(console, report, list_only=list_only, print_only=print_only)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
+# What a host needs after registering: each reads its configuration when it starts.
+_MCP_NEXT_STEP = {
+    "claude-code": "open a new Claude Code session",
+    "claude-desktop": "quit and reopen Claude Desktop",
+    "codex": "start a new Codex session",
+}
+
+
+def _join_command(argv: list[str]) -> str:
+    """Show a command line as a person would type it (double quotes work in every shell)."""
+    return " ".join(f'"{arg}"' if any(ch.isspace() for ch in arg) else arg for arg in argv)
+
+
+def _print_mcp_report(
+    console: Console, report: McpInstallReport, *, list_only: bool, print_only: bool
+) -> None:
+    """Print each host's state and what was registered, ending with what to do next."""
+    if print_only:
+        # The snippets go through echo, not Rich: a wrapped or markup-mangled path is not
+        # something a person can paste.
+        for entry in report.targets:
+            console.print(
+                f"[bold]{_esc(entry.label)}[/bold]  [dim]{_esc(entry.location)}[/dim]",
+                soft_wrap=True,
+            )
+            if entry.note:
+                console.print(f"[dim]{_esc(entry.note)}[/dim]", soft_wrap=True)
+            typer.echo(entry.snippet.rstrip("\n"))
+            typer.echo()
+        typer.echo(f"command: {_join_command(report.command)}")
+        return
+    for entry in report.targets:
+        if not entry.available:
+            state = "host not found"
+        elif entry.registered:
+            state = "registered"
+        else:
+            state = "not registered"
+        # One block per host, not a table: a config path folded into a table cell interleaves
+        # with the other columns, and the path is what a person came here to read. `skill
+        # install --list` prints its destinations the same way.
+        console.print(f"[bold]{_esc(entry.label)}[/bold]")
+        console.print(f"  {_esc(entry.location)}", soft_wrap=True)
+        console.print(f"  [dim]{state}[/dim]")
+    if report.command:
+        typer.echo(f"command: {_join_command(report.command)}")
+    _print_diagnostics(console, report.diagnostics, quiet=False)
+    if report.installed:
+        labels = {entry.key: entry.label for entry in report.targets}
+        console.print(
+            f"Registered the Arcavex MCP server with {len(report.installed)} host(s):"
+        )
+        for key in report.installed:
+            console.print(f"  {_esc(labels.get(key, key))}")
+        steps = [_MCP_NEXT_STEP[key] for key in report.installed if key in _MCP_NEXT_STEP]
+        if steps:
+            console.print("Next: " + "; ".join(steps) + ".")
+    elif not list_only and report.ok:
+        console.print("Nothing to do.")
+
+
 @ext_app.command("scaffold")
 def ext_scaffold(
     kind: str = typer.Argument(..., help="Component kind (effect, mask, shape, …)."),
@@ -1885,6 +2103,38 @@ def ext_disable(
     facade = _build_facade_or_exit(console, quiet)
     result = facade.disable_extension(name)
     _emit_ext_action(console, result, json_out, quiet, "Disabled", "inactive on the next run")
+    raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
+
+
+@ext_app.command("remove")
+def ext_remove(
+    name: str = typer.Argument(..., help="Added extension name."),
+    force: bool = typer.Option(
+        False, "--force", help="Remove the extension even though it is enabled."
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Remove an added extension (its stored copy and state entry); enabled ones need --force."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color, stderr=True)
+    facade = _build_facade_or_exit(console, quiet)
+    result = facade.remove_extension(name, force=force)
+    if json_out:
+        _emit_json(result)
+    else:
+        _print_diagnostics(console, result.diagnostics, quiet)
+        if result.ok and not quiet:
+            where = (
+                f"deleted {_esc(result.removed_path)}"
+                if result.removed_path
+                else "no stored copy was left to delete"
+            )
+            console.print(
+                f"[green]Removed[/green] {_esc(result.name)} ({where})", soft_wrap=True
+            )
     raise typer.Exit(EXIT_OK if result.ok else _exit_code_for(result.diagnostics, result.ok))
 
 
@@ -2075,6 +2325,9 @@ def skill_install(
     if json_out:
         _emit_json(report)
     elif not quiet:
+        # "Already installed, pass --force" is a diagnostic; without this line it reached only
+        # --json readers, and a person re-running the command saw "Nothing to do." and exit 1.
+        _print_diagnostics(console, report.diagnostics, quiet)
         _print_skill_report(console, report, list_only=list_only)
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
@@ -2082,17 +2335,16 @@ def skill_install(
 def _print_skill_report(console: Console, report: object, *, list_only: bool) -> None:
     """Print install destinations and what was written."""
     targets = report.targets  # type: ignore[attr-defined]
-    if targets:
-        table = Table(box=None, pad_edge=False)
-        table.add_column("target", style="bold")
-        table.add_column("path")
-        table.add_column("state")
-        for entry in targets:
-            state = "installed" if entry.installed else "not installed"
-            if not entry.verified:
-                state += " (path unverified)"
-            table.add_row(entry.label, entry.path, state)
-        console.print(table)
+    for entry in targets:
+        state = "installed" if entry.installed else "not installed"
+        if not entry.verified:
+            state += " (path unverified)"
+        # One block per target and no table: a fixed-width table elided the destination to '…'
+        # in a terminal under about 108 columns, and the destination is what --list is for. The
+        # path sits alone on its line with folding left to the terminal, so it copies whole.
+        console.print(f"[bold]{_esc(entry.label)}[/bold]")
+        console.print(f"  {_esc(entry.path)}", soft_wrap=True)
+        console.print(f"  [dim]{state}[/dim]")
     installed = report.installed  # type: ignore[attr-defined]
     if installed:
         console.print(f"Installed {report.skill} to {len(installed)} location(s):")  # type: ignore[attr-defined]

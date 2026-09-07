@@ -78,7 +78,7 @@
     },
     "EditorTarget": {
       "additionalProperties": false,
-      "description": "The format and locale a mutation is composed against.\n\nStructural edits apply to the authored document regardless of target, but validation and the\nrender check that gate a commit need to know which target the user was looking at.",
+      "description": "The format and locale a transaction is validated and previewed against.\n\nThis is a *reading* context, not a write scope: commands apply to the authored document,\nwhich every format shares, whatever the target says. The compile check that gates a commit\nneeds to know which format and locale the user was looking at, and a format-scoped\ntransaction (``scope: \"format\"``) names the format it overrides here — but the target alone\nnever narrows a write. That is what :data:`EditScope` is for.",
       "properties": {
         "format": {
           "anyOf": [
@@ -616,6 +616,15 @@
     },
     "project_path": {
       "title": "Project Path",
+      "type": "string"
+    },
+    "scope": {
+      "default": "shared",
+      "enum": [
+        "shared",
+        "format"
+      ],
+      "title": "Scope",
       "type": "string"
     },
     "target": {

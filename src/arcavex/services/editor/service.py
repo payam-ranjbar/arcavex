@@ -19,6 +19,12 @@ Two properties matter more than any single step:
 Editing addresses the *project-local* template. A library-pinned template is shared, versioned,
 and read-only by design; editing it in place would change every project that pins it, so those
 commands are refused with a pointer at ``project clone``.
+
+A transaction's ``target`` is what the staged result is validated against — never what it writes.
+Commands edit the authored node every format shares unless ``scope`` is ``"format"``, in which case
+each command becomes a ``set`` op in ``formats.<target.format>.patch`` (see ``format_scope``) and
+only that format changes. Reading the target as a write scope silently changed every format while
+reporting success, which is why the two are separate fields.
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ from pydantic import ValidationError
 from arcavex.kernel.api import LayerUIMetadata
 from arcavex.kernel.diagnostics import Diagnostic, DiagnosticError, diagnostic
 from arcavex.kernel.editor import (
-    COMMAND_KINDS,
+    COMMAND_FIELDS,
     Actor,
     ChangedPath,
     ConflictDetail,
@@ -46,6 +52,7 @@ from arcavex.kernel.editor import (
     TransactionReport,
 )
 from arcavex.services.editor.conflicts import conflict_between, remember_manifest
+from arcavex.services.editor.format_scope import FormatPatch, check_scope
 from arcavex.services.editor.history import HistoryStore
 from arcavex.services.editor.locking import editor_lock
 from arcavex.services.editor.source_map import index_tree, unwrap
@@ -79,6 +86,9 @@ class _Execution:
     inverse_commands: list[Any]
     changed_layer_ids: list[str]
     display_names: dict[str, str | None]
+    #: The keypath a format-scoped write was confined to (``formats.<name>.patch``); ``None``
+    #: when the authored node itself was edited.
+    location: str | None = None
 
 
 class EditorService:
@@ -192,6 +202,9 @@ class EditorService:
         root = loaded.root
 
         try:
+            # A scope the transaction can never satisfy is refused before anyone waits on the
+            # lock, and before review mode could queue an edit that would fail when approved.
+            check_scope(transaction)
             with editor_lock(root):
                 return self._apply_locked(
                     root, transaction, gate_policy=gate_policy, record_history=record_history
@@ -292,6 +305,11 @@ class EditorService:
                     project_revision=fresh.project_revision,
                     diagnostics=list(error.diagnostics),
                 )
+            if execution.location is not None:
+                changed = [
+                    change.model_copy(update={"location": execution.location})
+                    for change in changed
+                ]
 
         if execution.display_names:
             changed.extend(self._apply_display_names(root, execution.display_names))
@@ -307,6 +325,7 @@ class EditorService:
             base_project_revision=after_revision,
             actor=transaction.actor,
             target=transaction.target,
+            scope=transaction.scope,
             # Reversed: undoing restores the last change first, the way it was made.
             commands=list(reversed(execution.inverse_commands)),
         )
@@ -431,6 +450,11 @@ class EditorService:
                 )
             )
 
+        if transaction.scope == "format" and template_file is not None:
+            return self._execute_format_scoped(
+                root, transaction, template_file, raw, tree_root, locked_ids
+            )
+
         inverse_commands: list[Any] = []
         changed_layer_ids: list[str] = []
         display_names: dict[str, str | None] = {}
@@ -466,6 +490,51 @@ class EditorService:
             inverse_commands=inverse_commands,
             changed_layer_ids=changed_layer_ids,
             display_names=display_names,
+        )
+
+    def _execute_format_scoped(
+        self,
+        root: Path,
+        transaction: SemanticTransaction,
+        template_file: Path,
+        raw: Any,
+        tree_root: Any,
+        locked_ids: set[str],
+    ) -> _Execution:
+        """Write every command as an override op for the target format, touching no node.
+
+        The ops live wherever the template keeps its ``formats`` section: inline in template.yaml,
+        or in the ``formats.yaml`` sidecar of a split template. Writing a second ``formats:`` into
+        template.yaml would define the section twice, which the loader refuses (ARC-TPL-097) —
+        a confusing failure for an edit that named nothing but a node and a format.
+        """
+        holder_file = template_file
+        holder_raw: Any = raw
+        formats = raw.get("formats") if hasattr(raw, "get") else None
+        sidecar = template_file.parent / "formats.yaml"
+        if sidecar.is_file():
+            holder_file = sidecar
+            holder_raw = load_yaml(sidecar)
+            formats = holder_raw
+        # ``check_scope`` has already refused a transaction without a target format.
+        patch = FormatPatch.open(formats, transaction.target.format or "", tree_root, holder_file)
+
+        def locate(layer_id: str) -> Any:
+            return _located_node(tree_root, layer_id, locked_ids)
+
+        inverse_commands: list[Any] = []
+        changed_layer_ids: list[str] = []
+        for command in transaction.commands:
+            inverse_commands.extend(
+                patch.apply(command, locate=locate, changed_layer_ids=changed_layer_ids)
+            )
+        return _Execution(
+            template_bytes=_dump_bytes(holder_raw),
+            template_relative=holder_file.resolve().relative_to(root.resolve()).as_posix(),
+            inverse_commands=inverse_commands,
+            changed_layer_ids=changed_layer_ids,
+            display_names={},
+            location=patch.location,
         )
 
     def _apply_display_names(
@@ -596,12 +665,25 @@ def _malformed_message(error: ValidationError) -> str:
 
 
 def _malformed_hint() -> str:
-    """The shape of a transaction, so a caller can compose one without guessing."""
+    """The whole shape of a transaction, so a caller can compose one from a single refusal.
+
+    Every command kind is listed with its fields, derived from the models: stating only the
+    envelope taught a caller `set_text` exists but not that it takes `layer_id` and `text`, which
+    cost a second round trip once the envelope was right. `target` and `scope` are explained
+    because reading the target as a write scope is the natural misreading of its name.
+    """
+    shapes = "; ".join(
+        f"{kind} {{{', '.join(fields)}}}" for kind, fields in COMMAND_FIELDS.items()
+    )
     return (
-        "A transaction is {command_id: <uuid>, project_path: <absolute path>, "
-        "base_project_revision: <revision from project_snapshot>, actor: {id: <string>}, "
-        "target: {format: <name>, locale: <name or null>}, commands: [{kind: <command>, ...}]}. "
-        f"Command kinds: {', '.join(sorted(COMMAND_KINDS))}."
+        "A transaction is {command_id: <uuid4>, project_path: <absolute path>, "
+        "base_project_revision: <project_revision from project_snapshot>, actor: {id: <string>}, "
+        "target: {format: <name or null>, locale: <name or null>}, scope: shared | format, "
+        "commands: [{kind: <command>, ...}]}. target is what the result is validated and "
+        "previewed against, not a write scope: commands edit the authored node every format "
+        "shares unless scope is format, which requires target.format and writes that format's "
+        "formats.<format>.patch instead (structural commands and set_display_name are shared "
+        f"only). Command fields (? = optional): {shapes}. Geometry is in points."
     )
 
 
@@ -918,9 +1000,12 @@ def _dump_bytes(raw: Any) -> bytes:
 
 def _summarize(transaction: SemanticTransaction) -> str:
     kinds = [command.kind.replace("_", " ") for command in transaction.commands]
-    if len(kinds) == 1:
-        return kinds[0]
-    return f"{len(kinds)} edits: {', '.join(dict.fromkeys(kinds))}"
+    summary = kinds[0]
+    if len(kinds) > 1:
+        summary = f"{len(kinds)} edits: {', '.join(dict.fromkeys(kinds))}"
+    if transaction.scope == "format":
+        summary = f"{summary} (format {transaction.target.format})"
+    return summary
 
 
 def _read_files(root: Path, relatives: list[str]) -> dict[str, bytes | None]:

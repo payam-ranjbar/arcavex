@@ -4,7 +4,7 @@ export type Actor = { readonly display_name?: string | null; readonly id: string
 
 export type AutomationPolicy = { readonly extensions?: "unrestricted" | "disabled"; readonly mode?: "unrestricted" | "review" | "read_only"; readonly version?: 1; };
 
-export type ChangedPath = { readonly change?: "created" | "modified" | "deleted"; readonly path: string; };
+export type ChangedPath = { readonly change?: "created" | "modified" | "deleted"; readonly location?: string | null; readonly path: string; };
 
 export type ConflictDetail = { readonly actual_project_revision: string; readonly changed?: ReadonlyArray<ChangedPath>; readonly expected_project_revision: string; readonly layer_ids?: ReadonlyArray<string>; };
 
@@ -42,9 +42,9 @@ export type LayerSource = { readonly file?: string | null; readonly keypath?: st
 
 export type LayerUIMetadata = { readonly color?: string | null; readonly display_name?: string | null; readonly locked?: boolean; };
 
-export type OverflowReport = { readonly box_h_pt: number; readonly box_w_pt: number; readonly kind: string; readonly measured_h_pt: number; readonly measured_w_pt: number; };
+export type OverflowReport = { readonly base_size_pt?: number | null; readonly box_h_pt: number; readonly box_w_pt: number; readonly kind: string; readonly measured_h_pt: number; readonly measured_w_pt: number; readonly resolved_size_pt?: number | null; };
 
-export type PreviewResult = { readonly changed_file?: string | null; readonly compile_ms?: number | null; readonly content_sha256?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly inferred?: Readonly<Record<string, string>>; readonly ok: boolean; readonly output_path?: string | null; readonly render_ms?: number | null; readonly response_version?: number; };
+export type PreviewResult = { readonly changed_file?: string | null; readonly compile_ms?: number | null; readonly content_sha256?: string | null; readonly diagnostics?: ReadonlyArray<Diagnostic>; readonly dpi?: number | null; readonly height_px?: number | null; readonly inferred?: Readonly<Record<string, string>>; readonly ok: boolean; readonly output_path?: string | null; readonly render_ms?: number | null; readonly response_version?: number; readonly width_px?: number | null; };
 
 export type ProjectProposal = { readonly actor: Actor; readonly base_project_revision: string; readonly command_id: string; readonly command_payload: Readonly<Record<string, unknown>>; readonly created_at: string; readonly project_path: string; readonly rejection_reason?: string | null; readonly state?: "pending" | "authorized" | "rejected"; readonly version?: 1; };
 
@@ -66,7 +66,7 @@ export type RevisionManifestEntry = { readonly bytes: number; readonly path: str
 
 export type RotateCommand = { readonly degrees: number; readonly kind: "rotate"; readonly layer_id: string; };
 
-export type SemanticTransaction = { readonly actor: Actor; readonly base_project_revision: string; readonly command_id: string; readonly commands: ReadonlyArray<SetTextCommand | SetPropertyCommand | SetVisibilityCommand | TranslateCommand | ResizeCommand | RotateCommand | ReorderCommand | ReparentCommand | DuplicateCommand | DeleteCommand | GroupCommand | SetDisplayNameCommand | SetEffectsCommand | SpliceCommand>; readonly project_path: string; readonly target?: EditorTarget; readonly version?: 1; };
+export type SemanticTransaction = { readonly actor: Actor; readonly base_project_revision: string; readonly command_id: string; readonly commands: ReadonlyArray<SetTextCommand | SetPropertyCommand | SetVisibilityCommand | TranslateCommand | ResizeCommand | RotateCommand | ReorderCommand | ReparentCommand | DuplicateCommand | DeleteCommand | GroupCommand | SetDisplayNameCommand | SetEffectsCommand | SpliceCommand>; readonly project_path: string; readonly scope?: "shared" | "format"; readonly target?: EditorTarget; readonly version?: 1; };
 
 export type SetDisplayNameCommand = { readonly display_name?: string | null; readonly kind: "set_display_name"; readonly layer_id: string; };
 
@@ -1730,8 +1730,20 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "type": "object"
       },
       "OverflowReport": {
-        "description": "A node's text-overflow outcome, echoed for inspection.",
+        "description": "A node's text-overflow outcome, echoed for inspection.\n\n``base_size_pt`` is the authored font size the fit started from and ``resolved_size_pt`` the\nsize actually painted, so a ``shrunk`` outcome is judged from the sizes themselves rather\nthan from the box extents. ``kind`` is ``shrunk`` only when the size moved by at least the\nlarger of 1pt and 2% of the base; a smaller move is a fit-search artefact, left at ``none``\nwith the exact resolved size still reported. Both fields are additive under\nresponse_version 1 and default to ``None`` (spec §2 rule 5).",
         "properties": {
+          "base_size_pt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Size Pt"
+          },
           "box_h_pt": {
             "title": "Box H Pt",
             "type": "number"
@@ -1751,6 +1763,18 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
           "measured_w_pt": {
             "title": "Measured W Pt",
             "type": "number"
+          },
+          "resolved_size_pt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resolved Size Pt"
           }
         },
         "required": [
@@ -2030,6 +2054,30 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             "title": "Diagnostics",
             "type": "array"
           },
+          "dpi": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dpi"
+          },
+          "height_px": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Height Px"
+          },
           "inferred": {
             "additionalProperties": {
               "type": "string"
@@ -2069,6 +2117,18 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             "default": 1,
             "title": "Response Version",
             "type": "integer"
+          },
+          "width_px": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Width Px"
           }
         },
         "required": [
@@ -3673,7 +3733,7 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
       },
       "EditorTarget": {
         "additionalProperties": false,
-        "description": "The format and locale a mutation is composed against.\n\nStructural edits apply to the authored document regardless of target, but validation and the\nrender check that gate a commit need to know which target the user was looking at.",
+        "description": "The format and locale a transaction is validated and previewed against.\n\nThis is a *reading* context, not a write scope: commands apply to the authored document,\nwhich every format shares, whatever the target says. The compile check that gates a commit\nneeds to know which format and locale the user was looking at, and a format-scoped\ntransaction (``scope: \"format\"``) names the format it overrides here — but the target alone\nnever narrows a write. That is what :data:`EditScope` is for.",
         "properties": {
           "format": {
             "anyOf": [
@@ -4213,6 +4273,15 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
         "title": "Project Path",
         "type": "string"
       },
+      "scope": {
+        "default": "shared",
+        "enum": [
+          "shared",
+          "format"
+        ],
+        "title": "Scope",
+        "type": "string"
+      },
       "target": {
         "$ref": "#/$defs/EditorTarget"
       },
@@ -4277,6 +4346,18 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
             ],
             "title": "Change",
             "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Location"
           },
           "path": {
             "minLength": 1,
@@ -4428,7 +4509,7 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
       },
       "EditorTarget": {
         "additionalProperties": false,
-        "description": "The format and locale a mutation is composed against.\n\nStructural edits apply to the authored document regardless of target, but validation and the\nrender check that gate a commit need to know which target the user was looking at.",
+        "description": "The format and locale a transaction is validated and previewed against.\n\nThis is a *reading* context, not a write scope: commands apply to the authored document,\nwhich every format shares, whatever the target says. The compile check that gates a commit\nneeds to know which format and locale the user was looking at, and a format-scoped\ntransaction (``scope: \"format\"``) names the format it overrides here — but the target alone\nnever narrows a write. That is what :data:`EditScope` is for.",
         "properties": {
           "format": {
             "anyOf": [
@@ -4734,6 +4815,15 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
           },
           "project_path": {
             "title": "Project Path",
+            "type": "string"
+          },
+          "scope": {
+            "default": "shared",
+            "enum": [
+              "shared",
+              "format"
+            ],
+            "title": "Scope",
             "type": "string"
           },
           "target": {
@@ -5444,11 +5534,13 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
           },
           "origin": "repeat",
           "overflow": {
+            "base_size_pt": 48,
             "box_h_pt": 64,
             "box_w_pt": 300,
             "kind": "shrink",
             "measured_h_pt": 70,
-            "measured_w_pt": 310
+            "measured_w_pt": 310,
+            "resolved_size_pt": 44
           },
           "paint_bounds_pt": [
             8,
@@ -5545,6 +5637,8 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
             }
           }
         ],
+        "dpi": 150,
+        "height_px": 2480,
         "inferred": {
           "format": "poster-a3",
           "locale": "fa-IR"
@@ -5552,7 +5646,8 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
         "ok": true,
         "output_path": "/fixture/outputs/poster-a3.fa-IR.png",
         "render_ms": 84.25,
-        "response_version": 1
+        "response_version": 1,
+        "width_px": 1754
       }
     ],
     "response_version": 1
@@ -5926,6 +6021,7 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
       }
     ],
     "project_path": "<arcavex-fixture-project>",
+    "scope": "shared",
     "target": {
       "format": "poster-a3",
       "locale": "fa-IR"
@@ -5937,14 +6033,17 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
     "changed": [
       {
         "change": "modified",
+        "location": "formats.story.patch",
         "path": "template.yaml"
       },
       {
         "change": "created",
+        "location": null,
         "path": "overrides/square.patch.yaml"
       },
       {
         "change": "deleted",
+        "location": null,
         "path": "overrides/story.patch.yaml"
       }
     ],
@@ -6082,6 +6181,7 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
         }
       ],
       "project_path": "<arcavex-fixture-project>",
+      "scope": "shared",
       "target": {
         "format": "poster-a3",
         "locale": "fa-IR"

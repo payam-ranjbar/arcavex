@@ -30,18 +30,24 @@ binary contradicts anything written here, believe the binary.
 
 The real question is **whether this session has a shell**, not which product you are running in.
 
-1. **Shell available?** Try `arcavex --version`. If it is not on PATH, try `python -m arcavex.clients.cli --version`,
-   then look for a standalone binary. A shell gives you everything, including authoring your own
-   effects.
-2. **`arcavex_*` MCP tools available?** Call `arcavex_effects_list`. That gives you the full
-   high-level loop: inspect, patch, validate, preview, layout-inspect, render.
-3. **Neither?** Say so and tell the user how to connect the engine. Do not improvise a poster in
-   another tool — a composition assembled in an image library is not this skill's output.
+1. **Shell available?** Try `arcavex --version`; if it is not on PATH, `python -m arcavex --version`
+   (`python -m arcavex.clients.cli --version` on an older engine). If Arcavex Desktop is installed,
+   its bundled engine is a standalone `arcavex.exe` in the `engine/` folder beside the application
+   executable — see [engine-and-loop.md](references/engine-and-loop.md). A shell gives you
+   everything, including authoring your own effects.
+2. **`arcavex_*` MCP tools available?** Call `arcavex_effects_list`. That gives you the whole loop:
+   start from nothing, inspect, edit with undo, validate, preview, layout-inspect, render, recorded
+   runs.
+3. **Neither?** Say so and tell the person how to connect the engine — the install route and the
+   MCP wiring are under *Connecting* in [engine-and-loop.md](references/engine-and-loop.md). Do not
+   improvise a poster in another tool — a composition assembled in an image library is not this
+   skill's output.
 
 | You have | You can | You cannot |
 |---|---|---|
 | Shell (± MCP) | Everything, including custom effects, fonts, asset prep | — |
-| MCP only | Author, validate, preview, render, localize | Author extensions, install fonts, preprocess images |
+| MCP only | Start from nothing (`arcavex_template_new`, `arcavex_project_create`), author, edit with undo, set data, ingest assets, validate, preview, render, recorded runs, explain diagnostics | Author extensions, install fonts, preprocess images |
+| The person has Arcavex Desktop open | Show them every change live: it is their viewer/editor of the same project files, and the window follows what you write over CLI or MCP | Drive the window itself — talk to the engine, not the app |
 
 If the style needs a custom effect and you have MCP only, say so **early** — extension authoring is
 deliberately a shell capability, and retrying MCP will not surface it.
@@ -162,6 +168,12 @@ See [verification.md](references/verification.md) for the matrix and the per-cel
 
 Show the strongest board or reference sheet inline. Provide renders, the editable template, data,
 style pack, assets, any custom extension with its golden fixture, and a short verification summary.
+
+**Put the result in front of the person, not just in the transcript.** Open the rendered file for
+them — `start FILE` on Windows (`Invoke-Item FILE` in PowerShell), `open FILE` on macOS,
+`xdg-open FILE` on Linux — and state its absolute path. If they have Arcavex Desktop open on the
+project, say so: the window updates live, so they are already looking at it. Over MCP the preview
+image is shown to *you*; the final file's path is what *they* need.
 
 State plainly **what the template is verified for**: which formats, which locales, which content
 limits, how many cells passed, and what remains unverified. Distinguish "rendered without errors"

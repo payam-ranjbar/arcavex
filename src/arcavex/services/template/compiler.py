@@ -10,6 +10,8 @@ are rejected with located "not supported" diagnostics rather than silently ignor
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,7 +21,7 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel
 
-from arcavex.kernel.api import CompileResult, ResolvedPatch, ResolvedResult
+from arcavex.kernel.api import CompileResult, ResolvedPatch, ResolvedResult, param_infos
 from arcavex.kernel.diagnostics import (
     BUDGET_CODE,
     MISSING_FONT_CODE,
@@ -52,7 +54,8 @@ from arcavex.kernel.ir.models import (
     TextRun,
     Transform,
 )
-from arcavex.kernel.ir.units import Dim
+from arcavex.kernel.ir.svgpath import END_OF_DATA, SvgPathError, parse_svg_path
+from arcavex.kernel.ir.units import Dim, px_to_pt
 from arcavex.services.assets.advice import padding_warning
 from arcavex.services.template.expressions import (
     BudgetError,
@@ -478,23 +481,27 @@ class Compiler:
                 # Applying a locale's direction to text written in another one is the quietest
                 # way to ship a wrong artifact: the picture looks normal and an English time
                 # range comes out reversed. Say it, rather than let it look deliberate.
+                requested_direction = str(loc_settings.get("direction") or "ltr").lower()
                 if (
                     locale is not None
                     and not pre_overlays
                     and not post_overlays
                     and _direction_differs(source, loc_settings, locale)
+                    and not _copy_reads_in(requested_direction, source, data)
                 ):
                     diags.append(
                         diagnostic(
                             "ARC-TPL-102",
-                            f"Locale {locale!r} was applied but supplies no text of its own, so "
-                            "the existing copy is rendered under its direction and digit rules.",
+                            f"Locale {locale!r} was applied but none of the copy is in its "
+                            "script, so text written for the other direction is being set under "
+                            "its direction and digit rules.",
                             severity="warning",
                             file=str(source.template_path),
                             keypath=f"locales.{locale}",
                             hint=(
-                                f"Add 'locales.{locale}.data', or a sibling "
-                                f"'<data>.{locale}.yaml', or render without --locale."
+                                f"Pass data written in {locale!r} (a sibling "
+                                f"'<data>.{locale}.yaml', or 'locales.{locale}.data'), or render "
+                                "without a locale."
                             ),
                         )
                     )
@@ -1300,7 +1307,8 @@ class Compiler:
                         "ARC-TPL-021",
                         "No format specified and the template defines several",
                         file=str(template),
-                        hint=f"Pass --format with one of: {available}",
+                        hint="Pass a format (--format on the CLI, 'format' over MCP) naming "
+                        f"one of: {available}",
                     )
                 )
         if format_name not in formats:
@@ -1339,21 +1347,23 @@ class Compiler:
                     hint="Use a positive integer such as 96 or 300.",
                 )
             )
-        width = _dim(
-            canvas_raw.get("width"), template, f"{base}.width", line_of(canvas_raw, "width")
+        width_pt = _absolute_pt(
+            canvas_raw.get("width"), dpi, template, f"{base}.width", line_of(canvas_raw, "width")
         )
-        height = _dim(
-            canvas_raw.get("height"), template, f"{base}.height", line_of(canvas_raw, "height")
+        height_pt = _absolute_pt(
+            canvas_raw.get("height"), dpi, template, f"{base}.height",
+            line_of(canvas_raw, "height"),
         )
         bleed_pt = 0.0
         if "bleed" in canvas_raw:
-            bleed_pt = _dim(
-                canvas_raw.get("bleed"), template, f"{base}.bleed", line_of(canvas_raw, "bleed")
-            ).to_pt(dpi)
+            bleed_pt = _absolute_pt(
+                canvas_raw.get("bleed"), dpi, template, f"{base}.bleed",
+                line_of(canvas_raw, "bleed"),
+            )
         return (
             CanvasSpec(
-                width_pt=width.to_pt(dpi),
-                height_pt=height.to_pt(dpi),
+                width_pt=width_pt,
+                height_pt=height_pt,
                 dpi=dpi,
                 bleed_pt=bleed_pt,
             ),
@@ -1603,7 +1613,68 @@ class Compiler:
                 )
             return CompiledShape(**common, shape=shape)
         # path
-        return CompiledPath(**common, d=str(raw.get("d", "")))
+        return self._build_path(raw, common, context, canvas, template, node_id, keypath)
+
+    def _build_path(
+        self,
+        raw: dict[str, Any],
+        common: dict[str, Any],
+        context: dict[str, Any],
+        canvas: CanvasSpec,
+        template: Path,
+        node_id: str,
+        keypath: str,
+    ) -> CompiledPath:
+        """Parse a path node's SVG ``d`` into point-unit commands (ARC-TPL-042 when malformed).
+
+        ``d`` coordinates are pixels from the node box's top-left, so they convert to points at
+        the canvas dpi like every other bare-px length. skia-python exposes no SVG path parser,
+        so the kernel's strict one runs here, at validation time: a malformed ``d`` is a located
+        error quoting the offending token, never a render-time exception or a silent blank.
+        """
+        line = line_of(raw, "d")
+        d_raw = raw.get("d")
+        if d_raw is None or (isinstance(d_raw, str) and not d_raw.strip()):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-042",
+                    f"Path node {node_id!r} has no path data",
+                    file=str(template),
+                    keypath=f"{keypath}.d",
+                    line=line if line is not None else node_line(raw),
+                    hint=(
+                        "Add 'd:' with SVG path data such as 'M 0 0 L 100 0 L 100 100 Z'; "
+                        "coordinates are pixels from the node's top-left corner."
+                    ),
+                )
+            )
+        d = self._resolve_text(str(d_raw), context, template, node_id, f"{keypath}.d", line)
+        try:
+            commands = parse_svg_path(d)
+        except SvgPathError as exc:
+            where = (
+                "at the end of the data"
+                if exc.token == END_OF_DATA
+                else f"near {exc.token!r} (offset {exc.index})"
+            )
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-042",
+                    f"Path node {node_id!r} has malformed path data: {exc.reason}",
+                    file=str(template),
+                    keypath=f"{keypath}.d",
+                    line=line,
+                    hint=(
+                        f"Fix 'd' {where}. Commands are M L H V C S Q T A Z (upper-case "
+                        "absolute, lower-case relative), each followed by its numbers; an arc's "
+                        "two flags are 0 or 1."
+                    ),
+                )
+            ) from exc
+        factor = px_to_pt(1.0, canvas.dpi)
+        return CompiledPath(
+            **common, d=d, commands=tuple(command.scaled(factor) for command in commands)
+        )
 
     # --------------------------------------------------------------- structural constructs
     def _expand_child(
@@ -2135,7 +2206,8 @@ class Compiler:
                         "ARC-STY-010",
                         f"Node {node_id!r} references effect preset {preset!r} but no style is set",
                         file=str(template), keypath=keypath, line=line_of(entry, "preset"),
-                        hint="Add 'style:' to the template (or --style) to use effect presets.",
+                        hint="Add 'style:' to the template (or pass a style: --style on the CLI, "
+                        "'style' over MCP) to use effect presets.",
                     )
                 )
             spec = self._style_pack.preset(
@@ -2169,12 +2241,20 @@ class Compiler:
         assert self._effects is not None
         if name not in self._effects:
             available = ", ".join(sorted(self._effects)) or "(none)"
+            # An effect may also come from an extension that is not added or enabled yet (some
+            # shipped examples bundle one), so the hint says how to get it registered, not only
+            # what is registered already.
             raise DiagnosticError(
                 diagnostic(
                     "ARC-FX-910",
                     f"Node {node_id!r} references unknown effect {name!r}",
                     file=str(template), keypath=keypath,
-                    hint=f"Registered effects: {available}.",
+                    hint=(
+                        f"Registered effects: {available}. Use one of them, or add and enable "
+                        f"the extension that provides {name!r}: arcavex ext add <dir>, then "
+                        "arcavex ext enable <name>; arcavex ext list shows added extensions and "
+                        "their state."
+                    ),
                 )
             )
         kind = self._effect_kind(name) if self._effect_kind is not None else None
@@ -2268,7 +2348,11 @@ class Compiler:
                             f"params: {_all_errors(exc)}",
                             file=str(template), keypath=f"{keypath}.params",
                             line=line_of(raw, "params"),
-                            hint="Check each parameter's name, type, and range for this generator.",
+                            hint=(
+                                f"{_params_summary(generator, schema)}. List every generator "
+                                "and its parameters with 'arcavex shapes list' or the "
+                                "arcavex_shape_list tool."
+                            ),
                         )
                     ) from exc
         return generator, params
@@ -2387,7 +2471,9 @@ class Compiler:
         dpi = canvas.dpi
         gap = 0.0
         if "gap" in raw:
-            gap = _dim(raw.get("gap"), template, f"{keypath}.gap", line_of(raw, "gap")).to_pt(dpi)
+            gap = _absolute_pt(
+                raw.get("gap"), dpi, template, f"{keypath}.gap", line_of(raw, "gap")
+            )
         pt, pr, pb, pl = self._parse_padding(raw.get("padding"), dpi, template, node_id, keypath)
         main_align = raw.get("main_align", "start")
         if main_align not in _MAIN_ALIGNS:
@@ -2444,15 +2530,23 @@ class Compiler:
         if isinstance(value, dict):
             self._reject_unknown_keys(value, _PADDING_KEYS, "padding", template, node_id, kp)
             return (
-                _dim(value.get("top", 0), template, f"{kp}.top").to_pt(dpi),
-                _dim(value.get("right", 0), template, f"{kp}.right").to_pt(dpi),
-                _dim(value.get("bottom", 0), template, f"{kp}.bottom").to_pt(dpi),
-                _dim(value.get("left", 0), template, f"{kp}.left").to_pt(dpi),
+                _absolute_pt(
+                    value.get("top", 0), dpi, template, f"{kp}.top", line_of(value, "top")
+                ),
+                _absolute_pt(
+                    value.get("right", 0), dpi, template, f"{kp}.right", line_of(value, "right")
+                ),
+                _absolute_pt(
+                    value.get("bottom", 0), dpi, template, f"{kp}.bottom", line_of(value, "bottom")
+                ),
+                _absolute_pt(
+                    value.get("left", 0), dpi, template, f"{kp}.left", line_of(value, "left")
+                ),
             )
         if isinstance(value, list) and len(value) == 4:
-            sides = [_dim(v, template, f"{kp}[{i}]").to_pt(dpi) for i, v in enumerate(value)]
+            sides = [_absolute_pt(v, dpi, template, f"{kp}[{i}]") for i, v in enumerate(value)]
             return sides[0], sides[1], sides[2], sides[3]
-        p = _dim(value, template, kp).to_pt(dpi)
+        p = _absolute_pt(value, dpi, template, kp)
         return p, p, p, p
 
     # ----------------------------------------------------------------------- text
@@ -2544,8 +2638,9 @@ class Compiler:
         self._check_fonts(families, template, node_id, keypath, line_of(run_raw, "font"))
         font_size = run_raw.get("font_size")
         size_pt = (
-            _dim(font_size, template, f"{keypath}.font_size", line_of(run_raw, "font_size")).to_pt(
-                canvas.dpi
+            _absolute_pt(
+                font_size, canvas.dpi, template, f"{keypath}.font_size",
+                line_of(run_raw, "font_size"),
             )
             if font_size is not None
             else None
@@ -2561,10 +2656,19 @@ class Compiler:
             font_families=families,
             font_size_pt=size_pt,
             font_weight=int(weight) if weight is not None else None,
-            italic=bool(run_raw["italic"]) if "italic" in run_raw else None,
+            italic=(
+                _bool_field(
+                    run_raw["italic"], template, f"{keypath}.italic", line_of(run_raw, "italic")
+                )
+                if "italic" in run_raw
+                else None
+            ),
             color=color,
             letter_spacing_pt=(
-                _dim(letter_spacing, template, f"{keypath}.letter_spacing").to_pt(canvas.dpi)
+                _absolute_pt(
+                    letter_spacing, canvas.dpi, template, f"{keypath}.letter_spacing",
+                    line_of(run_raw, "letter_spacing"),
+                )
                 if letter_spacing is not None
                 else None
             ),
@@ -2653,8 +2757,8 @@ class Compiler:
             )
         min_size = f.get("min_size")
         min_pt = (
-            _dim(min_size, template, f"{keypath}.fit.min_size", line_of(f, "min_size")).to_pt(
-                canvas.dpi
+            _absolute_pt(
+                min_size, canvas.dpi, template, f"{keypath}.fit.min_size", line_of(f, "min_size")
             )
             if min_size is not None
             else None
@@ -2795,7 +2899,10 @@ class Compiler:
                     line=size_line,
                     hint=(
                         "Add 'size: {w: ..., h: ...}' — each of "
-                        f"{_size_options_for(node_type)}."
+                        f"{_size_options_for(node_type)}. To span the parent on an axis use "
+                        "'fill' with one anchor on that axis; for an inset frame, anchor one "
+                        "edge and use a % of the parent, or wrap the content in a "
+                        "'layout: vstack' group with 'padding' and a fill-sized child."
                     ),
                 )
             )
@@ -2867,7 +2974,11 @@ class Compiler:
                         file=str(template),
                         keypath=f"{keypath}.constraints.size.{axis}",
                         line=line,
-                        hint=f"Give this axis {_size_options_for(node_type)}.",
+                        hint=(
+                            f"Give this axis {_size_options_for(node_type)}. 'fill' spans the "
+                            "parent from the axis's one anchor; a % of the parent makes an "
+                            "inset frame."
+                        ),
                     )
                 )
             return SizeSpec(mode="fill")
@@ -2879,13 +2990,13 @@ class Compiler:
                 f"{keypath}.constraints.size.{axis}",
             )
             if "min" in value:
-                min_pt = _dim(
-                    value.get("min"), template, f"{keypath}.constraints.size.{axis}.min", line
-                ).to_pt(dpi)
+                min_pt = _absolute_pt(
+                    value.get("min"), dpi, template, f"{keypath}.constraints.size.{axis}.min", line
+                )
             if "max" in value:
-                max_pt = _dim(
-                    value.get("max"), template, f"{keypath}.constraints.size.{axis}.max", line
-                ).to_pt(dpi)
+                max_pt = _absolute_pt(
+                    value.get("max"), dpi, template, f"{keypath}.constraints.size.{axis}.max", line
+                )
             if "aspect" in value:
                 aw, ah = _parse_aspect(
                     value.get("aspect"), template, node_id, keypath, axis, line
@@ -3059,7 +3170,7 @@ class Compiler:
         self._check_fonts(families, template, node_id, style_kp, line_of(s, "font"))
         font_size = s.get("font_size")
         font_size_pt = (
-            _dim(font_size, template, f"{style_kp}.font_size", line_of(s, "font_size")).to_pt(dpi)
+            _absolute_pt(font_size, dpi, template, f"{style_kp}.font_size", line_of(s, "font_size"))
             if font_size is not None
             else None
         )
@@ -3092,22 +3203,22 @@ class Compiler:
             fill=fill,
             stroke=stroke,
             stroke_width_pt=(
-                _dim(stroke_width, template, f"{style_kp}.stroke_width", line_of(s, "stroke_width"))
-                .to_pt(dpi)
+                _absolute_pt(
+                    stroke_width, dpi, template, f"{style_kp}.stroke_width",
+                    line_of(s, "stroke_width"),
+                )
                 if stroke_width is not None
                 else 0.0
             ),
             corner_radius_pt=(
-                _dim(
-                    corner_radius,
-                    template,
-                    f"{style_kp}.corner_radius",
+                _absolute_pt(
+                    corner_radius, dpi, template, f"{style_kp}.corner_radius",
                     line_of(s, "corner_radius"),
-                ).to_pt(dpi)
+                )
                 if corner_radius is not None
                 else 0.0
             ),
-            opacity=_float_field(
+            opacity=_unit_interval_field(
                 s.get("opacity", 1.0), template, f"{style_kp}.opacity", line_of(s, "opacity")
             ),
             font_families=families,
@@ -3116,16 +3227,18 @@ class Compiler:
                 s.get("font_weight", 400), template, f"{style_kp}.font_weight",
                 line_of(s, "font_weight"),
             ),
-            italic=bool(s.get("italic", False)),
+            italic=_bool_field(
+                s.get("italic", False), template, f"{style_kp}.italic", line_of(s, "italic")
+            ),
             text_color=text_color,
             align=align,
             direction=direction,
             line_height=None,
             letter_spacing_pt=(
-                _dim(
-                    letter_spacing, template, f"{style_kp}.letter_spacing",
+                _absolute_pt(
+                    letter_spacing, dpi, template, f"{style_kp}.letter_spacing",
                     line_of(s, "letter_spacing"),
-                ).to_pt(dpi)
+                )
                 if letter_spacing is not None
                 else 0.0
             ),
@@ -3150,7 +3263,8 @@ class Compiler:
                     "ARC-STY-011",
                     f"Node {node_id!r} sets style_role {role_name!r} but no style is set",
                     file=str(template), keypath=f"{keypath}.style_role", line=line,
-                    hint="Add 'style:' to the template (or --style) to use style roles.",
+                    hint="Add 'style:' to the template (or pass a style: --style on the CLI, "
+                    "'style' over MCP) to use style roles.",
                 )
             )
         defaults = dict(
@@ -3465,7 +3579,8 @@ def _overlay_hint(data: Path | None) -> str:
             base = Path(data).name[: -len("".join(suffixes[-2:]))] + suffixes[-1]
             return (
                 f" This file looks like a locale overlay ('{Path(data).name}'); pass the base "
-                f"data file ('{base}') with '--locale {locale_tok}' instead."
+                f"data file ('{base}') and request locale '{locale_tok}' (--locale on the CLI, "
+                "'locale' over MCP) instead."
             )
     return ""
 
@@ -3558,6 +3673,17 @@ def _int_field(value: Any, template: Path, keypath: str, line: int | None) -> in
         raise _coercion_error(value, template, keypath, line, "an integer") from exc
 
 
+def _bool_field(value: Any, template: Path, keypath: str, line: int | None) -> bool:
+    """Accept only a real YAML boolean, or raise a located ARC-IR diagnostic.
+
+    ``bool()`` coercion made every non-empty string true, so ``italic: "no"`` rendered italic
+    while validating clean. A quoted word is refused by name; only ``true``/``false`` pass.
+    """
+    if not isinstance(value, bool):
+        raise _coercion_error(value, template, keypath, line, "a boolean (true or false)")
+    return value
+
+
 def _float_field(value: Any, template: Path, keypath: str, line: int | None) -> float:
     """Coerce an authored value to ``float`` or raise a located ARC-IR diagnostic."""
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
@@ -3566,6 +3692,18 @@ def _float_field(value: Any, template: Path, keypath: str, line: int | None) -> 
         return float(value)
     except (TypeError, ValueError) as exc:
         raise _coercion_error(value, template, keypath, line, "a number") from exc
+
+
+def _unit_interval_field(value: Any, template: Path, keypath: str, line: int | None) -> float:
+    """Coerce an authored value to a float in the closed range 0..1, or raise a located ARC-IR.
+
+    An opacity above 1 used to validate and render fully opaque; below 0 it rendered as hidden.
+    Neither is a meaningful request, so both are refused by range (NaN fails the comparison too).
+    """
+    number = _float_field(value, template, keypath, line)
+    if not 0.0 <= number <= 1.0:
+        raise _coercion_error(value, template, keypath, line, "a number from 0 to 1")
+    return number
 
 
 def _coercion_error(
@@ -3608,6 +3746,37 @@ def _dim(value: Any, template: Path, keypath: str, line: int | None = None) -> D
                 hint="Use a number with an optional unit: px, pt, mm, or %.",
             )
         ) from exc
+
+
+def _absolute_pt(
+    value: Any, dpi: float, template: Path, keypath: str, line: int | None = None
+) -> float:
+    """Resolve a length that has no parent extent to points; a percentage is refused.
+
+    Only a size axis has something to be a percentage *of*. Style lengths (``font_size``,
+    ``stroke_width``, ``corner_radius``, ``letter_spacing``) and run overrides, a stack's ``gap``
+    and ``padding``, a size axis's ``min``/``max`` clamps, a text fit's ``min_size``, and the
+    canvas itself resolve with no basis, and ``Dim.to_pt`` would raise a bare ``ValueError`` for
+    a percentage there — which used to surface at render time as ARC-INT-999. Refusing it here
+    keeps the failure at validation, located, and specific about which units are accepted.
+    """
+    dim = _dim(value, template, keypath, line)
+    if dim.is_relative:
+        raise DiagnosticError(
+            diagnostic(
+                "ARC-IR-011",
+                f"Invalid dimension {value!r} at {keypath}: this length has nothing to be a "
+                "percentage of",
+                file=str(template),
+                keypath=keypath,
+                line=line,
+                hint=(
+                    "Use px (a bare number), pt, or mm here; only a size axis "
+                    "(constraints.size) takes a percentage of its parent."
+                ),
+            )
+        )
+    return dim.to_pt(dpi)
 
 
 def _parse_aspect(
@@ -3777,13 +3946,7 @@ def _parse_anchor_value(
                         file=str(template),
                         keypath=f"{keypath}.constraints.anchor.{key}",
                         line=line,
-                        hint=(
-                            "An unevaluated '{{ }}' expression cannot appear here (expressions "
-                            "are resolved before offset parsing). Offsets look like '+20px', "
-                            "'+20pt', or '-6mm'."
-                            if "{{" in offset_raw
-                            else "Offsets look like '+20px', '+20pt', or '-6mm'."
-                        ),
+                        hint=_offset_hint(offset_raw),
                     )
                 ) from exc
             break
@@ -3829,6 +3992,60 @@ def _direction_differs(source: Any, loc_settings: dict[str, Any], locale: str) -
         authored_direction = str(settings["direction"]).lower()
     return requested != authored_direction
 
+_EXPRESSION = re.compile(r"\{\{.*?\}\}", re.DOTALL)
+
+
+def _copy_reads_in(direction: str, source: Any, data: Path | None) -> bool:
+    """True when some of the copy the render was given already reads in ``direction``.
+
+    A locale is rules, not translation, and the engine cannot know what language a string is in.
+    It can see what script it is written in: a strong right-to-left character (Arabic-script or
+    Hebrew letters) in the data means the copy was written for an RTL locale, and applying that
+    locale to it is the intended use, not the mistake ARC-TPL-102 exists to name. The flagship
+    example ships two full data files rather than a base plus an overlay, which is exactly the
+    shape the overlay-only check misread.
+
+    The strings inspected are the ones that will be rendered: the data file when one was passed,
+    the template's ``preview_data`` otherwise, plus any literal text in the node tree with its
+    ``{{ }}`` expressions removed (an expression's variable *names* are Latin whatever it binds).
+    """
+    wanted = {"R", "AL"} if direction == "rtl" else {"L"}
+    strings: list[str] = []
+    raw = source.raw if hasattr(source, "raw") and isinstance(source.raw, dict) else {}
+    if data is not None and Path(data).is_file():
+        strings.extend(_strings_in(_to_plain(load_yaml(Path(data)))))
+    else:
+        strings.extend(_strings_in(raw.get("preview_data")))
+    strings.extend(_EXPRESSION.sub("", text) for text in _text_fields(raw.get("root")))
+    return any(unicodedata.bidirectional(ch) in wanted for text in strings for ch in text)
+
+
+def _strings_in(value: Any) -> list[str]:
+    """Every string leaf in a plain data structure, in document order."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _strings_in(v)]
+    if isinstance(value, list):
+        return [s for v in value for s in _strings_in(v)]
+    return []
+
+
+def _text_fields(node: Any) -> list[str]:
+    """The literal ``text`` of every node in an authored tree."""
+    if not isinstance(node, dict):
+        return []
+    out: list[str] = []
+    text = node.get("text")
+    if isinstance(text, str):
+        out.append(text)
+    children = node.get("children")
+    if isinstance(children, list):
+        for child in children:
+            out.extend(_text_fields(child))
+    return out
+
+
 def _size_options_for(node_type: str) -> str:
     """The size values this node kind accepts, for a hint that does not contradict the next one.
 
@@ -3839,3 +4056,42 @@ def _size_options_for(node_type: str) -> str:
     if node_type == "text":
         return "fixed (e.g. 100px), a %, 'fill', 'fit_content', or {aspect: 'W:H'}"
     return "fixed (e.g. 100px), a %, 'fill', or {aspect: 'W:H'} (fit_content is text-only)"
+
+
+def _params_summary(generator: str, schema: Any) -> str:
+    """One line naming a generator's parameters with type, default (or required), and range.
+
+    An ``ARC-FX-912`` that said only "Extra inputs are not permitted" left an author to guess
+    the valid names; quoting the schema in the hint answers the question the refusal raised.
+    """
+    parts: list[str] = []
+    for info in param_infos(schema):
+        detail = "required" if info.required else f"default {info.default!r}"
+        if info.constraint:
+            detail += f", {info.constraint}"
+        parts.append(f"{info.name} ({info.type}, {detail})")
+    return f"{generator!r} takes: {', '.join(parts) or 'no parameters'}"
+
+
+def _offset_hint(offset_raw: str) -> str:
+    """The ARC-LAY-012 hint, specific to the mistake the offset text reveals.
+
+    A percentage ('+30%') or a share of another node's size ('+0.3*parent.height') is the most
+    common refusal, and a units list answers it with the rule but not the reason: an offset is
+    an absolute length because it has no parent extent to be a fraction of — that extent belongs
+    to the size spec, where '%' is understood. Say so, and say what to write instead.
+    """
+    if "{{" in offset_raw:
+        return (
+            "An unevaluated '{{ }}' expression cannot appear here (expressions are resolved "
+            "before offset parsing). Offsets look like '+20px', '+20pt', or '-6mm'."
+        )
+    if "%" in offset_raw or "parent" in offset_raw or "*" in offset_raw:
+        return (
+            "Anchor offsets are absolute lengths ('+20px', '+20pt', '-6mm'); a percentage or a "
+            "share of another node's size is not one, because an offset has no parent extent "
+            "to be a fraction of. To place a node relative to the parent's size, anchor to "
+            "parent.center_x/parent.center_y or to a sibling's edge (e.g. 'top: "
+            "title.bottom+12pt') and express the size in % ('size: {w: 30%}')."
+        )
+    return "Offsets look like '+20px', '+20pt', or '-6mm'."

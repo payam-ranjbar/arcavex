@@ -56,6 +56,7 @@ name = "arcavex"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "mcp" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pydantic" },
@@ -71,7 +72,6 @@ dependencies = [
 dev = [
     { name = "hypothesis" },
     { name = "import-linter" },
-    { name = "mcp" },
     { name = "mypy" },
     { name = "pillow" },
     { name = "pytest" },
@@ -85,7 +85,7 @@ packaging = [
 requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.156,<7" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = ">=2.13,<3" },
-    { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.28,<2" },
+    { name = "mcp", specifier = ">=1.28,<2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.2,<3" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=12.3,<13" },

@@ -70,6 +70,28 @@ def test_template_new_then_render_then_split(tmp_path: Path) -> None:
     assert again.returncode == 1
 
 
+def test_template_new_declares_the_requested_presets(tmp_path: Path) -> None:
+    target = tmp_path / "poster"
+    new = _run(["template", "new", str(target), "--format", "a4", "--format", "square", "--json"])
+    assert new.returncode == 0, new.stderr
+    payload = json.loads(new.stdout)
+    assert payload["ok"] is True
+    assert payload["formats"] == ["a4", "square"] and payload["format"] == "a4"
+    text = (target / "template.yaml").read_text(encoding="utf-8")
+    assert "width: 210mm, height: 297mm, dpi: 300, bleed: 3mm" in text
+
+
+def test_template_new_unknown_preset_exits_1_and_writes_nothing(tmp_path: Path) -> None:
+    target = tmp_path / "nope"
+    proc = _run(["template", "new", str(target), "--format", "postcard", "--json"])
+    assert proc.returncode == 1
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is False
+    assert payload["diagnostics"][0]["code"] == "ARC-TPL-072"
+    assert "a4" in payload["diagnostics"][0]["hint"]
+    assert not target.exists()
+
+
 def test_template_new_refuses_existing(tmp_path: Path) -> None:
     target = tmp_path / "exists"
     target.mkdir()
@@ -160,3 +182,28 @@ def test_preview_one_shot(tmp_path: Path) -> None:
     assert payload["ok"] is True
     assert payload["output_path"].endswith(".png")
     assert payload["compile_ms"] is not None and payload["render_ms"] is not None
+
+
+# ------------------------------------------------------------------------ shapes list
+def test_shapes_list_and_inspect() -> None:
+    listed = _run(["shapes", "list", "--json"])
+    assert listed.returncode == 0, listed.stderr
+    payload = json.loads(listed.stdout)
+    assert payload["response_version"] == 1 and payload["ok"] is True
+    names = [s["name"] for s in payload["shapes"]]
+    assert {"starburst", "speech_bubble", "qr_code"} <= set(names)
+    star = next(s for s in payload["shapes"] if s["name"] == "starburst")
+    points = next(p for p in star["params"] if p["name"] == "points")
+    assert points["type"] == "integer" and points["default"] == 12
+    assert points["constraint"] == ">=3, <=120"
+
+    human = _run(["shapes", "list", "--no-color"])
+    assert human.returncode == 0, human.stderr
+    assert "points: integer (default=12) [>=3, <=120]" in human.stdout
+
+    one = _run(["shapes", "inspect", "qr_code", "--json"])
+    assert one.returncode == 0, one.stderr
+    assert json.loads(one.stdout)["name"] == "qr_code"
+
+    unknown = _run(["shapes", "inspect", "sunburst"])
+    assert unknown.returncode == 1

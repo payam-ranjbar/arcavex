@@ -241,6 +241,43 @@ def test_state_lifecycle(arcavex_home: Path) -> None:
     assert state.get("a") is None
 
 
+def test_remove_drops_the_record_before_deleting_the_copy(
+    arcavex_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If deleting the stored copy fails, the record must already be gone. A record pointing at
+    nothing is an extension that fails to load at every engine start and an ``ext list`` row with
+    no components; a directory nothing points at is inert, and the next add replaces it."""
+    from arcavex.services.extensions.service import ExtensionService
+
+    service = ExtensionService()
+    ext = _make_ext(tmp_path, "stubborn")
+    assert service.add_extension(ext).ok
+    stored = source_path("stubborn")
+    assert stored.is_dir()
+
+    def refuse(path: Any, *args: Any, **kwargs: Any) -> None:
+        raise OSError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr("arcavex.services.extensions.service.shutil.rmtree", refuse)
+    report = service.remove_extension("stubborn")
+    assert not report.ok
+    assert [d.code for d in report.diagnostics] == ["ARC-EXT-060"]
+    assert report.diagnostics[0].source is not None
+    assert report.diagnostics[0].source.file == str(stored)
+    assert ExtensionState().get("stubborn") is None  # the record went first
+    assert stored.is_dir()  # the copy is left for the person to delete, as the hint says
+
+
+def test_remove_without_a_stored_copy_still_drops_the_record(arcavex_home: Path) -> None:
+    """A copy deleted by hand (the old workaround) must not make the record unremovable."""
+    from arcavex.services.extensions.service import ExtensionService
+
+    ExtensionState().add("handmade", "0.1.0")
+    report = ExtensionService().remove_extension("handmade")
+    assert report.ok and report.removed_path is None
+    assert ExtensionState().get("handmade") is None
+
+
 # ---------------------------------------------------------------------------- loader
 def test_loader_registers_enabled_extension(arcavex_home: Path, tmp_path: Path) -> None:
     """An enabled extension's effect lands in the registry exactly like a built-in."""

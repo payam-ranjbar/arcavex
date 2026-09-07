@@ -13,6 +13,11 @@ mutations changes what the boundary has to guarantee, and these models are that 
   last-write-wins silently destroys work.
 - **Unknown keys are refused.** A misspelled field that is quietly dropped edits the wrong thing
   and reports success.
+- **A transaction says where it writes.** ``target`` is the format and locale the result is
+  validated and previewed against; ``scope`` is what gets written: the shared authored document
+  (the default) or one format's override list. Reading ``target`` as a write scope applied a
+  "story-only" change to every format and reported success, so the two are separate fields with
+  separate names.
 
 This module is kernel code: pydantic only, no services, no filesystem. It defines the contract;
 `services.editor` executes it.
@@ -66,10 +71,13 @@ class Actor(BaseModel):
 
 
 class EditorTarget(BaseModel):
-    """The format and locale a mutation is composed against.
+    """The format and locale a transaction is validated and previewed against.
 
-    Structural edits apply to the authored document regardless of target, but validation and the
-    render check that gate a commit need to know which target the user was looking at.
+    This is a *reading* context, not a write scope: commands apply to the authored document,
+    which every format shares, whatever the target says. The compile check that gates a commit
+    needs to know which format and locale the user was looking at, and a format-scoped
+    transaction (``scope: "format"``) names the format it overrides here — but the target alone
+    never narrows a write. That is what :data:`EditScope` is for.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -262,6 +270,23 @@ COMMAND_KINDS: tuple[str, ...] = tuple(
     for member in get_args(get_args(EditorCommand)[0])
 )
 
+#: Each kind's fields, optional ones marked with a trailing ``?``, derived from the models so a
+#: refusal can state every command's exact shape without a hand-written table that drifts.
+COMMAND_FIELDS: dict[str, tuple[str, ...]] = {
+    get_args(member.model_fields["kind"].annotation)[0]: tuple(
+        name if info.is_required() else f"{name}?"
+        for name, info in member.model_fields.items()
+        if name != "kind"
+    )
+    for member in get_args(get_args(EditorCommand)[0])
+}
+
+#: Where a transaction writes. ``shared`` edits the authored node every format renders from;
+#: ``format`` writes each command as a ``set`` op into ``formats.<target.format>.patch`` so only
+#: that format changes. Structural commands have no per-format form and are refused under
+#: ``format``.
+EditScope = Literal["shared", "format"]
+
 
 class _CommandEnvelope(BaseModel):
     """Adapter that gives the bare union a validating entry point."""
@@ -297,7 +322,11 @@ class SemanticTransaction(BaseModel):
     project_path: str
     base_project_revision: _Revision
     actor: Actor
+    #: What the result is validated and previewed against. Never a write scope on its own.
     target: EditorTarget = Field(default_factory=EditorTarget)
+    #: What gets written. The default is the authored document every format shares; ``format``
+    #: requires ``target.format`` and writes that format's override list instead.
+    scope: EditScope = "shared"
     commands: list[EditorCommand] = Field(min_length=1)
 
     @field_validator("project_path")
@@ -333,6 +362,9 @@ class ChangedPath(BaseModel):
 
     path: str = Field(min_length=1)
     change: ChangeKind = "modified"
+    #: The keypath inside the file the write was confined to, when it was narrower than the
+    #: file: a format-scoped edit reports ``formats.<name>.patch``. ``None`` for a shared edit.
+    location: str | None = None
 
 
 class ConflictDetail(BaseModel):

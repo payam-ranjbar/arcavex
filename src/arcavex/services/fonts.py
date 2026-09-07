@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Literal
 
 from arcavex.kernel.api import FontActionReport, FontFamilyInfo, FontFileInfo, FontListReport
 from arcavex.kernel.diagnostics import Diagnostic, diagnostic
@@ -92,13 +93,7 @@ class FontService:
                         FontFileInfo(name=path.name, path=str(path), installed=installed)
                     )
             families = [
-                FontFamilyInfo(
-                    family=family,
-                    bundled=any(not f.installed for f in infos),
-                    installed=any(f.installed for f in infos),
-                    files=infos,
-                )
-                for family, infos in sorted(files.items())
+                _family_info(family, infos) for family, infos in sorted(files.items())
             ]
             return FontListReport(ok=True, install_dir=str(install_dir), families=families)
         except OSError as exc:
@@ -278,3 +273,29 @@ def _fail(
 
 
 __all__ = ["FontService"]
+
+
+def _family_info(family: str, infos: list[FontFileInfo]) -> FontFamilyInfo:
+    """Describe one resolvable family from its files.
+
+    Every family the shaper resolves is ``available`` — that is what "may a template name it?"
+    asks, and a bundled family answered ``installed: false`` was read as "no". ``source`` says in
+    one word where it came from; a family with files on both sides reports both.
+    """
+    bundled = any(not f.installed for f in infos)
+    installed = any(f.installed for f in infos)
+    source: Literal["bundled", "installed", "bundled+installed"]
+    if bundled and installed:
+        source = "bundled+installed"
+    elif installed:
+        source = "installed"
+    else:
+        source = "bundled"
+    return FontFamilyInfo(
+        family=family,
+        bundled=bundled,
+        installed=installed,
+        available=True,
+        source=source,
+        files=infos,
+    )

@@ -38,6 +38,7 @@ from arcavex.services.template.compiler import (
 from arcavex.services.template.functions import FUNCTION_SIGNATURES
 from arcavex.services.template.loader import (
     _SIDECARS,
+    TemplateSource,
     dump_yaml,
     line_of,
     load_template,
@@ -45,7 +46,16 @@ from arcavex.services.template.loader import (
     node_line,
     resolve_template_path,
 )
-from arcavex.services.template.overlays import PatchLog, apply_patches
+from arcavex.services.template.overlays import (
+    TEMPLATE_PATCH_ROOTS,
+    PatchLog,
+    apply_patches,
+)
+from arcavex.services.template.presets import (
+    DEFAULT_SCAFFOLD_FORMATS,
+    FORMAT_PRESETS,
+    preset_names,
+)
 
 # Blocks whose fields have a fixed vocabulary the compiler validates at compile time. A patch
 # 'set'/'insert' whose leaf lands in one of these blocks is field-checked before the write, so a
@@ -129,13 +139,9 @@ variables:
   # tests. Set `badge:` in data.yaml to make the footer appear.
   badge: {type: string, required: false, doc: "Optional corner badge; shows the footer when set"}
 
-formats:
-  square:
-    canvas: {width: 1080px, height: 1080px, dpi: 96}
-  story:
-    canvas: {width: 1080px, height: 1920px, dpi: 96}
-
-# Used when no --data file is supplied, so `render <dir> --format square` works immediately.
+__FORMATS__
+# Used when no --data file is supplied, so `render <dir> --format __FIRST_FORMAT__` works
+# immediately.
 preview_data:
   title: "My Card"
 
@@ -176,9 +182,9 @@ root:
         anchor: {left: parent.left+64px, top: parent.center_y+70px}
         size: {w: 82%, h: fit_content}
 
-    # Conditional node: included only when `badge` is supplied. `if:` is fully usable today
-    # because this single node has its own distinct anchor. (Laying out a *dynamic* number of
-    # repeated nodes needs layout stacks, which arrive in Phase 2 — see the template README.)
+    # Conditional node: included only when `badge` is supplied. `if:` works here because this
+    # single node has its own distinct anchor. (A *dynamic* number of repeated nodes goes in a
+    # `layout: vstack`/`hstack` group, which positions each child — see the design guide.)
     - if: "{{ badge is not none }}"
       node:
         id: badge
@@ -190,41 +196,133 @@ root:
           size: {w: 82%, h: fit_content}
 """
 
-_SCAFFOLD_DATA = """\
-title: "Hello from Arcavex"
-subtitle: "A scaffolded card"
+def _scaffold_template(formats: list[str]) -> str:
+    """Render the scaffold with a ``formats:`` block built from the chosen presets."""
+    lines = ["formats:"]
+    for name in formats:
+        preset = FORMAT_PRESETS[name]
+        canvas = ", ".join(f"{key}: {value}" for key, value in preset.canvas().items())
+        lines.append(f"  # {preset.doc}")
+        lines.append(f"  {name}:")
+        lines.append(f"    canvas: {{{canvas}}}")
+    block = "\n".join(lines) + "\n"
+    return _SCAFFOLD_TEMPLATE.replace("__FORMATS__\n", block).replace(
+        "__FIRST_FORMAT__", formats[0]
+    )
+
+
+#: The placeholder copy the scaffold's ``data.yaml`` ships. ``project new`` seeds a project's
+#: data from that file, so the values must read as placeholders wherever they surface, and the
+#: ``ARC-PRJ-015`` warning names any variable that still holds one at render/preview time —
+#: otherwise "A scaffolded card" prints on a project render while ``render_preview`` (which
+#: uses ``preview_data``) shows something else, and nothing says so.
+SCAFFOLD_PLACEHOLDERS: dict[str, str] = {
+    "title": "TITLE GOES HERE",
+    "subtitle": "SUBTITLE GOES HERE",
+}
+
+_SCAFFOLD_DATA = f"""\
+# Placeholder copy: replace every value before the render is used for real.
+title: "{SCAFFOLD_PLACEHOLDERS["title"]}"
+subtitle: "{SCAFFOLD_PLACEHOLDERS["subtitle"]}"
 # Uncomment to make the conditional footer appear:
 # badge: "NEW"
 """
 
 
-def _scaffold_readme(name: str) -> str:
+def scaffold_placeholder_diagnostics(data_path: Path | None) -> list[Diagnostic]:
+    """``ARC-PRJ-015`` when a project's data still holds the scaffold's placeholder copy.
+
+    Best effort by design: a missing, unreadable, or non-mapping data file is reported by the
+    compile that follows, not here. Only an exact match counts — an author who typed their own
+    copy over a placeholder is done, even if the copy is short.
+    """
+    if data_path is None or not Path(data_path).is_file():
+        return []
+    try:
+        data = load_yaml(Path(data_path))
+    except DiagnosticError:
+        return []
+    if not isinstance(data, dict):
+        return []
+    stale = sorted(
+        str(key)
+        for key, value in data.items()
+        if isinstance(value, str) and SCAFFOLD_PLACEHOLDERS.get(str(key)) == value
+    )
+    if not stale:
+        return []
+    named = ", ".join(repr(name) for name in stale)
+    return [
+        diagnostic(
+            "ARC-PRJ-015",
+            f"Project data still holds the scaffold's placeholder copy for {named}",
+            severity="warning",
+            file=str(data_path),
+            hint=(
+                f"Set real values before this render is used: 'arcavex data set {stale[0]} "
+                f"\"...\"' (MCP: arcavex_data_set), or edit {Path(data_path).name}."
+            ),
+        )
+    ]
+
+
+def _scaffold_readme(name: str, fmt: str) -> str:
+    """The scaffold's README, written for whichever transport the reader has.
+
+    A person at a terminal runs the commands; an assistant over MCP calls the ``arcavex_*``
+    tool named beside each one. The README used to speak only CLI and to send the reader to
+    "the top-level project README", which an MCP client cannot open — the guide that *is*
+    reachable from every transport is the design skill served as a resource.
+    """
+    a3 = '{{"canvas": {{"width": "297mm", "height": "420mm", "dpi": 300, "bleed": "3mm"}}}}'
     return f"""\
 # {name}
 
-A scaffolded Arcavex template.
+A scaffolded Arcavex template: `template.yaml` (the design), `data.yaml` (placeholder copy),
+and this file. Every step works from a terminal or over the MCP server; the name in
+parentheses is the `arcavex_*` tool an assistant calls for the same thing.
 
-Render it with the sample data (edit `data.yaml` and re-run to see changes):
+1. **Render it** with the sample data (`arcavex_render`):
 
-```
-arcavex render {name} --data {name}/data.yaml --format square -o {name}.png
-```
+   ```
+   arcavex render {name} --data {name}/data.yaml --format {fmt} -o {name}.png
+   ```
 
-Omitting `--data` renders the `preview_data` baked into `template.yaml` instead, so
-`arcavex render {name} --format square` also works out of the box.
+   Omitting `--data` renders the `preview_data` baked into `template.yaml`, so
+   `arcavex render {name} --format {fmt}` also works out of the box; `arcavex_render_preview`
+   returns the picture itself.
 
-Start the save-to-preview loop (re-renders on every save):
+2. **Replace the placeholder copy.** `data.yaml` ships `TITLE GOES HERE` and
+   `SUBTITLE GOES HERE`: edit the file, or in a project run
+   `arcavex data set title "..."` (`arcavex_data_set`). A project render warns with
+   `ARC-PRJ-015` while a placeholder is still in place.
 
-```
-arcavex preview {name}/template.yaml --data {name}/data.yaml --format square --watch
-```
+3. **Edit the design** by addressed node id (`arcavex_template_inspect` for the ids,
+   `arcavex_template_patch` for the edit):
 
-Check it without data, or inspect the machine-readable contract:
+   ```
+   arcavex template inspect {name} --json
+   arcavex template patch {name} --set nodes.title.style.color --value '"#ffcc00"'
+   arcavex template patch {name} --set formats.a3 --value '{a3}'
+   ```
 
-```
-arcavex template check {name}
-arcavex template inspect {name} --json
-```
+   A patch may address `nodes.<id>`, `formats.<name>`, `variables.<name>`,
+   `preview_data.<key>`, `locales.<name>`, or `style`; the result must still compile for every
+   declared format, or the op is rolled back with a located diagnostic.
+
+4. **Check it and read the geometry** (`arcavex_template_validate`, `arcavex_layout_inspect`):
+
+   ```
+   arcavex template check {name}
+   arcavex layout inspect {name} --format {fmt}
+   ```
+
+5. **Watch it change** while editing (terminal only; re-renders on every save):
+
+   ```
+   arcavex preview {name}/template.yaml --data {name}/data.yaml --format {fmt} --watch
+   ```
 
 ## What this template shows
 
@@ -232,8 +330,14 @@ arcavex template inspect {name} --json
 - `if: "{{{{ badge is not none }}}}"` — a conditional node. Set `badge:` in `data.yaml` to
   make the footer appear; leave it out and the node is dropped.
 
-For the full feature set (repeat, all template functions, split layout, `doctor`, `explain`),
-see the top-level project README.
+## Learn the rest
+
+The design guide ships with the engine and is served over MCP as the resource
+`skill://arcavex-design-studio/SKILL.md`; its `references/` cover the authoring loop, art
+direction, multi-format and locale work, and verification. `arcavex explain <code>`
+(`arcavex_diagnostic_explain`) explains any diagnostic, and `arcavex effects list`,
+`shapes list`, `style list`, and `font list` (`arcavex_effects_list`, `arcavex_shape_list`,
+`arcavex_style_list`, `arcavex_font_list`) list the vocabulary a template may use.
 """
 
 
@@ -251,9 +355,31 @@ class AuthoringService:
         self._functions = sorted(function_names)
 
     # ---------------------------------------------------------------------- new
-    def scaffold(self, name: str, target: Path) -> ScaffoldResult:
-        """Create a minimal renderable one-file template directory at ``target``."""
+    def scaffold(
+        self, name: str, target: Path, formats: list[str] | None = None
+    ) -> ScaffoldResult:
+        """Create a minimal renderable one-file template directory at ``target``.
+
+        ``formats`` names canvas presets (:data:`FORMAT_PRESETS`) to declare, in order; the
+        default is square + story. An unknown name is a located ``ARC-TPL-072`` listing the
+        presets, reported before anything is written.
+        """
         target = Path(target)
+        chosen = list(formats) if formats else list(DEFAULT_SCAFFOLD_FORMATS)
+        unknown = [f for f in chosen if f not in FORMAT_PRESETS]
+        if unknown:
+            return ScaffoldResult(
+                ok=False,
+                diagnostics=[
+                    diagnostic(
+                        "ARC-TPL-072",
+                        f"Unknown format preset(s): {', '.join(repr(f) for f in unknown)}",
+                        file=str(target),
+                        hint=f"Format presets are: {preset_names()}. Any other canvas can be "
+                        "declared after scaffolding with 'template patch --set formats.<name>'.",
+                    )
+                ],
+            )
         if target.exists() and any(target.iterdir()):
             return ScaffoldResult(
                 ok=False,
@@ -268,13 +394,16 @@ class AuthoringService:
             )
         display_name = target.name or name
         target.mkdir(parents=True, exist_ok=True)
-        (target / "template.yaml").write_text(_SCAFFOLD_TEMPLATE, encoding="utf-8")
+        (target / "template.yaml").write_text(_scaffold_template(chosen), encoding="utf-8")
         (target / "data.yaml").write_text(_SCAFFOLD_DATA, encoding="utf-8")
-        (target / "README.md").write_text(_scaffold_readme(display_name), encoding="utf-8")
+        (target / "README.md").write_text(
+            _scaffold_readme(display_name, chosen[0]), encoding="utf-8"
+        )
         return ScaffoldResult(
             ok=True,
             path=str(target),
-            format="square",
+            format=chosen[0],
+            formats=chosen,
             files=["template.yaml", "data.yaml", "README.md"],
         )
 
@@ -396,17 +525,28 @@ class AuthoringService:
     def patch_template(
         self, template: Path, ops: list[PatchOp], base_sha256: str | None = None
     ) -> PatchTemplateResult:
-        """Apply path-addressed patch ops to a template file on disk, preserving comments.
+        """Apply path-addressed patch ops to a template on disk, preserving comments.
 
         The ops reuse the exact ``set/remove/insert_*`` grammar the override layers use
-        (``services.template.overlays``), applied here to ``template.yaml``'s ``root`` AST and
-        written back through ruamel round-trip so comments and key order survive. An op that does
-        not name exactly one verb (``ARC-TPL-092``, CR-1) or whose leaf field is unknown for a
-        fixed-vocabulary block (``ARC-TPL-051``, DX-4) is rejected *before* the write, so an
-        ambiguous op never applies partially and a typo'd field never silently lands. An unknown
-        addressed path raises a located ``ARC-TPL-092``; a stale ``base_sha256`` (the file changed
-        on disk since the agent read it) is refused with ``ARC-TPL-110`` before anything is
-        written, so a concurrent edit is never overwritten (spec §8.3). Never raises.
+        (``services.template.overlays``) and may address the node tree (``nodes.<id>...``) or,
+        because this is the top-level operation and not an embedded layer, the template's own
+        sections: ``formats.<name>``, ``variables.<name>``, ``preview_data.<key>``,
+        ``locales.<name>`` (each with an optional field path, list indexes included) and the
+        whole ``style`` value. Insert verbs stay node-only. The file is written back through
+        ruamel round-trip so comments and key order survive; on a split template each section
+        is written to the sidecar that holds it.
+
+        An op that does not name exactly one verb (``ARC-TPL-092``, CR-1) or whose leaf field is
+        unknown for a fixed-vocabulary block (``ARC-TPL-051``, DX-4) is rejected *before* the
+        write, so an ambiguous op never applies partially and a typo'd field never silently
+        lands. An unknown addressed path raises a located ``ARC-TPL-092``. After the write the
+        template is compiled for every declared format, and a patch that *introduces* a compile
+        error (a canvas that does not parse, a removed value a required variable needs, an
+        unknown style pack) is rolled back and refused with those located diagnostics — errors
+        the template already had do not block an unrelated edit, so a broken template can still
+        be repaired one op at a time. A stale ``base_sha256`` (the file changed on disk since the
+        agent read it) is refused with ``ARC-TPL-110`` before anything is written, so a
+        concurrent edit is never overwritten (spec §8.3). Never raises.
         """
         try:
             _root_dir, template_yaml = resolve_template_path(template)
@@ -436,8 +576,9 @@ class AuthoringService:
                 ok=False, path=str(template_yaml), sha256=current_sha, diagnostics=op_diags
             )
         try:
-            raw = load_yaml(template_yaml)
-            root_map = raw.get("root") if hasattr(raw, "get") else None
+            source = load_template(template_yaml)
+            raw = source.raw
+            root_map = raw.get("root")
             if not hasattr(root_map, "get"):
                 return PatchTemplateResult(
                     ok=False,
@@ -452,18 +593,94 @@ class AuthoringService:
                         )
                     ],
                 )
+            # Errors the template already has are not the patch's doing: only errors the patch
+            # introduces refuse it, so an author can repair a broken template one op at a time.
+            already = {
+                _diag_key(d)
+                for d in self._compile_errors(template_yaml, _format_names(raw.get("formats")))
+            }
             plain_ops = [op.to_patch_dict() for op in ops]
-            apply_patches(root_map, plain_ops, "patch", template_yaml, "patch", PatchLog())
-            dump_yaml(raw, template_yaml)
+            apply_patches(
+                root_map, plain_ops, "patch", template_yaml, "patch", PatchLog(),
+                allowed_roots=TEMPLATE_PATCH_ROOTS, document=raw,
+            )
         except DiagnosticError as exc:
             return PatchTemplateResult(
                 ok=False, path=str(template_yaml), sha256=current_sha,
                 diagnostics=list(exc.diagnostics),
             )
+        # Read the patched format list before the write: writing a split template moves each
+        # sidecar section out of the merged mapping.
+        formats_after = _format_names(raw.get("formats"))
+        snapshot = {
+            path: path.read_bytes()
+            for path in {template_yaml, *source.section_files.values()}
+        }
+        try:
+            _write_template_source(source)
+            introduced = [
+                d
+                for d in self._compile_errors(template_yaml, formats_after)
+                if _diag_key(d) not in already
+            ]
+        except Exception:
+            _restore_files(snapshot)
+            raise
+        if introduced:
+            _restore_files(snapshot)
+            return PatchTemplateResult(
+                ok=False, path=str(template_yaml), sha256=current_sha, diagnostics=introduced
+            )
         new_sha = sha256_bytes(template_yaml.read_bytes())
         return PatchTemplateResult(
             ok=True, path=str(template_yaml), sha256=new_sha, applied=len(ops)
         )
+
+    def _compile_errors(self, template_yaml: Path, formats: list[str]) -> list[Diagnostic]:
+        """Return the error diagnostics of compiling the template for each declared format.
+
+        With no formats declared the single compile reports that (``ARC-TPL-020``) — a template
+        a patch left without a canvas is as unrenderable as one with a canvas that does not parse.
+        """
+        errors: list[Diagnostic] = []
+        for fmt in formats or [None]:
+            try:
+                result = self._compiler.compile(template_yaml, None, fmt, None, None)
+            except DiagnosticError as exc:
+                errors.extend(d for d in exc.diagnostics if d.is_error())
+                continue
+            errors.extend(d for d in result.diagnostics if d.is_error())
+        return errors
+
+
+def _format_names(formats: Any) -> list[str]:
+    return [str(name) for name in formats] if isinstance(formats, dict) else []
+
+
+def _diag_key(diag: Diagnostic) -> tuple[str, str, str | None]:
+    """The identity of a compile error for before/after comparison: code, message, keypath."""
+    keypath = diag.source.keypath if diag.source is not None else None
+    return diag.code, diag.message, keypath
+
+
+def _write_template_source(source: TemplateSource) -> None:
+    """Write a (possibly split) template back: each sidecar section to its file, the rest inline.
+
+    ``load_template`` merges sidecar sections into the ``template.yaml`` mapping, so they are
+    written out to their own files and removed from the mapping before it is dumped — otherwise
+    a split template would come back with every section defined twice (``ARC-TPL-097``).
+    """
+    raw = source.raw
+    for section, sidecar in source.section_files.items():
+        if section in raw:
+            dump_yaml(raw[section], sidecar)
+            del raw[section]
+    dump_yaml(raw, source.template_path)
+
+
+def _restore_files(snapshot: dict[Path, bytes]) -> None:
+    for path, content in snapshot.items():
+        path.write_bytes(content)
 
 
 def _patch_verbs(op: PatchOp) -> list[str]:
@@ -496,7 +713,10 @@ def _validate_patch_ops(ops: list[PatchOp], template_yaml: Path) -> list[Diagnos
                     f"set/remove/insert_before/insert_after (got: {named})",
                     file=str(template_yaml),
                     keypath=kp,
-                    hint="Split multiple mutations into separate ops; each op does one thing.",
+                    hint="Op shapes: {set: 'nodes.<id>.<field>', value: <v>} | "
+                    "{remove: 'nodes.<id>[.<field>]'} | "
+                    "{insert_before|insert_after: 'nodes.<id>', node: {...}}; one verb per "
+                    "op, so split multiple mutations into separate ops.",
                 )
             )
             continue
