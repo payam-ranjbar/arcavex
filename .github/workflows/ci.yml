@@ -301,12 +301,26 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
-      # tauri.windows.conf.json declares binaries/engine/ as a bundled resource, and Tauri's
-      # build script refuses to run when a declared resource directory is absent. That directory
-      # holds the frozen sidecar, which is gitignored and takes a PyInstaller build to produce;
-      # compiling, linting and unit-testing the core needs none of it. Create it empty here, and
-      # leave building the real engine and proving it renders to `desktop package (windows)`.
+      # The crate does not compile without the two things it bundles. `tauri::generate_context!`
+      # embeds the built frontend, so apps/desktop/dist has to exist before rustc runs, and
+      # tauri.windows.conf.json declares binaries/engine/ as a resource, which the build script
+      # refuses to skip when the directory is absent. The frontend is cheap to build here; the
+      # frozen sidecar is not, and nothing this job does needs a working one, so it gets an empty
+      # directory and `desktop package (windows)` remains the job that builds the real engine and
+      # proves it renders.
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Build the frontend the crate embeds
+        working-directory: apps/desktop
+        run: npm ci && npm run build
+
       - name: Make room for the sidecar this job does not build
+        shell: pwsh
         working-directory: apps/desktop/src-tauri
         run: New-Item -ItemType Directory -Force -Path binaries/engine | Out-Null
 
