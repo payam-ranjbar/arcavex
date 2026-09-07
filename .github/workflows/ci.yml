@@ -11,7 +11,10 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Stacked work targets the branch below it rather than main, and a pull request that runs no
+    # checks is a pull request nobody can trust: this one carried 66 commits and reported "no
+    # checks reported" while its base was the branch being verified.
+    branches: [main, 'codex/**']
 
 # Read-only by default; nothing here publishes.
 permissions:
