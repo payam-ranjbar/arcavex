@@ -33,8 +33,9 @@ getting silently-wrong output:
   (`ARC-LAY-020`); give those nodes an explicit size or an `aspect` ratio.
 - **Wrapping stacks are deferred.** A stack with `wrap: true` reports `ARC-LAY-056` rather than faking
   multi-row flow; lay wrapped rows out with nested stacks for now.
-- **Skia announces a missing ICU data file that it then finds anyway.** On an install whose base
-  interpreter has no `icudtl.dat` beside it — a freshly downloaded managed Python, typically —
+- **Skia announces a missing ICU data file that it then finds anyway.** On Windows, where the data
+  file ships inside `skia-python`, an install whose base interpreter has no `icudtl.dat` beside it
+  — a freshly downloaded managed Python, typically —
   Skia's loader prints `SkIcuLoader: datafile missing: …` to stderr on every command before
   falling back to the copy inside `skia-python`. Nothing is broken: `doctor` reports `icu ok` and
   explains the line, with the copy-one-file remedy. The message comes from the library's C++ layer,

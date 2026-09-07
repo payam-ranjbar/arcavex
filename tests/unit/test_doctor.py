@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from arcavex.bootstrap import build_facade
 from arcavex.services.doctor import run_doctor
 
@@ -68,6 +70,18 @@ def test_doctor_json_serializable() -> None:
     assert isinstance(payload["checks"], list)
 
 
+def _packaged_icu() -> Path | None:
+    """The `icudtl.dat` skia-python ships beside its module, if this build ships one.
+
+    Only the Windows wheels do. Where there is no packaged copy there is nothing for Skia's loader
+    to miss and nothing for doctor to explain, so the behaviour under test does not exist.
+    """
+    import skia
+
+    packaged = Path(skia.__file__).resolve().parent / "icudtl.dat"
+    return packaged if packaged.is_file() else None
+
+
 def test_icu_row_explains_skias_stderr_line_when_the_data_file_is_not_beside_python(
     monkeypatch, tmp_path
 ) -> None:
@@ -79,6 +93,8 @@ def test_icu_row_explains_skias_stderr_line_when_the_data_file_is_not_beside_pyt
     than leaving a person to read it as a failure. Reproduced by pointing ``sys.base_prefix`` at
     an empty directory, which is what a newly downloaded managed Python looks like.
     """
+    if _packaged_icu() is None:
+        pytest.skip("this skia-python build ships no icudtl.dat, so the loader never misses one")
     monkeypatch.setattr("arcavex.services.doctor.sys.base_prefix", str(tmp_path))
 
     report = build_facade().doctor()

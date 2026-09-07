@@ -108,8 +108,8 @@ Skia's Unicode/ICU support needs `icudtl.dat`. In practice `skia-python` 144 shi
 its own package directory and locates it there, so an ordinary install resolves ICU with no extra
 step — `arcavex doctor` confirms it (`icu ok`).
 
-Skia's loader looks *next to the base interpreter* first, though, and says so out loud when the file
-is not there:
+On Windows, where the data file ships beside `skia-python`'s module, Skia's loader looks *next to
+the base interpreter* first and says so out loud when the file is not there:
 
 ```
 SkIcuLoader: datafile missing: …\cpython-3.12-windows-x86_64-none\icudtl.dat.
