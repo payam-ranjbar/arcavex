@@ -1,6 +1,6 @@
 [package]
 name = "arcavex-desktop"
-version = "0.0.0"
+version = "1.0.0"
 description = "Arcavex Desktop"
 authors = ["Arcavex"]
 edition = "2021"
