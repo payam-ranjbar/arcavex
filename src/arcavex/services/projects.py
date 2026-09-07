@@ -371,9 +371,7 @@ class ProjectService:
             return f"{resolved.name}@{resolved.version}", resolved.path
         template_path = Path(template_ref).resolve()
         root = _resolve_template_dir(template_path)
-        # Store the path relative to the project so the project stays relocatable as a tree.
-        rel = os.path.relpath(root, project_target.resolve())
-        return rel.replace(os.sep, "/"), root
+        return _pin_for(root, project_target.resolve()), root
 
     def _write_manifest(self, root: Path, manifest: ProjectModel) -> None:
         _dump_yaml_atomic(root / PROJECT_FILE, _manifest_dict(manifest))
@@ -387,6 +385,23 @@ class ProjectService:
                 hint="A project.yaml needs at least 'name' and 'template'.",
             )
         )
+
+
+def _pin_for(template_root: Path, project_root: Path) -> str:
+    """How a project should record the path of a template outside it.
+
+    A path relative to the project keeps the pair relocatable as one tree, which is what a project
+    and its template usually are. On Windows two drives have no relative path between them at all,
+    and ``os.path.relpath`` raises rather than inventing one: a project on ``D:`` pinning a
+    template on ``C:`` is an ordinary arrangement (work on the data drive, the engine's examples on
+    the system drive) that used to surface as ARC-INT-999. There is nothing to relativise, so the
+    absolute path is recorded, and the project is pinned to that drive rather than to a tree.
+    """
+    try:
+        relative = os.path.relpath(template_root, project_root)
+    except ValueError:
+        return template_root.as_posix()
+    return relative.replace(os.sep, "/")
 
 
 def _resolve_template_dir(path: Path) -> Path:
