@@ -301,6 +301,15 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri
 
+      # tauri.windows.conf.json declares binaries/engine/ as a bundled resource, and Tauri's
+      # build script refuses to run when a declared resource directory is absent. That directory
+      # holds the frozen sidecar, which is gitignored and takes a PyInstaller build to produce;
+      # compiling, linting and unit-testing the core needs none of it. Create it empty here, and
+      # leave building the real engine and proving it renders to `desktop package (windows)`.
+      - name: Make room for the sidecar this job does not build
+        working-directory: apps/desktop/src-tauri
+        run: New-Item -ItemType Directory -Force -Path binaries/engine | Out-Null
+
       - name: Formatting
         working-directory: apps/desktop/src-tauri
         run: cargo fmt --check
