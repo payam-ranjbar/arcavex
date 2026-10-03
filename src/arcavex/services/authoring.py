@@ -32,6 +32,7 @@ from arcavex.services.template.compiler import (
     _CONSTRAINT_KEYS,
     _FIT_KEYS,
     _PARAGRAPH_KEYS,
+    _ROOT_KEYS,
     _SIZE_MAP_KEYS,
     _STYLE_KEYS,
 )
@@ -134,6 +135,9 @@ formats:
     canvas: {width: 1080px, height: 1080px, dpi: 96}
   story:
     canvas: {width: 1080px, height: 1920px, dpi: 96}
+
+locales:
+  en: {direction: ltr, digits: en}
 
 # Used when no --data file is supplied, so `render <dir> --format square` works immediately.
 preview_data:
@@ -453,7 +457,15 @@ class AuthoringService:
                     ],
                 )
             plain_ops = [op.to_patch_dict() for op in ops]
-            apply_patches(root_map, plain_ops, "patch", template_yaml, "patch", PatchLog())
+            for index, op in enumerate(plain_ops):
+                verb = next(v for v in ("set", "remove", "insert_before", "insert_after")
+                            if v in op)
+                path = op[verb]
+                if isinstance(path, str) and path.startswith("template."):
+                    _patch_section(raw, op, verb, template_yaml)
+                else:
+                    apply_patches(root_map, [op], "patch", template_yaml,
+                                  f"patch[{index}]", PatchLog())
             dump_yaml(raw, template_yaml)
         except DiagnosticError as exc:
             return PatchTemplateResult(
@@ -464,6 +476,38 @@ class AuthoringService:
         return PatchTemplateResult(
             ok=True, path=str(template_yaml), sha256=new_sha, applied=len(ops)
         )
+
+
+def _patch_section(raw: Any, op: dict[str, Any], verb: str, file: Path) -> None:
+    """Set/remove template metadata; node edits keep their existing nodes.<id> grammar."""
+    path = op[verb]
+    segments = path.split(".")[1:]
+    section = segments[0] if segments else ""
+    hint = "Use template.<section>[.<field>...] with set/remove; use nodes.<id> for scene edits."
+
+    def fail(message: str) -> None:
+        raise DiagnosticError(diagnostic(
+            "ARC-TPL-092", message, file=str(file), keypath=path, hint=hint,
+        ))
+
+    if verb not in {"set", "remove"} or section not in _ROOT_KEYS - {"root"}:
+        fail(f"Unsupported template patch path {path!r}")
+    if any((file.parent / filename).is_file() for filename, key in _SIDECARS if key == section):
+        fail(f"Section {section!r} lives in a sidecar; edit that sidecar instead")
+    target = raw
+    for segment in segments[:-1]:
+        if not isinstance(target, dict) or segment not in target:
+            fail(f"Template patch parent does not exist at {segment!r}")
+        target = target[segment]
+    if not isinstance(target, dict) or not segments[-1]:
+        fail(f"Template patch path {path!r} does not address a mapping field")
+    leaf = segments[-1]
+    if verb == "remove":
+        if leaf not in target:
+            fail(f"Template patch field {path!r} does not exist")
+        del target[leaf]
+    else:
+        target[leaf] = op.get("value")
 
 
 def _patch_verbs(op: PatchOp) -> list[str]:

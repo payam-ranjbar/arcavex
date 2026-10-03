@@ -78,7 +78,7 @@ packages = ["src/arcavex"]
 "library-seed/fonts" = "arcavex/_bundled/fonts"
 # The design skill ships in the wheel so `arcavex skill install` works from a pip install with no
 # source checkout; services.skills.bundled_skill_dir resolves this path first, then the repo.
-"skills/arcavex-design-studio" = "arcavex/_bundled/skill"
+# The custom build hook stages the skill with this build's identity.
 "library-seed/styles" = "arcavex/_bundled/styles"
 
 [tool.ruff]
@@ -176,3 +176,6 @@ forbidden_modules = [
     "arcavex.builtin",
 ]
 allow_indirect_imports = "true"
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"

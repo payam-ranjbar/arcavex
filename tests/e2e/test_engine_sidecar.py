@@ -307,3 +307,19 @@ def test_every_tool_the_desktop_calls_exists_in_the_engine(tmp_path: Path) -> No
     assert called, "no call_tool sites found; the parser needs updating, not the engine"
     missing = sorted(called - registered)
     assert not missing, f"the desktop calls tools this engine does not have: {missing}"
+
+
+def test_sidecar_installs_its_build_pinned_skill(tmp_path: Path) -> None:
+    """The standalone sidecar must ship the skill it exposes, outside the source checkout."""
+    identity_result = _run(["desktop", "handshake", "--json"], cwd=tmp_path)
+    assert identity_result.returncode == 0, identity_result.stderr
+    identity = json.loads(identity_result.stdout)["identity"]
+    assert identity["build_commit"]
+    installed = _run(["skill", "install", "--path", str(tmp_path / "skills"), "--json"],
+                     cwd=tmp_path)
+    assert installed.returncode == 0, installed.stderr
+    skill = tmp_path / "skills" / "arcavex-design-studio"
+    header = (skill / "SKILL.md").read_text(encoding="utf-8")
+    assert identity["build_commit"] in header
+    assert identity["engine_version"] in header
+    assert "`arcavex font list`" in (skill / "references" / "commands.md").read_text()

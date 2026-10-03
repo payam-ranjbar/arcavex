@@ -2390,6 +2390,35 @@ class Facade:
                 ok=False, diagnostics=[internal_error("Layout inspect failed", detail=repr(exc))]
             )
 
+    def inspect_project_layout(
+        self, *, project: Path | None = None, format_name: str | None = None,
+        locale: str | None = None,
+    ) -> LayoutReport:
+        """Inspect a single project render target, including its data, style, and overrides."""
+        if self._orchestrator is None:
+            return LayoutReport(ok=False, diagnostics=[_unwired("projects")])
+        try:
+            inputs = self._orchestrator.project_inputs(
+                None, project, [format_name] if format_name else None,
+                [locale] if locale else None,
+            )
+            if len(inputs.targets) != 1:
+                return LayoutReport(ok=False, diagnostics=[diagnostic(
+                    "ARC-TPL-021", "Layout inspection needs a single project target",
+                    hint="Select one --format and, for multilingual projects, --locale.",
+                )])
+            target_format, target_locale = inputs.targets[0]
+            return self._inspect_layout_inner(
+                inputs.template_dir, inputs.data_path, target_format, target_locale, inputs.style,
+                inputs.patch_ops, inputs.patch_file,
+            )
+        except DiagnosticError as exc:
+            return LayoutReport(ok=False, diagnostics=list(exc.diagnostics))
+        except Exception as exc:
+            return LayoutReport(ok=False, diagnostics=[internal_error(
+                "Project layout inspection failed", detail=repr(exc)
+            )])
+
     def _inspect_layout_inner(
         self,
         template: Path,
@@ -2397,8 +2426,13 @@ class Facade:
         format_name: str | None,
         locale: str | None,
         style: str | None,
+        project_patch: list[Any] | None = None,
+        project_patch_file: Path | None = None,
     ) -> LayoutReport:
-        compiled = self._compiler.compile(template, data, format_name, locale, style)
+        compiled = self._compiler.compile(
+            template, data, format_name, locale, style,
+            project_patch=project_patch, project_patch_file=project_patch_file,
+        )
         diagnostics = list(compiled.diagnostics)
         inferred = dict(compiled.inferred)
         if compiled.document is None or has_errors(diagnostics):

@@ -375,3 +375,18 @@ scope, wrapping stacks, `line_height`, vector PDF/CMYK, cross-platform bit-exact
 See the `examples/future-archive-poster/` bilingual system for locales, stacks, masks, sibling anchors,
 rotation, and fit policies in one template, and `arcavex-technical-design-spec-v1.1.md` for the full
 specification.
+
+### Agent-run CLI refinements
+
+`arcavex --version` and `doctor` expose the build commit. Wheels and standalone binaries ship
+that metadata and the matching design skill. Refresh it with `arcavex skill install --force`.
+The skill's command reference is generated from the live CLI and checked in CI.
+
+An existing `.arcavex-home` is discovered from the working directory up to its project root;
+`ARCAVEX_HOME` takes precedence. `layout inspect` can omit its template argument in project mode
+and includes project overrides. `template new` declares `en`, and `template patch --set template.locales --value '{"en":{"direction":"ltr"}}'` can edit inline metadata.
+
+Mask/shape lengths now accept `px` with canvas-DPI normalization, matching effects. Numeric style
+expressions produce a located diagnostic naming supported alternatives. Captured human output
+preserves filenames and uses plain help/errors. See [refinement decisions](docs/agent-run-refinements.md)
+for the evidence, corrections, and separate work.

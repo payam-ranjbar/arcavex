@@ -8,11 +8,11 @@ provided explicitly. Unknown identity stays ``None`` and is explained by structu
 
 from __future__ import annotations
 
-import os
 import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from arcavex.build_info import build_commit as runtime_build_commit
 from arcavex.kernel.api import (
     DoctorReport,
     EngineHandshakeReport,
@@ -54,7 +54,7 @@ class DesktopService:
         self._ir_version = ir_version
         self._extension_sdk_version = extension_sdk_version
         self._doctor_probe = doctor_probe
-        self._build_commit = build_commit or os.environ.get("ARCAVEX_BUILD_COMMIT")
+        self._build_commit = build_commit or runtime_build_commit()
         self._artifact_path = artifact_path if artifact_path is not None else _frozen_artifact()
         self._capabilities = sorted(set(capabilities))
 

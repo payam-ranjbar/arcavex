@@ -193,3 +193,19 @@ nontechnical users should not be called production-ready until a certificate is 
 `dist/frozen/arcavex/` can be wrapped in an MCP bundle so Claude Desktop installs the engine alone
 by double-click: `npx @anthropic-ai/mcpb init` to scaffold a manifest declaring a `binary` server
 that runs `arcavex.exe mcp serve`, then `mcpb pack`.
+
+## Engine and skill identity
+
+Wheels and frozen executables embed `arcavex/_bundled/build.json` with the source commit.
+`arcavex --version`, `arcavex doctor`, and the frozen desktop handshake expose that identity.
+Source builds with modified tracked files are marked `-dirty`; a source distribution retains
+its captured identity when rebuilt without Git. If identity is unavailable it remains unknown.
+
+The custom Hatch hook and PyInstaller spec both stage `arcavex-design-studio` with the same
+build header. The frozen bundle previously omitted the skill payload entirely, despite exposing
+`skill install`. It now includes it alongside fonts and styles. The command reference is generated
+with `python scripts/generate_skill_reference.py`; CI checks drift and freezing regenerates it.
+
+Use the existing release pipeline to publish a native Windows artifact and update its real digest.
+Matching source commits identify common source; separately packaged executables can have different
+artifact hashes. No artifact hash should be copied from one executable to a different binary.

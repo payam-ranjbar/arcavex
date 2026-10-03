@@ -15,6 +15,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from arcavex.build_info import engine_label
 from arcavex.kernel.api import SkillInstallReport, SkillTargetInfo
 from arcavex.kernel.diagnostics import Diagnostic, diagnostic
 
@@ -182,6 +183,12 @@ class SkillService:
                     shutil.rmtree(destination)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(source, destination)
+                marker = destination / "SKILL.md"
+                marker.write_text(
+                    marker.read_text(encoding="utf-8").replace(
+                        "<!-- engine-build -->", f"Engine build: `{engine_label()}`."
+                    ), encoding="utf-8", newline="\n",
+                )
                 installed.append(str(destination))
             except OSError as exc:
                 diagnostics.append(

@@ -58,3 +58,32 @@ def test_wheel_bundles_style_packs(tmp_path: Path) -> None:
     packs = [n for n in names if n.startswith("arcavex/_bundled/styles/") and n.endswith(".yaml")]
     assert packs, f"no bundled style packs in the wheel: {sorted(names)[:20]}"
     assert any("pop-art" in n for n in packs), f"pop-art pack missing: {packs}"
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required to build the wheel")
+def test_wheel_carries_identity_and_skill_outside_checkout(tmp_path: Path) -> None:
+    import json
+    import os
+    import sys
+
+    _build_wheel(tmp_path)
+    unpacked = tmp_path / "installed"
+    with zipfile.ZipFile(next(tmp_path.glob("*.whl"))) as archive:
+        archive.extractall(unpacked)
+    identity = json.loads((unpacked / "arcavex/_bundled/build.json").read_text())
+    skill = (unpacked / "arcavex/_bundled/skill/SKILL.md").read_text()
+    assert identity["commit"] and identity["commit"] in skill
+    assert "<!-- engine-build -->" not in skill
+    env = dict(os.environ, PYTHONPATH=str(unpacked), ARCAVEX_HOME=str(tmp_path / "home"))
+    version = subprocess.run([sys.executable, "-m", "arcavex.clients.cli", "--version"],
+                             cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert version.returncode == 0, version.stderr
+    assert identity["commit"] in version.stdout
+    installed = subprocess.run([
+        sys.executable, "-m", "arcavex.clients.cli", "skill", "install", "--path",
+        str(tmp_path / "skills"), "--json",
+    ], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert installed.returncode == 0, installed.stderr
+    assert json.loads(installed.stdout)["ok"]
+    header = (tmp_path / "skills/arcavex-design-studio/SKILL.md").read_text()
+    assert identity["commit"] in header
