@@ -400,3 +400,21 @@ Shape nodes may use a `generator:` (`starburst`, `speech_bubble`, `qr_code`). Se
 - [tutorials/](tutorials/) — build a template from scratch, and a bilingual template worked example.
 - [known-limitations.md](known-limitations.md) — what is deferred (`fit_content` scope, wrapping
   stacks, `line_height`, vector PDF/CMYK).
+
+## CLI authoring refinements
+
+Numeric style fields (`font_size`, `font_weight`, `stroke_width`, `corner_radius`,
+`letter_spacing`, `opacity`) use literal values in this build. Expressions in these fields return
+`ARC-TPL-069` with alternatives: style roles, format/locale node patches, or `shrink_to_fit` for
+variable text lengths. Colors, text, image assets, and effect/shape parameters support expressions.
+
+Mask and shape **length** parameters now use the same rule as effects: `pt`, `mm`, or `px`, with
+pixels normalized at the declared canvas DPI. A bare number is points; `%` has no absolute basis.
+
+`template new DIR` includes an `en` locale. Locales remain optional unless requested.
+`template patch` accepts `template.<section>[.<field>...]` for metadata set/remove in a one-file
+template (for example `template.locales.en`), alongside `nodes.<id>...` for scene edits. Split
+metadata sections are edited in their sidecar files; the command refuses to shadow a sidecar.
+
+`layout inspect` accepts no template argument in project mode, resolving project data, style,
+format, locale, and override patches. Select one target with `--format`/`--locale` when ambiguous.

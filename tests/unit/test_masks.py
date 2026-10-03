@@ -31,10 +31,12 @@ def test_rounded_rect_builds_within_bounds() -> None:
     assert (round(b.width()), round(b.height())) == (100, 60)
 
 
-def test_diamond_grid_pt_units_only() -> None:
-    # A pixel unit is rejected so masks stay DPI-independent.
+def test_diamond_grid_absolute_units() -> None:
+    # Pixels normalize at the canvas DPI; percentages have no absolute basis.
+    model = DiamondGridParams.model_validate({"cell": "90px"}, context={"dpi": 144})
+    assert model.cell == 45.0
     with pytest.raises(ValidationError):
-        DiamondGridParams(cell="90px")  # type: ignore[arg-type]
+        DiamondGridParams(cell="90%")  # type: ignore[arg-type]
     # pt and mm are accepted.
     assert DiamondGridParams(cell="90pt").cell == 90.0
 

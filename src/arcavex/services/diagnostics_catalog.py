@@ -238,6 +238,13 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "Remove 'line_height'; it arrives when the text stack gains strut support.",
         ),
         _e(
+            "ARC-TPL-069",
+            "Numeric style expressions not supported",
+            "Numeric style fields accept literals, not template expressions, in this build.",
+            "Use a literal, a style_role, or format/locale node patches. For variable text length "
+            "use fit.policy: shrink_to_fit with min_size and max_lines.",
+        ),
+        _e(
             "ARC-TPL-054",
             "repeat missing 'as'",
             "A repeat construct requires an 'as' name for its loop variable.",

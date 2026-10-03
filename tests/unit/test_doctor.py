@@ -15,7 +15,8 @@ def test_doctor_report_shape() -> None:
     assert report.engine_version
     names = {c.name for c in report.checks}
     assert names == {
-        "python", "skia", "icu", "fonts", "exporters", "cache", "temp_dir", "paths", "config"
+        "build", "python", "skia", "icu", "fonts", "exporters", "cache", "temp_dir",
+        "paths", "config"
     }
     for check in report.checks:
         assert check.status in {"ok", "warn", "fail"}

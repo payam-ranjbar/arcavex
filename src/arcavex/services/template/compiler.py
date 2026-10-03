@@ -397,8 +397,7 @@ class Compiler:
 
             # RR-4: collect every non-goal section offense in one pass instead of raising on
             # the first, so the AI/human correction loop sees them together.
-            diags.extend(_collect_unsupported_sections(source))
-            diags.extend(self._validate_locales_shape(source))
+            diags.extend(self._preflight(source, locale))
             if has_errors(diags):
                 return CompileResult(
                     None,
@@ -410,7 +409,6 @@ class Compiler:
             # Runs after the unsupported-section sweep so a deferred section keeps its own
             # specific diagnostic (e.g. 'styles' -> ARC-TPL-093) instead of being reported as a
             # merely-unknown root key.
-            self._validate_authoring_surface(source)
 
             # Resolve the opted-in style pack first: it is the lowest resolution layer (its
             # palettes feed expressions and its roles/presets feed nodes), sitting under the
@@ -578,11 +576,9 @@ class Compiler:
         diags: list[Diagnostic] = []
         try:
             source = load_template(template)
-            diags.extend(_collect_unsupported_sections(source))
-            diags.extend(self._validate_locales_shape(source))
+            diags.extend(self._preflight(source, locale))
             if has_errors(diags):
                 return ResolvedResult(ok=False, diagnostics=diags)
-            self._validate_authoring_surface(source)
             self._style_pack = self._resolve_style(source, None)
             style_ref = (
                 f"{self._style_pack.name}@{self._style_pack.version}"
@@ -1438,7 +1434,7 @@ class Compiler:
             "transform": transform,
             "constraints": constraints,
             "style": style,
-            "mask": self._parse_mask(raw, template, node_id, keypath),
+            "mask": self._parse_mask(raw, template, node_id, keypath, canvas.dpi),
             "effects": self._parse_effects(
                 raw, node_type, context, template, node_id, keypath, canvas.dpi
             ),
@@ -1586,7 +1582,7 @@ class Compiler:
             generator = raw.get("generator")
             if generator is not None:
                 gen, params = self._parse_shape_generator(
-                    raw, context, template, node_id, keypath
+                    raw, context, template, node_id, keypath, canvas.dpi
                 )
                 return CompiledShape(**common, generator=gen, generator_params=params)
             shape = raw.get("shape", "rect")
@@ -1975,6 +1971,34 @@ class Compiler:
                 )
             )
 
+    def _preflight(self, source: TemplateSource, locale: str | None) -> list[Diagnostic]:
+        """Collect independent structural errors without inventing a required locale block."""
+        diags = _collect_unsupported_sections(source) + self._validate_locales_shape(source)
+        try:
+            self._validate_authoring_surface(source)
+        except DiagnosticError as exc:
+            handled = {key for key, _code, _hint in _UNSUPPORTED_SECTIONS}
+            diags.extend(d for d in exc.diagnostics
+                         if d.source is None or d.source.keypath not in handled)
+        if not isinstance(source.raw.get("root"), dict):
+            diags.append(diagnostic(
+                "ARC-TPL-004", "Template is missing a 'root' node",
+                file=str(source.template_path), keypath="root",
+                hint="Add a 'root:' group node describing the scene.",
+            ))
+        if not isinstance(source.raw.get("formats"), dict) or not source.raw.get("formats"):
+            diags.append(diagnostic(
+                "ARC-TPL-020", "Template defines no formats",
+                file=str(source.file_for("formats")), keypath="formats",
+                hint="Define at least one format with a canvas width, height, and DPI.",
+            ))
+        if locale is not None:
+            try:
+                self._resolve_locale(source, locale)
+            except DiagnosticError as exc:
+                diags.extend(exc.diagnostics)
+        return diags
+
     def _validate_authoring_surface(self, source: TemplateSource) -> None:
         """Reject unknown keys in the template-level scopes.
 
@@ -1982,8 +2006,16 @@ class Compiler:
         declaration. Formats are checked in full rather than only the one being resolved, so
         ``validate`` reports junk in a format the current run does not select.
         """
+        errors: list[Diagnostic] = []
+
+        def reject(*args: Any, **kwargs: Any) -> None:
+            try:
+                self._reject_unknown_keys(*args, **kwargs)
+            except DiagnosticError as exc:
+                errors.extend(exc.diagnostics)
+
         raw = source.raw
-        self._reject_unknown_keys(
+        reject(
             raw, _ROOT_KEYS, "top-level", source.template_path, "", "",
             code="ARC-TPL-065", subject="Template",
         )
@@ -1993,13 +2025,13 @@ class Compiler:
             for fmt_name, spec in formats.items():
                 if not isinstance(spec, dict):
                     continue
-                self._reject_unknown_keys(
+                reject(
                     spec, _FORMAT_KEYS, "format", fmt_file, "", f"formats.{fmt_name}",
                     code="ARC-TPL-066", subject=f"Format {str(fmt_name)!r}",
                 )
                 canvas_raw = spec.get("canvas")
                 if isinstance(canvas_raw, dict):
-                    self._reject_unknown_keys(
+                    reject(
                         canvas_raw, _CANVAS_KEYS, "canvas", fmt_file, "",
                         f"formats.{fmt_name}.canvas",
                         code="ARC-TPL-066", subject=f"Format {str(fmt_name)!r}",
@@ -2010,11 +2042,14 @@ class Compiler:
             for var_name, decl in variables.items():
                 if not isinstance(decl, dict):
                     continue
-                self._reject_unknown_keys(
+                reject(
                     decl, _VARIABLE_KEYS, "declaration", var_file, "",
                     f"variables.{var_name}",
                     code="ARC-TPL-067", subject=f"Variable {str(var_name)!r}",
                 )
+
+        if errors:
+            raise DiagnosticError(errors)
 
     def _parse_effects(
         self,
@@ -2217,6 +2252,7 @@ class Compiler:
         template: Path,
         node_id: str,
         keypath: str,
+        dpi: int,
     ) -> tuple[str, dict[str, Any]]:
         """Parse and validate a shape ``generator``/``params`` (e.g. starburst, qr_code)."""
         generator = raw.get("generator")
@@ -2259,7 +2295,9 @@ class Compiler:
             schema = self._shape_schema(generator)
             if schema is not None:
                 try:
-                    params = schema(**params).model_dump(mode="json")
+                    params = schema.model_validate(
+                        params, context={"dpi": dpi}
+                    ).model_dump(mode="json")
                 except Exception as exc:  # noqa: BLE001 - pydantic error -> located diagnostic
                     raise DiagnosticError(
                         diagnostic(
@@ -2274,7 +2312,7 @@ class Compiler:
         return generator, params
 
     def _parse_mask(
-        self, raw: dict[str, Any], template: Path, node_id: str, keypath: str
+        self, raw: dict[str, Any], template: Path, node_id: str, keypath: str, dpi: int
     ) -> MaskSpec | None:
         """Parse a mask declaration; the mask component's params are validated at render time
         by the registered generator's schema (spec §3.2)."""
@@ -2332,7 +2370,7 @@ class Compiler:
                 )
             )
         validated = self._validate_mask_params(
-            component, _to_plain(params), template, node_id, keypath, line_of(mask, "params")
+            component, _to_plain(params), template, node_id, keypath, line_of(mask, "params"), dpi
         )
         return MaskSpec(component=component, params=validated)
 
@@ -2344,6 +2382,7 @@ class Compiler:
         node_id: str,
         keypath: str,
         line: int | None,
+        dpi: int,
     ) -> dict[str, Any]:
         """Validate mask params against the generator's pydantic schema (ARC-FX-902)."""
         if self._mask_schema is None:
@@ -2352,7 +2391,7 @@ class Compiler:
         if schema is None:
             return params
         try:
-            model = schema(**params)
+            model = schema.model_validate(params, context={"dpi": dpi})
         except Exception as exc:  # noqa: BLE001 - pydantic ValidationError -> located diagnostic
             raise DiagnosticError(
                 diagnostic(
@@ -2937,22 +2976,18 @@ class Compiler:
         a node, so it gets its own code and its own "Template"/"Variable 'x'" subject instead of
         the node-level default.
         """
+        errors: list[Diagnostic] = []
         for key in mapping:
             if str(key) not in allowed:
                 valid = ", ".join(sorted(allowed))
                 who = subject if subject is not None else f"Node {node_id!r}"
-                raise DiagnosticError(
-                    diagnostic(
-                        code,
-                        f"{who} has unknown {block} field {str(key)!r}",
-                        file=str(template),
-                        # The template root has no enclosing keypath, so the offending key *is*
-                        # the whole path there.
-                        keypath=f"{keypath}.{key}" if keypath else str(key),
-                        line=line_of(mapping, str(key)),
-                        hint=f"Valid {block} fields are: {valid}.",
-                    )
-                )
+                errors.append(diagnostic(
+                    code, f"{who} has unknown {block} field {str(key)!r}",
+                    file=str(template), keypath=f"{keypath}.{key}" if keypath else str(key),
+                    line=line_of(mapping, str(key)), hint=f"Valid {block} fields are: {valid}.",
+                ))
+        if errors:
+            raise DiagnosticError(errors)
 
     #: Style fields that only a shape draws. Valid vocabulary everywhere, painted nowhere else.
     _PAINT_ONLY = ("fill", "stroke", "stroke_width", "corner_radius")
@@ -3022,6 +3057,17 @@ class Compiler:
             return Style()
         dpi = canvas.dpi
         style_kp = f"{keypath}.style"
+        for field in ("font_size", "stroke_width", "corner_radius", "letter_spacing",
+                      "font_weight", "opacity"):
+            value = s.get(field)
+            if isinstance(value, str) and "{{" in value:
+                raise DiagnosticError(diagnostic(
+                    "ARC-TPL-069", f"Numeric style field {field!r} does not accept expressions",
+                    file=str(template), keypath=f"{style_kp}.{field}", line=line_of(s, field),
+                    hint="Use a literal value, a style_role, or format/locale node patches; "
+                         "for variable text length use fit.policy: shrink_to_fit with min_size "
+                         "and max_lines.",
+                ))
         # ``line_height`` is authored-but-unsupported: reject it with its specific message
         # *before* the generic whitelist so the two diagnostics stay consistent (RR2-12).
         if "line_height" in s:

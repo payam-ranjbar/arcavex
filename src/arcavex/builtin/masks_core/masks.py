@@ -1,37 +1,21 @@
 """Mask-generator implementations and their parameter schemas.
 
-Mask dimensions are expressed in points (a bare number means points; ``pt``/``mm`` suffixes
-are accepted; ``px``/``%`` are rejected so a mask never depends on render DPI). Each generator
+Mask dimensions normalize to points (a bare number means points; ``pt``/``mm``/``px``
+are accepted, with pixels converted at the canvas DPI; relative ``%`` is rejected). Each generator
 builds a :class:`skia.Path` in the node's point-space bounds; the renderer clips content to it.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Annotated, ClassVar
+from typing import ClassVar
 
 import skia  # type: ignore[import-untyped]
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from arcavex.kernel.contracts.spi import MaskGenerator
-from arcavex.kernel.ir.units import Dim, Rect
-
-
-def _as_pt(value: object) -> float:
-    """Coerce a mask dimension to points; reject relative/pixel units for DPI-independence."""
-    if isinstance(value, bool):
-        raise ValueError("expected a length, got a boolean")
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        dim = Dim.parse(value)
-        if dim.unit.value in {"px", "%"}:
-            raise ValueError(f"mask lengths must be pt or mm, not {dim.unit.value!r}")
-        return dim.to_pt(72.0)
-    raise ValueError(f"invalid length {value!r}")
-
-
-Points = Annotated[float, BeforeValidator(_as_pt)]
+from arcavex.kernel.ir.units import Rect
+from arcavex.sdk.params import Points
 
 
 class RoundedRectParams(BaseModel):

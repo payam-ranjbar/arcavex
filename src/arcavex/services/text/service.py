@@ -15,6 +15,7 @@ max-lines nor an ellipsis API.
 
 from __future__ import annotations
 
+import struct
 import unicodedata
 from pathlib import Path
 
@@ -102,8 +103,44 @@ def read_font(path: Path) -> tuple[object, str] | None:
     typeface = skia.Typeface.MakeFromFile(str(path))
     if typeface is None:
         return None
-    name: str = typeface.getFamilyName()
-    return typeface, name
+    name = _name_table_family(typeface.getTableData(int.from_bytes(b"name", "big")))
+    return typeface, name or typeface.getFamilyName()
+
+
+def _name_table_family(table: bytes) -> str | None:
+    """Choose the same OpenType family on every platform, independent of Skia's backend."""
+    if len(table) < 6:
+        return None
+    _format, count, offset = struct.unpack_from(">HHH", table)
+    candidates: list[tuple[tuple[int, int, int, int], str]] = []
+    for index in range(count):
+        start = 6 + index * 12
+        if start + 12 > len(table):
+            break
+        platform, encoding, language, name_id, length, relative = struct.unpack_from(
+            ">HHHHHH", table, start
+        )
+        if name_id not in {1, 16} or platform not in {0, 1, 3}:
+            continue
+        # Unicode and Windows Unicode records are UTF-16BE; old Macintosh records are Roman.
+        if platform == 3 and encoding not in {0, 1, 10}:
+            continue
+        if platform == 1 and encoding != 0:
+            continue
+        begin = offset + relative
+        if begin < offset or begin + length > len(table):
+            continue
+        try:
+            name = table[begin:begin + length].decode(
+                "mac_roman" if platform == 1 else "utf-16-be"
+            ).strip("\x00 ")
+        except UnicodeDecodeError:
+            continue
+        if name:
+            priority = (0 if name_id == 16 else 1, 0 if language in {0, 0x409} else 1,
+                        {3: 0, 0: 1, 1: 2}[platform], index)
+            candidates.append((priority, name))
+    return min(candidates)[1] if candidates else None
 
 
 def family_name(path: Path) -> str | None:
@@ -155,7 +192,7 @@ class TextService:
                 if read is None:
                     continue
                 typeface, family = read
-                self._provider.registerTypeface(typeface)
+                self._provider.registerTypeface(typeface, skia.String(family))
                 self._families.add(family)
                 self._by_family.setdefault(family, []).append(typeface)
                 self._all_typefaces.append(typeface)

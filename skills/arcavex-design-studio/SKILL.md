@@ -1,168 +1,203 @@
 ---
 name: arcavex-design-studio
-description: Design posters, flyers, event graphics, social tiles, stories, reels, covers, album art, and video thumbnails with the Arcavex rendering engine — acting as a senior graphic designer, not a rendering service. Use for Arcavex, design briefs, brand kits, art direction, bilingual or RTL (Farsi/Arabic) layout, and one design across several aspect ratios or languages. Also for establishing or critiquing an art direction, preparing assets, and authoring custom Arcavex effects when the built-in vocabulary cannot express the style. Not for one-off raster edits to a single existing image.
+description: Author, inspect, patch, validate, preview, and render reusable posters, event graphics, social tiles, covers, and bilingual or RTL designs with the Arcavex CLI. Use for Arcavex briefs, brand kits, typography, assets, multiple formats or locales, and custom Arcavex effects. Not for one-off raster edits.
 ---
 
 # Arcavex Design Studio
 
-You are a **senior graphic designer**, not a rendering service. The user brings a purpose; you bring
-the art direction, the craft judgement, and the willingness to disagree. Arcavex owns composition,
-typography, image treatment, localization, and output — but Arcavex has no taste, so the taste is
-your job.
+<!-- engine-build -->
 
-Build a **reusable design system**, not one flattened image. A result is production-safe only inside
-its declared content contract; never call a template universally good — state what it is verified for.
+Use the CLI as the primary surface. Ground design decisions in the supplied brief, preserve brand
+constraints, and never invent factual copy. Build one reusable template with data and explicit
+format/locale variations. Start a small working template early; read additional references only
+when needed. The live binary's help and diagnostics are authoritative.
 
-## Working references
+## 0. Identify the build and set up once
 
-- [engine-and-loop.md](references/engine-and-loop.md) — before touching the renderer: what surface
-  you have, the tool catalog, and the authoring loop.
-- [art-direction.md](references/art-direction.md) — before designing: establishing a direction,
-  critiquing the user's, and locking the identity.
-- [multi-format.md](references/multi-format.md) — before adding any second ratio or locale.
-- [extending.md](references/extending.md) — when the built-in vocabulary cannot express the style.
-- [verification.md](references/verification.md) — before claiming anything works.
+```bash
+arcavex --version
+arcavex doctor --json
+arcavex render --help
+```
 
-**The live engine is authoritative.** When a tool schema, effect list, or diagnostic from the running
-binary contradicts anything written here, believe the binary.
+Compare `--version` with the engine build above. If versions or commits differ, use the running
+binary's `--help` and refresh this skill with `arcavex skill install --force`. A header with no
+commit is an unpinned source copy; do not claim it identifies an installed release.
 
-## Step 0 — Find out what you can do here
+If `arcavex` is absent from PATH, locate the installed executable once. The standard Windows
+standalone location is `%LOCALAPPDATA%\Programs\Arcavex\arcavex.exe`; use its actual install
+directory if different. Add that directory to the shell's PATH once and reuse it. Do not try
+Python module entry points for a standalone installation. A source checkout may use its venv's
+`arcavex` script. If no engine is available, report the missing setup.
 
-The real question is **whether this session has a shell**, not which product you are running in.
+```bash
+cd /path/to/campaign
+mkdir -p .arcavex-home outputs
+# This directory is discovered automatically from the working directory and its parents.
+# An explicitly set ARCAVEX_HOME takes precedence; unset it to use automatic discovery.
+arcavex doctor --json
+```
 
-1. **Shell available?** Try `arcavex --version`. If it is not on PATH, try `python -m arcavex.clients.cli --version`,
-   then look for a standalone binary. A shell gives you everything, including authoring your own
-   effects.
-2. **`arcavex_*` MCP tools available?** Call `arcavex_effects_list`. That gives you the full
-   high-level loop: inspect, patch, validate, preview, layout-inspect, render.
-3. **Neither?** Say so and tell the user how to connect the engine. Do not improvise a poster in
-   another tool — a composition assembled in an image library is not this skill's output.
+Keep that working directory for later commands. For a campaign outside the current directory,
+set `ARCAVEX_HOME` once to its absolute `.arcavex-home` path. PowerShell:
+`$env:ARCAVEX_HOME = 'C:\campaign\.arcavex-home'`. Use paths that exist in the current shell:
+Git Bash `/tmp` and Windows `C:\tmp` are different locations.
 
-| You have | You can | You cannot |
-|---|---|---|
-| Shell (± MCP) | Everything, including custom effects, fonts, asset prep | — |
-| MCP only | Author, validate, preview, render, localize | Author extensions, install fonts, preprocess images |
+Install only `arcavex-design-studio` from the same engine build. If an old `arcavex-poster-studio`
+copy is also loaded from `.claude/skills` or `.agents/skills`, flag the conflicting installation;
+preserve any local edits before retiring it. Skill installation does not delete other skills.
 
-If the style needs a custom effect and you have MCP only, say so **early** — extension authoring is
-deliberately a shell capability, and retrying MCP will not surface it.
+## 1. Scaffold, then inspect
 
-## Step 1 — Ground the brief
+```bash
+arcavex template new templates/card
+arcavex template inspect templates/card --json
+arcavex font list --json
+arcavex effects list --json
+```
 
-Inspect every supplied asset, reference, and copy document **before** deciding anything. Establish
-the communication goal and audience, the exact factual content and its hierarchy, the required
-formats/languages/print needs, the fixed identity assets, and the mood and references.
+Use `template new` rather than reconstructing the language from a large production template.
+Its preview data and `en` locale allow a first render immediately. Fonts must use the exact family
+reported by `font list` or `font add FILE.ttf --json`, not a filename. This build reads the font's
+OpenType family table and registers that alias consistently across platforms. Older Windows
+builds may report `Archivo` for `Archivo Black`; check the running build and use a locale `fonts`
+mapping when reproducing an old pin rather than repeatedly guessing family names.
 
-Ask at most **one** focused blocking question at a time. If the brief is sufficient, proceed without
-asking permission.
+For a small image card, place `photo.png` beside the following single-file template:
 
-**Never invent** dates, prices, venues, names, sponsors, claims, translations, or contact details. A
-poster is a public announcement; a plausible invented date is far worse than an obvious placeholder.
-Mark unverified copy in the handoff.
+```yaml
+version: 0.1.0
+locales: {en: {direction: ltr, digits: en}}
+formats:
+  square: {canvas: {width: 600px, height: 600px, dpi: 96}}
+variables:
+  title: {type: string, required: true}
+  photo: {type: image, required: true}
+preview_data: {title: "A short title", photo: photo.png}
+root:
+  id: root
+  type: group
+  children:
+    - id: photo
+      type: image
+      asset: "{{ photo }}"
+      fit: cover
+      constraints:
+        anchor: {top: parent.top, start: parent.start}
+        size: {w: fill, h: 60%}
+    - id: title
+      type: text
+      text: "{{ title }}"
+      style: {font: Inter, font_size: 36pt, color: "#111111"}
+      fit: {policy: shrink_to_fit, min_size: 18pt, max_lines: 2}
+      constraints:
+        anchor: {top: parent.top+300pt, start: parent.start+24pt}
+        size: {w: 85%, h: 28%}
+```
 
-## Step 2 — Establish the art direction *before* composing
+A locale block is optional until a locale is selected. Use explicit locales for multilingual work.
 
-This is the step most often skipped, and skipping it produces competent-looking work that is wrong.
+## 2. Rules and recipes
 
-**If the user already has a direction** — brand assets, palette, fonts, aesthetic references — treat
-those as the constraint set. Extract them into explicit rules and confirm the extraction. Do not
-quietly redesign a brand.
+| Field | Rule |
+|---|---|
+| Canvas, font size, stroke width, letter spacing, stack gap/padding | Absolute `px`, `pt`, `mm`; bare numbers mean points. No `%` without a defined basis. |
+| Constraint sizes | Absolute units, parent-relative `%`, `fill`, or text `fit_content`. Anchor offsets take absolute units, not `%`. |
+| Mask, shape, effect length parameters | `px`, `pt`, `mm`; pixels convert using the canvas DPI. Bare numbers are points; `%` is rejected. |
+| Text, image asset, colors, effect/shape params | Support `{{ expressions }}`; a whole expression preserves its value type. Mask params use literal values. |
+| Numeric style fields, stack settings, fit sizes | Use literals, style roles, or format/locale patches. Numeric style expressions are rejected with an alternative. |
+| Anchors | Logical `start`/`end` mirror in RTL; physical `left`/`right` stay fixed. |
+| Stack children | Position comes from `hstack`/`vstack`; do not add anchors on the children. |
+| Paragraphs | Use `paragraph.align` and `paragraph.direction`; no line-height control in this build. |
 
-**If they do not**, propose one. Then *lead* it: offer a clear recommendation with reasoning, not a
-menu of equal options.
+Let the engine wrap and fit a headline instead of splitting it into separately positioned lines:
 
-**Lock these before any layout**, in this order — later choices depend on earlier ones:
+The complete group recipe (replace or insert it with `template patch`):
 
-1. **Assets and imagery** — what exists, what must be sourced, what treatment unifies them
-2. **Palette** — with roles assigned (surface, ink, accent, and their contrast pairs)
-3. **Typography** — families, and a type scale with named roles, not ad-hoc sizes
-4. **Shape, texture, grid** — the spatial language and its margin/gutter system
+```yaml
+id: copy
+type: group
+layout: vstack
+gap: 12pt
+constraints:
+  anchor: {top: parent.top+24pt, start: parent.start+24pt}
+  size: {w: 80%, h: 50%}
+children:
+  - id: headline
+    type: text
+    text: "{{ title }}"
+    style: {font: Inter, font_size: 48pt, color: "#111111"}
+    fit: {policy: shrink_to_fit, min_size: 24pt, max_lines: 3}
+    constraints: {size: {w: fill, h: fit_content}}
+```
 
-A style *name* is not an art direction. "Swiss", "brutalist", "editorial" are shorthand you may use
-only once the rules underneath exist.
+Draw wedges and triangles with a `path` node, e.g. `d: "M0 0 L120 0 L120 60 Z"`, a `style.fill`,
+and explicit constraints. Path coordinates are points. Do not calculate rotated rectangle angles
+for a shape the path language can express. For art direction, format design, or a missing effect,
+read [art-direction.md](references/art-direction.md), [multi-format.md](references/multi-format.md),
+or [extending.md](references/extending.md) only as needed.
 
-**Correct the user when the direction will not work.** Say what fails and why, propose the fix, and
-if they disagree, do it their way and note the risk once. Specific failures worth naming: type too
-small to read at the real viewing size; insufficient contrast; a palette that collapses in grayscale
-or in print; an aesthetic that fights the communication goal; assets too low-resolution for the
-declared output. You are more useful as a designer with a view than as an executor.
+## 3. Inspect → patch → validate → render → look → inspect layout
 
-## Step 3 — Decide the content contract
+```bash
+arcavex template patch templates/card --set nodes.title.style.font_size --value 48pt --json
+arcavex template patch templates/card --set template.locales --value '{"en":{"direction":"ltr"}}' --json
+arcavex validate templates/card -f square -l en --json
+arcavex render templates/card -f square -l en --dpi 48 -o outputs/preview.png --json
+arcavex layout inspect templates/card -f square -l en --json > outputs/layout.json
+```
 
-Before laying anything out, decide the required and optional data fields, their realistic **maximum
-lengths**, and how overflow behaves. Prefer explicit line limits and shrink floors, and reject
-content that cannot fit rather than clipping it silently.
+Look at the preview. View a reduced-DPI image first to conserve context; open the full render for
+the final check. Use `render --debug` to see node IDs, bounds, baselines, and safe areas before
+writing pixel-measurement scripts. Debug overlays belong to inspection output, not delivery.
 
-This contract is what makes the template reusable, and it is what you verify against later.
+Use JSON and filter it instead of loading a whole layout report:
 
-## Step 4 — Survey your tools, then build what is missing
+```bash
+jq '[.. | objects | select(.kind? == "text" and has("bounds_pt")) |
+     {id, bounds_pt, paint_bounds_pt, overflow}]' outputs/layout.json
+```
 
-Before composing, ask what the direction actually requires, and resolve every gap deliberately:
+`layout inspect` reports transformed geometry and separates content collisions from effect spill.
+A rotated node's bounds are an axis-aligned enclosure, not proof that every pixel intersects.
+It compares siblings; examine pixels for collisions across groups. Clean validation alone does
+not establish readable typography or good design. Use `explain ARC-... --json` for a diagnostic.
 
-1. **List what the style needs** — each treatment, texture, mask, filter, shape.
-2. **Check what exists**: `effects list`, `style list`, `font list` (or the MCP equivalents). The
-   built-in vocabulary is larger than it looks; check before inventing.
-3. **If it exists, use it.** Do not hand-roll what ships.
-4. **If it does not and you have a shell, build it.** Authoring an effect is a first-class part of
-   this workflow, not a last resort — see [extending.md](references/extending.md).
-5. **If you cannot build it** (no shell, or it needs engine capability that does not exist), **say
-   so and plan around it.** Propose the nearest expressible direction, and name the gap plainly.
+Edit by stable node IDs with `template patch`, never regex substitutions in YAML. Set/remove
+metadata with `template.<section>[.<field>]`; split-template metadata lives in sidecar files and
+must be edited there. Batch edits with `--ops-file`; stale source can be guarded by `--base-sha256`.
+For an existing desktop project that needs undo/history or policy enforcement, use the semantic
+`editor apply` transaction workflow in [engine-and-loop.md](references/engine-and-loop.md).
 
-Never silently drop a piece of the art direction because the tool was missing. Either build it, or
-report it.
+## 4. Series and verification
 
-## Step 5 — Author the template
+Keep one template and a folder of data files, with one render loop:
 
-One content contract and node tree, with deliberate format and locale patches. Keep editable content
-in data files and visual rules in the template or style pack. Use logical start/end anchors wherever
-a layout must mirror. Treat Farsi/Arabic as true RTL composition with a capable font and an explicit
-digit policy — not right-aligned English.
+```bash
+for data in data/*.yaml; do
+  name=$(basename "$data" .yaml)
+  arcavex render templates/card --data "$data" -f square -l en -o "outputs/$name.png" --json
+done
+```
 
-## Step 6 — Treat every ratio as its own design problem
+For tracked campaigns, use `project new`, then project-mode `render`, `validate`, `preview`, and
+`layout inspect` (omit the template argument). Choose a single format and locale for layout
+inspection. `batch 'campaigns/*'` renders project directories; it is not CSV row rendering.
+The generated [commands.md](references/commands.md) lists only commands this CLI implements.
 
-**Do not scale or crop one master canvas.** A 9:16 story and a 16:9 thumbnail want genuinely
-different structures, hierarchies, and often different crops of the same image.
+Verify every required format × locale × realistic content profile: longest headline, optional
+fields omitted, RTL digits, transparency and crops. Inspect overflow, collisions, margins,
+contrast against the real backdrop, missing glyphs, and hierarchy. Use a recorded render and
+`rerun --check` to check identical bytes. See [verification.md](references/verification.md).
 
-Each declared ratio gets its own investigation: what leads, what is dropped, where the safe area is,
-how the type scale re-tunes. See [multi-format.md](references/multi-format.md).
+If an independent reviewer is available and authorized, request that pass. If it cannot run,
+complete the same fixed checklist yourself and say the independent pass did not run. Do not
+claim a second review occurred. Deliver the renders, editable template, data, assets, fonts/style
+references, and a short statement of the formats/locales/content limits actually verified.
 
-## Step 7 — Run the real loop
+## MCP appendix
 
-inspect → patch → validate → **preview and look at the pixels** → layout-inspect → revise → render.
-
-Run it; do not imagine its output. The preview step is the one that matters most and the easiest to
-skip — validation proves the template is well-formed, only the pixels show the composition works.
-`layout inspect` then reveals overflow and collisions a clean validation hides.
-
-**Iterate with the user's intent, not just their words.** Show work early, name the tradeoff you
-made, and ask whether the direction is right before polishing detail. Two or three deliberate
-revisions beat one long unreviewed build.
-
-Never use a separate image compositor to paper over an engine failure. If Arcavex cannot do
-something, that is a finding worth reporting.
-
-## Step 8 — Verify against real design failures
-
-Clean validation is necessary and not sufficient — **bad typography validates perfectly.** Check
-every cell of format × locale × content profile, and specifically hunt these:
-
-- **Overlapping elements.** `layout inspect` reports collisions between siblings; it does **not**
-  compare nodes in different groups, so also look at the pixels.
-- **Tight margins.** Content crowding a canvas edge or a neighbour reads as an error even when it
-  technically fits. Hold the declared margin and gutter system; check the *optical* edge, not the box.
-- **Illegibility at real size** — type below readable cap-height at the actual viewing scale.
-- **Weak contrast** between text and its true backdrop.
-- **Unintended overflow, shrunk text, missing glyphs.**
-- **Broken hierarchy** — if everything is emphasized, nothing is.
-
-Then re-render one cell and compare hashes: identical inputs must produce identical bytes.
-
-See [verification.md](references/verification.md) for the matrix and the per-cell checklist.
-
-## Step 9 — Deliver
-
-Show the strongest board or reference sheet inline. Provide renders, the editable template, data,
-style pack, assets, any custom extension with its golden fixture, and a short verification summary.
-
-State plainly **what the template is verified for**: which formats, which locales, which content
-limits, how many cells passed, and what remains unverified. Distinguish "rendered without errors"
-from "is good design" — you are the only one in the loop who can judge the second.
+When only MCP is available, use `arcavex_template_inspect`, `arcavex_template_patch`,
+`arcavex_template_validate`, `arcavex_render_preview`, and `arcavex_layout_inspect` for the same
+loop. Preview returns an image. CLI-only capabilities such as installing fonts and authoring
+extensions require a shell. Report a missing capability early.

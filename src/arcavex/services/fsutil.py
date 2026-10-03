@@ -22,6 +22,13 @@ def home_dir() -> Path:
     env = os.environ.get("ARCAVEX_HOME")
     if env:
         return Path(env)
+    current = Path.cwd().resolve()
+    for parent in (current, *current.parents):
+        local = parent / ".arcavex-home"
+        if local.is_dir():
+            return local
+        if (parent / "project.yaml").is_file():
+            break
     return Path.home() / ".arcavex"
 
 

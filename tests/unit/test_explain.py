@@ -151,3 +151,17 @@ def test_lay012_explain_mentions_expression_boundary() -> None:
     assert "expression" in lowered and "constraint" in lowered
     # The entry adds value beyond the one-line inline hint (it is substantially longer).
     assert len(help_.summary) > 120
+
+
+def test_catalog_never_silently_reuses_a_diagnostic_code() -> None:
+    """dict construction would hide a duplicate entry and explain the wrong failure."""
+    import ast
+
+    source = (_SRC / "services/diagnostics_catalog.py").read_text(encoding="utf-8")
+    codes = [
+        node.args[0].value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == "_e" and isinstance(node.args[0], ast.Constant)
+    ]
+    assert len(codes) == len(set(codes))

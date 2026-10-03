@@ -72,8 +72,11 @@ jobs:
           uv venv
           uv pip install -e ".[dev]"
 
+      - name: Bundled CLI reference drift
+        run: uv run python scripts/generate_skill_reference.py --check
+
       - name: Lint (ruff)
-        run: uv run ruff check src tests packaging scripts
+        run: uv run ruff check src tests packaging scripts hatch_build.py
 
       - name: Type-check (mypy --strict on kernel)
         run: uv run mypy src/arcavex/kernel --strict

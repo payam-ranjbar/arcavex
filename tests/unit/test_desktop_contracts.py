@@ -232,7 +232,8 @@ def test_bootstrap_wires_live_engine_versions_home_and_doctor(arcavex_home: Path
     assert {"layers.tree", "selection.hit-test"} <= set(report.capabilities)
     assert report.paths.home == str(arcavex_home.resolve())
     assert {check.name for check in report.doctor.checks} == {
-        "python", "skia", "icu", "fonts", "exporters", "cache", "temp_dir", "paths", "config"
+        "build", "python", "skia", "icu", "fonts", "exporters", "cache", "temp_dir",
+        "paths", "config"
     }
 
 

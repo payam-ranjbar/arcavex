@@ -1,49 +1,11 @@
 # Engine, surfaces, and the authoring loop
 
-## Finding the engine
+## CLI setup and command reference
 
-Try in order, and say which one you got:
-
-```bash
-arcavex --version                      # installed on PATH
-python -m arcavex.clients.cli --version # installed, script not on PATH
-arcavex doctor                          # confirms skia, ICU, fonts, exporters
-```
-
-`doctor` is the fastest way to learn what this machine can actually do. Run it once before
-committing to a direction — a missing font family or exporter changes what you should design.
-
-If nothing works, the user installs with `pip install arcavex` (or `uv pip install arcavex`), then
-`arcavex skill install` to refresh this skill.
-
-## Isolate your workspace
-
-Point `ARCAVEX_HOME` at a task-local directory so added fonts, enabled extensions, and caches never
-mutate the user's global engine:
-
-```bash
-export ARCAVEX_HOME="$PWD/.arcavex-home"    # PowerShell: $env:ARCAVEX_HOME = "$PWD/.arcavex-home"
-```
-
-Everything you install — fonts, extensions — then lives with the campaign and travels with it.
-
-## Command ↔ MCP tool map
-
-| Task | CLI | MCP |
-|---|---|---|
-| Read a template's contract and node ids | `template inspect --json` | `arcavex_template_inspect` |
-| Edit an addressed node | `template patch` | `arcavex_template_patch` |
-| Check it compiles | `validate --format F` | `arcavex_template_validate` |
-| **See the image** | `render --format F -o out.png` | `arcavex_render_preview` |
-| Resolved geometry, overlaps, overflow | `layout inspect --format F` | `arcavex_layout_inspect` |
-| Vocabulary | `effects list`, `style list`, `font list` | `arcavex_effects_list`, `arcavex_style_list`, `arcavex_font_list` |
-| Explain a diagnostic code | `explain ARC-…` | `arcavex_diagnostic_explain` |
-| Recorded, reproducible render | `project render` | `arcavex_project_render` |
-| Author an effect | `ext scaffold/validate/test/add/enable` | **not exposed — shell only** |
-| Install a font | `font add PATH` | **not exposed — shell only** |
-
-`arcavex_render_preview` returns the image itself, so you can look at it. On the CLI, render to a
-file and read that file.
+Use the build check and one-time setup in SKILL.md. The CLI is the primary surface; see
+[commands.md](commands.md) for its generated command reference. Use the running executable's
+`--help` if this skill and that executable have different identities. Project-local
+`.arcavex-home` discovery follows the working directory; an explicit `ARCAVEX_HOME` wins.
 
 ## The loop
 
@@ -116,8 +78,8 @@ field, so the editor covers what patching does.
 
 Two traps worth one line each:
 
-- Alignment is `paragraph.align`, not `style.align`. The schema accepts both; the text renderer
-  reads only `paragraph`, so a value written to `style.align` is stored and never applied.
+- `paragraph.align` overrides `style.align`; edit the paragraph when an explicit paragraph
+  setting is present. With no paragraph override, the style value supplies the default.
 - Sizes carry units (`70px`, `24pt`). Rewriting `70px` as a bare `70` silently changes it.
 
 ## Reading a change back
@@ -130,5 +92,4 @@ rather than rendering a full-size image and looking at it. It also reports each 
 ## Context cost
 
 `layout inspect --json` on a real poster is tens of thousands of characters. Do not page the whole
-thing into context for every iteration — read the human output, or inspect one format at a time, and
-reach for `--json` when you need to filter precisely.
+thing into context for every iteration — inspect one format at a time, save the JSON to a file, and filter only the relevant nodes.

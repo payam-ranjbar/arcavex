@@ -10,6 +10,7 @@
 # Onefile: set ARCAVEX_PYI_ONEFILE=1 first (slower startup; see packaging/README.md).
 
 import os
+import runpy
 import sys
 from pathlib import Path
 
@@ -20,6 +21,13 @@ ONEFILE = os.environ.get("ARCAVEX_PYI_ONEFILE") == "1"
 
 # ---------------------------------------------------------------------------- data payload
 datas = []
+_reference = runpy.run_path(str(ROOT / "scripts" / "generate_skill_reference.py"))
+_reference["OUTPUT"].write_text(_reference["render_reference"](), encoding="utf-8", newline="\n")
+_payload = runpy.run_path(str(ROOT / "packaging" / "payload.py"))["stage_payload"](
+    ROOT, ROOT / "build" / "payload"
+)
+datas += [(str(_payload / "build.json"), "arcavex/_bundled")]
+datas += [(str(_payload / "skill"), "arcavex/_bundled/skill")]
 
 # Package metadata. `services.doctor.engine_version()` reads it via importlib.metadata; without
 # it a frozen build reports "0.0.0+unknown" and every exported PDF differs from the installed

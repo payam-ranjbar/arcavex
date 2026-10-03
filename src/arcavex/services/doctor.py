@@ -14,18 +14,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+from arcavex.build_info import build_commit, engine_version
 from arcavex.kernel.api import DoctorCheck, DoctorReport
 from arcavex.services.text import TextService
 
 _MIN_PYTHON = (3, 11)
-
-
-def engine_version() -> str:
-    """Return the installed engine version from package metadata."""
-    try:
-        return importlib.metadata.version("arcavex")
-    except importlib.metadata.PackageNotFoundError:  # pragma: no cover - always installed
-        return "0.0.0+unknown"
 
 
 def run_doctor(text_service: TextService | None = None) -> DoctorReport:
@@ -35,7 +28,10 @@ def run_doctor(text_service: TextService | None = None) -> DoctorReport:
         text_service: An already-built text service to report bundled fonts from. When
             ``None``, the font probe builds one so ``doctor`` works standalone.
     """
+    commit = build_commit(source=True)
     checks: list[DoctorCheck] = [
+        DoctorCheck(name="build", status="ok" if commit else "warn",
+                    detail=f"commit {commit or 'unknown'}"),
         _check_python(),
         _check_skia(),
         _check_icu(),
@@ -219,11 +215,13 @@ def _check_paths() -> DoctorCheck:
     """
     from arcavex.services.fsutil import home_dir
 
+    root = home_dir()
     if os.environ.get("ARCAVEX_HOME"):
         source = "env ARCAVEX_HOME"
-    else:
+    elif root == Path.home() / ".arcavex":
         source = "default (~/.arcavex)"
-    root = home_dir()
+    else:
+        source = "project .arcavex-home"
     preview_cache = root / "cache" / "preview"
     return DoctorCheck(
         name="paths",

@@ -14,11 +14,12 @@ import threading
 from pathlib import Path
 
 import typer
-from rich.console import Console
+from rich.console import Console as RichConsole
 from rich.markup import escape as _rich_escape
 from rich.table import Table
 
 from arcavex.bootstrap import build_facade
+from arcavex.build_info import engine_label
 from arcavex.clients.watch import run_watch
 from arcavex.kernel.api import (
     RESPONSE_VERSION,
@@ -45,49 +46,95 @@ from arcavex.kernel.diagnostics import (
 )
 
 
+class Console(RichConsole):
+    """Keep interactive Rich output; preserve whole lines in captured/piped output."""
+
+    def __init__(self, *, no_color: bool = False, stderr: bool = False) -> None:
+        stream = sys.stderr if stderr else sys.stdout
+        terminal = sys.stdout.isatty() and stream.isatty()
+        super().__init__(file=stream, force_terminal=terminal,
+                         no_color=no_color or not terminal, soft_wrap=not terminal)
+
+
 def _esc(value: object) -> str:
     """Escape Rich markup so literal '[...]' text (e.g. '[repeat]') displays (RR1-2)."""
     return _rich_escape(str(value))
 
 
-app = typer.Typer(add_completion=False, help="Arcavex rendering engine.")
-template_app = typer.Typer(add_completion=False, help="Template authoring commands.")
+_MARKUP_MODE = "rich" if sys.stdout.isatty() else None
+app = typer.Typer(
+    add_completion=False, help="Arcavex rendering engine.", rich_markup_mode=_MARKUP_MODE,
+    context_settings=({"max_content_width": 10000, "terminal_width": 10000}
+                      if _MARKUP_MODE is None else None),
+)
+template_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Template authoring commands."
+)
 app.add_typer(template_app, name="template")
-layout_app = typer.Typer(add_completion=False, help="Layout inspection commands.")
+layout_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Layout inspection commands."
+)
 app.add_typer(layout_app, name="layout")
-style_app = typer.Typer(add_completion=False, help="Style-pack commands.")
+style_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Style-pack commands."
+)
 app.add_typer(style_app, name="style")
-effects_app = typer.Typer(add_completion=False, help="Effect catalog commands.")
+effects_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Effect catalog commands."
+)
 app.add_typer(effects_app, name="effects")
-project_app = typer.Typer(add_completion=False, help="Project lifecycle commands.")
+project_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Project lifecycle commands."
+)
 app.add_typer(project_app, name="project")
-data_app = typer.Typer(add_completion=False, help="Project data authoring commands.")
+data_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Project data authoring commands."
+)
 app.add_typer(data_app, name="data")
-asset_app = typer.Typer(add_completion=False, help="Asset ingest/annotation commands.")
+asset_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Asset ingest/annotation commands."
+)
 app.add_typer(asset_app, name="asset")
-mcp_app = typer.Typer(add_completion=False, help="MCP authoring server (spec §6.2).")
+mcp_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="MCP authoring server (spec §6.2)."
+)
 app.add_typer(mcp_app, name="mcp")
-editor_app = typer.Typer(help="Semantic project editing: apply, undo, redo, history.")
+editor_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, help="Semantic project editing: apply, undo, redo, history."
+)
 app.add_typer(editor_app, name="editor")
-ext_app = typer.Typer(add_completion=False, help="Trusted local extension commands (spec §7).")
+ext_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Trusted local extension commands (spec §7)."
+)
 app.add_typer(ext_app, name="ext")
-font_app = typer.Typer(add_completion=False, help="Font install/inspect commands (spec §4.3).")
+font_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Font install/inspect commands (spec §4.3)."
+)
 app.add_typer(font_app, name="font")
 skill_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE,
     add_completion=False, help="Install the bundled design skill into an AI assistant."
 )
 app.add_typer(skill_app, name="skill")
-desktop_app = typer.Typer(add_completion=False, help="Desktop engine compatibility commands.")
+desktop_app = typer.Typer(
+    rich_markup_mode=_MARKUP_MODE, add_completion=False,
+    help="Desktop engine compatibility commands."
+)
 app.add_typer(desktop_app, name="desktop")
 
 
 def _engine_version() -> str:
-    import importlib.metadata
-
-    try:
-        return importlib.metadata.version("arcavex")
-    except importlib.metadata.PackageNotFoundError:  # pragma: no cover - dev tree without wheel
-        return "0+unknown"
+    return engine_label()
 
 
 def _version_callback(value: bool) -> None:
@@ -517,6 +564,12 @@ def doctor(
 
 def _print_doctor_table(console: Console, report: DoctorReport) -> None:
     console.print(f"[bold]Arcavex[/bold] engine {report.engine_version}")
+    if not console.is_terminal:
+        for check in report.checks:
+            console.print(f"{check.name}: {check.status}: {_esc(check.detail)}")
+            if check.hint:
+                console.print(f"  hint: {_esc(check.hint)}")
+        return
     table = Table(show_header=True, header_style="bold")
     table.add_column("check")
     table.add_column("status")
@@ -879,13 +932,13 @@ def template_split(
 def template_patch(
     template: Path = typer.Argument(..., help="Template file or directory to patch in place."),
     set_path: str | None = typer.Option(
-        None, "--set", help="Set 'nodes.<id>[.<field>]' to --value."
+        None, "--set", help="Set nodes.<id>.<field> or template.<section> to --value."
     ),
     value: str | None = typer.Option(
         None, "--value", help="Value for --set (parsed as JSON, else a string)."
     ),
     remove_path: str | None = typer.Option(
-        None, "--remove", help="Remove the node or field at 'nodes.<id>[.<field>]'."
+        None, "--remove", help="Remove nodes.<id>[.<field>] or template.<section>[.<field>]."
     ),
     insert_before: str | None = typer.Option(
         None, "--insert-before", help="Insert --node before 'nodes.<id>'."
@@ -954,7 +1007,10 @@ def template_patch(
 
 @layout_app.command("inspect")
 def layout_inspect(
-    template: Path = typer.Argument(..., help="Template file or directory."),
+    template: Path | None = typer.Argument(
+        None, help="Template file or directory; omit for project mode."
+    ),
+    project: Path | None = typer.Option(None, "--project", help="Project directory."),
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
     locale: str | None = typer.Option(None, "--locale", "-l", help="Locale name."),
@@ -967,7 +1023,8 @@ def layout_inspect(
         _force_utf8_stdout()
     console = Console(no_color=no_color)
     facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
-    report = facade.inspect_layout(template, data, format_name, locale)
+    report = (facade.inspect_project_layout(project=project, format_name=format_name, locale=locale)
+              if template is None else facade.inspect_layout(template, data, format_name, locale))
     if json_out:
         _emit_json(report)
     elif not quiet:
@@ -2083,16 +2140,21 @@ def _print_skill_report(console: Console, report: object, *, list_only: bool) ->
     """Print install destinations and what was written."""
     targets = report.targets  # type: ignore[attr-defined]
     if targets:
-        table = Table(box=None, pad_edge=False)
-        table.add_column("target", style="bold")
-        table.add_column("path")
-        table.add_column("state")
+        table = Table(box=None, pad_edge=False) if console.is_terminal else None
+        if table is not None:
+            table.add_column("target", style="bold")
+            table.add_column("path")
+            table.add_column("state")
         for entry in targets:
             state = "installed" if entry.installed else "not installed"
             if not entry.verified:
                 state += " (path unverified)"
-            table.add_row(entry.label, entry.path, state)
-        console.print(table)
+            if table is not None:
+                table.add_row(entry.label, entry.path, state)
+            else:
+                console.print(f"{_esc(entry.label)}: {_esc(entry.path)} ({state})")
+        if table is not None:
+            console.print(table)
     installed = report.installed  # type: ignore[attr-defined]
     if installed:
         console.print(f"Installed {report.skill} to {len(installed)} location(s):")  # type: ignore[attr-defined]
