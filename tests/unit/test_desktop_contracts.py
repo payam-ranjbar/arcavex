@@ -229,7 +229,7 @@ def test_bootstrap_wires_live_engine_versions_home_and_doctor(arcavex_home: Path
     assert report.response_version == 1
     assert report.accepted_ir_versions == ["1.0"]
     assert report.produced_ir_version == "1.0"
-    assert report.extension_sdk_version == "1.0"
+    assert report.extension_sdk_version == "1.1"
     assert report.capabilities == sorted(report.capabilities)
     assert {"layers.tree", "selection.hit-test"} <= set(report.capabilities)
     assert report.paths.home == str(arcavex_home.resolve())

@@ -47,7 +47,7 @@ autocomplete).
 | **Colour transforms** | `ColorMatrix`, `ColorTable`, `ColorTransform`, `compose_color_matrices`, `IDENTITY_MATRIX`, `LUMA` — what a `COLOR` effect returns. |
 | **Determinism** | `effect_rng` — the single seeded RNG-tree helper; draw *all* randomness from `ctx.rng`. |
 | **Path / surface utilities** | `SurfacePool`, `render_to_pool`, `image_to_rgba`, `rgba_to_image`. |
-| **Param helpers** | `BaseModel`, `ConfigDict`, `Field` (pydantic), plus the unit-aware `Points`, `RGBAColor`, and the `RGBA` tuple type. |
+| **Param helpers** | `BaseModel`, `ConfigDict`, `Field` (pydantic), plus the unit-aware `Points`, `Fraction`, `RGBAColor`, and the `RGBA` tuple type. |
 | **IR value types** | `Rect`, `Insets`, `Dim`, `Matrix3`, `Unit`, `Color`, the unit converters `mm_to_pt`/`pt_to_px`/`px_to_pt`, and the `Path2D` / `Surface` handle protocols. |
 | **Layout output types** | `LayoutDocument`, `LayoutNode`, `ResolvedCanvas` — what a `LayoutSolver` produces and a `RendererBackend` consumes (a component reads its *input* document structurally, so the compiled-document types are not part of this surface). |
 | **Contract value types** | `RenderOptions`, `ExportOptions`, `ExportReport`, `DecodedAsset`, `DecodeGuards`, `MeasureFn`, `MeasureRequest`, `MeasureResult`, `Value` — the argument/return types the SPI method signatures use. |

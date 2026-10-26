@@ -1,21 +1,24 @@
 """Mask-generator implementations and their parameter schemas.
 
 Mask dimensions normalize to points (a bare number means points; ``pt``/``mm``/``px``
-are accepted, with pixels converted at the canvas DPI; relative ``%`` is rejected). Each generator
+are accepted, with pixels converted at the canvas DPI; relative ``%`` is rejected). Box-relative
+fade positions normalize to a ``0..1`` fraction (a bare number or ``"NN%"``). Each generator
 builds a :class:`skia.Path` in the node's point-space bounds; the renderer clips content to it.
+A generator may instead override :meth:`~arcavex.kernel.contracts.spi.MaskGenerator.build_alpha`
+to return an alpha shader the renderer multiplies into the node.
 """
 
 from __future__ import annotations
 
 import math
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 import skia  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from arcavex.kernel.contracts.spi import MaskGenerator
 from arcavex.kernel.ir.units import Rect
-from arcavex.sdk.params import Points
+from arcavex.sdk.params import Fraction, Points
 
 
 class RoundedRectParams(BaseModel):
@@ -112,6 +115,65 @@ class DiamondGridMask(MaskGenerator):
         return path
 
 
+class LinearFadeParams(BaseModel):
+    """Parameters for the ``linear_fade`` mask.
+
+    ``direction`` is the fade axis in the node's own (pre-rotation) box. ``start``/``end`` are
+    fractions of the box along that axis (a bare ``0..1`` number or ``"NN%"``): alpha is 1 up to
+    ``start``, 0 from ``end``, and linear between. The default fades the whole box top to bottom.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    direction: Literal["to_bottom", "to_top", "to_left", "to_right"] = "to_bottom"
+    start: Fraction = Field(default=0.0)
+    end: Fraction = Field(default=1.0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> LinearFadeParams:
+        if self.end <= self.start:
+            raise ValueError("end must be greater than start")
+        return self
+
+
+class LinearFadeMask(MaskGenerator):
+    """Fade the node alpha along one axis (opaque before ``start``, clear after ``end``)."""
+
+    name: ClassVar[str] = "linear_fade"
+    param_schema: ClassVar[type[BaseModel]] = LinearFadeParams
+
+    def build(self, params: BaseModel, bounds: Rect) -> skia.Path:
+        """Return a full-bounds clip path as the fallback for a backend without alpha support.
+
+        The path deliberately covers the whole node rather than clipping it away: a backend that
+        cannot apply the gradient should leave the content unmasked, not erase it.
+        """
+        path = skia.Path()
+        path.addRect(skia.Rect.MakeXYWH(bounds.x, bounds.y, bounds.w, bounds.h))
+        return path
+
+    def build_alpha(self, params: BaseModel, bounds: Rect) -> skia.Shader:
+        """Build a linear alpha gradient over ``bounds`` (opaque at ``start``, clear at ``end``)."""
+        assert isinstance(params, LinearFadeParams)
+        cx, cy = bounds.center_x, bounds.center_y
+        if params.direction == "to_bottom":
+            first, last = (cx, bounds.y), (cx, bounds.bottom)
+        elif params.direction == "to_top":
+            first, last = (cx, bounds.bottom), (cx, bounds.y)
+        elif params.direction == "to_right":
+            first, last = (bounds.x, cy), (bounds.right, cy)
+        else:  # to_left
+            first, last = (bounds.right, cy), (bounds.x, cy)
+        # The gradient's colours are irrelevant under DstIn, which scales destination alpha by
+        # source alpha; black keeps it obvious that only the alpha channel is used.
+        return skia.GradientShader.MakeLinear(
+            [skia.Point(*first), skia.Point(*last)],
+            [skia.Color(0, 0, 0, 255), skia.Color(0, 0, 0, 0)],
+            [params.start, params.end],
+            skia.TileMode.kClamp,
+        )
+
+
 def builtin_masks() -> list[MaskGenerator]:
     """Return the built-in mask generators for registration."""
-    return [RoundedRectMask(), CircleMask(), DiamondGridMask()]
+    return [RoundedRectMask(), CircleMask(), DiamondGridMask(), LinearFadeMask()]
