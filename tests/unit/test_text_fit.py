@@ -437,3 +437,71 @@ def test_missing_glyph_warns_in_layout(tmp_path: Path) -> None:
     )
     assert any(w.code == "ARC-RND-011" for w in layout.warnings)
     assert not has_errors(list(layout.warnings))  # it is a warning, not an error
+
+
+# --------------------------------------------------- authorable hard breaks (A4)
+#
+# A literal ``\n`` in a data value is a forced line break and must be counted against
+# ``max_lines`` like a wrapped line. Before the probe stripped break characters, a two-line
+# value divided its own height and reported one line, so ``max_lines: 1`` silently painted two.
+# The Farsi case pins that the count survives RTL shaping; the shrink and solver cases pin that
+# the same count reaches both the fit search and the ARC-LAY-057 line-cap path.
+
+
+def test_hard_break_counts_as_two_lines() -> None:
+    res = _measure(text="Alpha\nBeta", font_size_pt=20.0, max_width_pt=300.0, max_lines=2)
+    assert res.line_count == 2
+    assert res.overflow_kind == "none"
+
+
+def test_hard_break_over_max_lines_overflows() -> None:
+    res = _measure(text="Alpha\nBeta", font_size_pt=20.0, max_width_pt=300.0, max_lines=1)
+    assert res.line_count == 2
+    assert res.overflow_kind == "overflowing"
+
+
+def test_hard_break_rtl_counts_as_two_lines() -> None:
+    res = _measure(
+        text="سلام\nدنیا",
+        font_families=("Vazirmatn",),
+        font_size_pt=20.0,
+        max_width_pt=300.0,
+        direction="rtl",
+        max_lines=2,
+    )
+    assert res.line_count == 2
+    assert res.overflow_kind == "none"
+
+
+def test_hard_break_shrink_counts_lines() -> None:
+    """The shrink branch shares _metrics, so the cap must bottom it out at min_size too."""
+    res = _measure(
+        text="Alpha\nBeta",
+        font_size_pt=20.0,
+        max_width_pt=300.0,
+        max_height_pt=300.0,
+        fit_policy="shrink_to_fit",
+        min_size_pt=10.0,
+        max_lines=1,
+    )
+    assert res.converged is False
+    assert res.overflow_kind == "overflowing"
+
+
+def test_hard_break_max_lines_raises_lay057(tmp_path: Path) -> None:
+    """A hard-break-only line-cap violation takes the ARC-LAY-057 path, not ARC-LAY-050."""
+    with pytest.raises(DiagnosticError) as exc:
+        _solve(
+            tmp_path,
+            """
+    - id: t
+      type: text
+      text: "Alpha\\nBeta"
+      style: {font: Inter, font_size: 20pt, color: black}
+      fit: {policy: wrap, max_lines: 1, overflow: error}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 300pt, h: 300pt}
+""",
+        )
+    assert exc.value.diagnostics[0].code == "ARC-LAY-057"

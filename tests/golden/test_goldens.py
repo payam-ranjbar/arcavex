@@ -259,3 +259,54 @@ def test_stack_card_golden(facade, tmp_path, case, data, format_name, locale):  
     )
     assert result.ok, [d.model_dump() for d in result.diagnostics]
     compare_to_golden(f"stack-card-{case}", load_png(out))
+
+
+def test_hard_break_golden(facade, tmp_path):  # noqa: ANN001,ANN201
+    """Explicit ``\\n`` breaks in LTR and RTL text, and a third line cut by ``max_lines: 2``.
+
+    Each text box hugs its lines (``h: fit_content``) and an orange rule sits under it, so the
+    picture shows the box height the line count produced: two lines for each block, including
+    the three-line value whose cap now counts its hard breaks (before, it counted one line and
+    the box grew to all three).
+    """
+
+    def block(node_id: str, top: str, text: str, extra: str) -> str:
+        return (
+            f"    - id: {node_id}\n"
+            "      type: text\n"
+            f"      text: {text}\n"
+            f"      {extra}\n"
+            "      fit: {policy: wrap, max_lines: 2}\n"
+            f"      constraints: {{anchor: {{top: {top}, left: parent.left+16px}}, "
+            "size: {w: 224px, h: fit_content}}\n"
+            f"    - id: {node_id}-rule\n"
+            "      type: shape\n"
+            "      shape: rect\n"
+            "      style: {fill: '#f07828'}\n"
+            f"      constraints: {{anchor: {{top: {node_id}.bottom+4px, left: parent.left+16px}}, "
+            "size: {w: 224px, h: 3px}}\n"
+        )
+
+    text = (
+        "formats: {square: {canvas: {width: 256px, height: 256px, dpi: 96}}}\n"
+        "root:\n"
+        "  id: root\n"
+        "  type: group\n"
+        "  children:\n"
+        "    - id: bg\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#ececec'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100%, h: 100%}}\n"
+        + block("ltr", "parent.top+16px", '"First line\\nSecond line"',
+                "style: {font: Inter, font_size: 16pt, color: black}")
+        + block("rtl", "ltr-rule.bottom+16px", '"\u0633\u0637\u0631 \u0627\u0648\u0644'
+                '\\n\u0633\u0637\u0631 \u062f\u0648\u0645"',
+                "style: {font: Vazirmatn, font_size: 16pt, color: black}\n"
+                "      paragraph: {direction: rtl, align: start}")
+        + block("capped", "rtl-rule.bottom+16px", '"One\\nTwo\\nThree"',
+                "style: {font: Inter, font_size: 16pt, color: black}")
+    )
+    array = _render(facade, tmp_path, text, "text-hard-break")
+    compare_to_golden("text-hard-break", array)

@@ -42,7 +42,9 @@ getting silently-wrong output:
 
 skia-python 144 exposes no per-line/per-glyph boxes ([ADR-0001](adr/0001-skia-python-144-platform-baseline.md)),
 so `max_lines` is approximated by dividing the measured paragraph height by a *measured* single-line
-height (not an invented constant) — exact for uniform text — and layout inspection reports paragraph
+height (not an invented constant). Hard breaks (`\n`) are counted by stripping the break characters
+in that single-line probe, so they are exact for a single style and approximate when lines carry
+different font sizes; layout inspection reports paragraph
 bounds and baseline rather than per-glyph rectangles. Fit policies, BiDi/RTL, and locale digits are
 implemented in the Arcavex text service on top of the scalar metrics the binding does expose, so the
 public template contract is unaffected.

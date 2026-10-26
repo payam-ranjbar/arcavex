@@ -253,7 +253,9 @@ A text node may set `fit: {policy, overflow, min_size, max_lines}`:
   `[min_size, font_size]` that fits — combine with `fit_content` height + `max_lines` to hug the
   shrunk result), or `truncate` (measured-prefix ellipsis, RTL-correct placement).
 - `overflow`: `clip` (default), `allow`, or `error` (`ARC-LAY-050`, exit 1).
-- `max_lines` caps the line count; with `h: fit_content` it also caps the box height. When
+- `max_lines` caps the line count; with `h: fit_content` it also caps the box height. A `\n`
+  in a data value (or a template string) is a hard break: it starts a new line and is counted
+  against `max_lines` just like a wrapped line. When
   `shrink_to_fit` reaches its `min_size` floor and the text still needs more lines than the cap
   allows, `overflow: error` reports `ARC-LAY-057` — line count vs cap and the floor reached —
   instead of `ARC-LAY-050`. The box height is not the constraint there, so enlarging it cannot
