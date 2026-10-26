@@ -159,7 +159,14 @@ class ArcavexTools:
         return CheckResult(ok=not has_errors(diagnostics), diagnostics=diagnostics)
 
     def template_patch(
-        self, template: str, ops: list[PatchOp], base_sha256: str | None = None
+        self,
+        template: str,
+        ops: list[PatchOp],
+        base_sha256: str | None = None,
+        *,
+        format: str | None = None,
+        locale: str | None = None,
+        unset: bool = False,
     ) -> PatchTemplateResult:
         """Apply path-addressed set/remove/insert ops to a template file (comment-preserving).
 
@@ -167,8 +174,17 @@ class ArcavexTools:
         one verb; a leaf field in a fixed-vocabulary block (style/fit/paragraph/constraints) is
         checked before writing, so a typo is a located diagnostic rather than a silent write.
         Pass the 'sha256' from a prior inspect/patch as 'base_sha256' to reject a concurrent edit.
+        With 'format' and/or 'locale' the op is upserted into that format/locale patch list (or
+        locale fonts via 'fonts.<Family>'); 'unset' deletes the op addressing the same path.
         """
-        return self._facade.patch_template(Path(template), ops, base_sha256)
+        return self._facade.patch_template(
+            Path(template),
+            ops,
+            base_sha256,
+            format_name=format,
+            locale=locale,
+            unset=unset,
+        )
 
     # ---------------------------------------------------------------- projects
     def project_create(

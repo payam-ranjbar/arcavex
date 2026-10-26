@@ -21,8 +21,11 @@ from pathlib import Path
 
 import skia  # type: ignore[import-untyped]
 
-from arcavex.kernel.contracts.types import MeasureRequest, MeasureResult
+from arcavex.kernel.api import FontMetricsReport
+from arcavex.kernel.contracts.types import FontMetricsRequest, MeasureRequest, MeasureResult
+from arcavex.kernel.diagnostics import Diagnostic, diagnostic
 from arcavex.kernel.ir.models import ResolvedRun
+from arcavex.kernel.ir.units import Dim, pt_to_px
 from arcavex.services.fsutil import home_dir
 
 _LRI = "⁦"  # LEFT-TO-RIGHT ISOLATE
@@ -43,16 +46,34 @@ _SHRINK_SEARCH_EPS_PT = 0.25
 # bracket of (base - min) / 256 — finer than _SHRINK_SEARCH_EPS_PT for any realistic range, so
 # the tolerance above is what normally ends the loop and this is the hard ceiling.
 _MAX_FIT_ITERS = 8
+# Balance search: the same ≤8-iteration cap as the fit search, and a quarter-point resolution
+# like the shrink bracket — widths closer than this are indistinguishable once rasterized.
+_MAX_BALANCE_ITERS = 8
+_BALANCE_SEARCH_EPS_PT = 0.25
 # Used only when the probe layout reports zero height, which SkParagraph does for a run with no
 # renderable glyphs. 1.2 is the CSS `normal` line-height default, i.e. a conventional stand-in
 # for an unmeasurable line, never a substitute for a metric the shaper did report.
 _FALLBACK_LINE_HEIGHT_RATIO = 1.2
+# Hard line-break characters SkParagraph treats as forced breaks. The per-line probe removes
+# them so it measures exactly one line; without this a "A\nB" probe laid out as two lines and
+# the height ratio reported 1 line for text that plainly had 2 (ADR-0001: no per-line metrics).
+_HARD_BREAK_CHARS = "\n\r\u2028\u2029"
 
 # The one file type the font database is built from. Every reader of the font store (the loader
 # below, ``arcavex font list/add/remove``) filters on this, so "what counts as a font file" has a
 # single definition and ``font add`` can never accept a file the loader would then ignore.
 FONT_SUFFIX = ".ttf"
 FONT_GLOB = f"*{FONT_SUFFIX}"
+
+
+
+def _size_to_pt(raw: str, dpi: float) -> float:
+    """Resolve a ``font metrics`` size to points with the template grammar.
+
+    A bare number is pixels, exactly as in a template's ``font_size``, so a value copied from
+    a template measures the face that template renders; ``40pt`` and ``54px`` are explicit.
+    """
+    return Dim.parse(raw).to_pt(dpi)
 
 
 def find_font_dirs() -> list[Path]:
@@ -205,6 +226,134 @@ class TextService:
         """The set of font family names available in the bundled database."""
         return set(self._families)
 
+    def font_metrics(self, req: FontMetricsRequest) -> FontMetricsReport:
+        """Measure one family at a size: line/ascent/descent/cap/x-height and sample advance.
+
+        Line height, ascent/descent, and advance go through :meth:`measure` — the one shaper —
+        so line height is exactly what a one-line ``fit_content`` text node resolves to. Cap
+        height and x-height are not exposed by SkParagraph, so they come from
+        ``skia.Font.getMetrics``, which reads the font's own tables. A family not in the
+        database still measures with the fallback family but reports ``ARC-RND-010`` as an
+        error, so the caller sizes a box for the family it asked for (or fixes the name) rather
+        than silently measuring a different face.
+        """
+
+        def _err(code: str, message: str, hint: str) -> FontMetricsReport:
+            return FontMetricsReport(
+                ok=False,
+                family=req.family,
+                size=req.size,
+                dpi=req.dpi,
+                sample=req.sample,
+                weight=req.weight,
+                italic=req.italic,
+                diagnostics=[diagnostic(code, message, hint=hint)],
+            )
+
+        if req.dpi <= 0:
+            return _err(
+                "ARC-IR-013",
+                f"DPI must be positive (got {req.dpi})",
+                "Pass a positive --dpi such as 96.",
+            )
+        if "\n" in req.sample or "\r" in req.sample:
+            return _err(
+                "ARC-IR-011",
+                "The sample must be a single line",
+                "Pass a one-line --sample; the advance of multiple lines is ambiguous.",
+            )
+        try:
+            size_pt = _size_to_pt(req.size, req.dpi)
+        except (ValueError, TypeError):
+            return _err(
+                "ARC-IR-011",
+                f"Invalid size {req.size!r}",
+                "Use a length such as '40pt' or '54px'; a bare number is pixels.",
+            )
+        if size_pt <= 0:
+            return _err(
+                "ARC-IR-011",
+                f"Font size must be positive: {req.size!r}",
+                "Use a positive length such as '40pt'.",
+            )
+
+        if req.family in self._families:
+            families, fallback = (req.family,), False
+        else:
+            families, fallback = (self._fallback_family(),), True
+
+        run = ResolvedRun(
+            text=req.sample,
+            font_families=families,
+            font_size_pt=size_pt,
+            font_weight=req.weight,
+            italic=req.italic,
+            color=(0.0, 0.0, 0.0, 1.0),
+            letter_spacing_pt=0.0,
+        )
+        measured = self.measure(
+            MeasureRequest(
+                text=req.sample,
+                font_families=families,
+                font_size_pt=size_pt,
+                font_weight=req.weight,
+                italic=req.italic,
+                runs=(run,),
+            )
+        )
+
+        style = skia.FontStyle(
+            req.weight,
+            skia.FontStyle.kNormal_Width,
+            skia.FontStyle.kItalic_Slant if req.italic else skia.FontStyle.kUpright_Slant,
+        )
+        typeface = self._provider.matchFamilyStyle(families[0], style)
+        resolved = families[0] if typeface is None else typeface.getFamilyName()
+        cap = x_height = 0.0
+        if typeface is not None:
+            font_metrics = skia.Font(typeface, size_pt).getMetrics()
+            cap, x_height = float(font_metrics.fCapHeight), float(font_metrics.fXHeight)
+
+        line_height = float(measured.height_pt)
+        ascent = float(measured.baseline_pt)
+        diagnostics: list[Diagnostic] = []
+        if fallback:
+            diagnostics.append(
+                diagnostic(
+                    "ARC-RND-010",
+                    f"Font family {req.family!r} is not available; measured the fallback "
+                    f"family {resolved!r} instead.",
+                    hint="Use a family from 'arcavex font list', or install it with "
+                    "'arcavex font add <path/to/font.ttf>'.",
+                )
+            )
+        return FontMetricsReport(
+            ok=not fallback,
+            family=req.family,
+            resolved_family=resolved,
+            fallback=fallback,
+            size=req.size,
+            size_pt=size_pt,
+            size_px=pt_to_px(size_pt, req.dpi),
+            dpi=req.dpi,
+            sample=req.sample,
+            weight=req.weight,
+            italic=req.italic,
+            ascent_pt=ascent,
+            descent_pt=max(0.0, line_height - ascent),
+            line_height_pt=line_height,
+            cap_height_pt=cap,
+            x_height_pt=x_height,
+            advance_pt=float(measured.width_pt),
+            diagnostics=diagnostics,
+        )
+
+    def _fallback_family(self) -> str:
+        """The family a missing request is measured with: Inter, else the first available."""
+        if "Inter" in self._families:
+            return "Inter"
+        return sorted(self._families)[0] if self._families else "Inter"
+
     # ------------------------------------------------------------------ measurement
     def measure(self, req: MeasureRequest) -> MeasureResult:
         """Measure and fit text, returning extents, baseline, and the fit outcome.
@@ -227,6 +376,8 @@ class TextService:
         else:
             # wrap (default): does not fit; the solver applies the overflow policy.
             result = _result(w, h, para, lines, base_size, "overflowing")
+        if req.balance:
+            result = self._apply_balance(req, runs, result)
         return result.model_copy(update={"missing_glyphs": missing})
 
     def _shrink(
@@ -258,6 +409,71 @@ class TextService:
         bw, bh, bl = best_metrics
         kind = "shrunk" if best < base_size - _FIT_EPS else "none"
         return _result(bw, bh, best_para, bl, best, kind)
+
+    def _apply_balance(
+        self,
+        req: MeasureRequest,
+        runs: tuple[ResolvedRun, ...],
+        result: MeasureResult,
+    ) -> MeasureResult:
+        """Narrow the layout width to the tightest that keeps the line count.
+
+        ``balance`` is orthogonal to ``policy``: it runs after the font size is fixed, so it
+        composes with ``shrink_to_fit``/``truncate``, and narrowing the width cannot reintroduce
+        overflow because the line count (and therefore the height) is held constant. A single
+        line has nothing to balance, and an unbounded request (``max_width_pt is None``, e.g. a
+        ``fit_content`` measurement that feeds its width back) is left as measured.
+        """
+        if not req.balance or req.max_width_pt is None or req.max_width_pt <= 0:
+            return result
+        if result.overflow_kind == "overflowing" or not result.converged:
+            return result
+        if result.line_count <= 1:
+            return result
+        probe_runs = (
+            (runs[0].model_copy(update={"text": result.out_text}),)
+            if result.out_text is not None
+            else runs
+        )
+        size = result.resolved_size_pt or req.font_size_pt
+        width = self._narrowest_width(probe_runs, req, size, result.line_count)
+        return result if width is None else result.model_copy(update={"layout_width_pt": width})
+
+    def _narrowest_width(
+        self,
+        runs: tuple[ResolvedRun, ...],
+        req: MeasureRequest,
+        size: float,
+        line_budget: int,
+    ) -> float | None:
+        """Narrowest layout width that still yields ``line_budget`` lines at ``size``.
+
+        Binary-searches width with the same ≤8-iteration cap as the fit search and a
+        quarter-point resolution like the shrink bracket, since narrower differences are
+        indistinguishable once rasterized. The predicate only distinguishes "within the line
+        budget" from "over", so the result is a near-minimal balanced width, not an exact
+        infimum — good enough because the caller only needs the longest line to come out tight.
+        """
+        hi = req.max_width_pt
+        if hi is None or hi <= 0:
+            return None
+        per_line = self._unit_line_height(runs, req, size)
+        lo = 0.0
+        for _ in range(_MAX_BALANCE_ITERS):
+            mid = (lo + hi) / 2.0
+            if mid <= 0.0:
+                break
+            para = self._build(runs, req, size)
+            para.layout(mid)
+            h = float(para.Height)
+            n = max(1, round(h / per_line)) if h > 0 and per_line > 0 else 1
+            if n <= line_budget:
+                hi = mid
+            else:
+                lo = mid
+            if hi - lo < _BALANCE_SEARCH_EPS_PT:
+                break
+        return hi
 
     def _truncate(
         self, req: MeasureRequest, runs: tuple[ResolvedRun, ...], base_size: float
@@ -365,9 +581,11 @@ class TextService:
         """Return ``(width_pt, height_pt, line_count)`` for a laid-out paragraph.
 
         The line count divides total height by a *measured* single-line height (the paragraph's
-        natural height at unbounded width) rather than an invented ``size * 1.2`` constant
-        (CR-19). The estimate is exact for uniform text and degrades gracefully only for text
-        carrying explicit line breaks, which none of the fit policies produce.
+        natural height at unbounded width with hard breaks stripped) rather than an invented
+        ``size * 1.2`` constant (CR-19). Stripping matters because explicit ``\n`` breaks are
+        counted against ``max_lines``: the probe must measure exactly one line or a two-line
+        value would divide its own height and report one. The estimate is exact for a single
+        style and approximate when lines carry different font sizes.
         """
         w = float(para.LongestLine)
         h = float(para.Height)
@@ -378,8 +596,16 @@ class TextService:
     def _unit_line_height(
         self, runs: tuple[ResolvedRun, ...], req: MeasureRequest, size: float
     ) -> float:
-        """Measure one line's height for the given runs/size at unbounded width."""
-        probe = self._build(runs, req, size)
+        """Measure one line's height, with hard breaks stripped so the probe is a single line.
+
+        Stripping is what makes ``round(h / per_line)`` count explicit hard breaks; before this
+        the probe included them, so a two-line ``"A\\nB"`` divided two lines by two lines and
+        reported one, and the break slipped past ``max_lines``.
+        """
+        probe_runs = tuple(
+            run.model_copy(update={"text": _without_hard_breaks(run.text)}) for run in runs
+        )
+        probe = self._build(probe_runs, req, size)
         probe.layout(_UNBOUNDED_WIDTH)
         h = float(probe.Height)
         return h if h > 0 else size * _FALLBACK_LINE_HEIGHT_RATIO
@@ -457,6 +683,11 @@ class TextService:
 
 def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
+
+
+def _without_hard_breaks(text: str) -> str:
+    """Drop hard-break characters so a probe lays out as exactly one line."""
+    return text.translate({ord(c): None for c in _HARD_BREAK_CHARS})
 
 
 def _result(

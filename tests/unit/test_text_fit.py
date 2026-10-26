@@ -116,6 +116,80 @@ def test_rtl_farsi_measures() -> None:
     assert res.width_pt > 0 and res.height_pt > 0
 
 
+# ---------------------------------------------------------------- fit.balance (balanced wrap)
+#
+# `balance` narrows the layout width to the tightest that still holds the line count, so "two
+# lines, same width" needs no guessed box width. It runs after the font size is fixed, so it
+# composes with `shrink_to_fit` rather than competing with it.
+def test_wrap_balance_produces_minimal_two_line_width() -> None:
+    text = "The quick brown fox jumps over the lazy dog"
+    greedy = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0)
+    bal = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0, balance=True)
+
+    assert greedy.layout_width_pt is None  # balance was not requested
+    assert bal.layout_width_pt is not None
+    assert bal.layout_width_pt < 260.0
+    assert bal.line_count == 2
+    # The narrowed width still lays out in two lines, and a few points narrower tips it over,
+    # so the returned width is the tightest that holds the count (the lines are as even as the
+    # wrap allows).
+    at_balanced = _measure(text=text, font_size_pt=20.0, max_width_pt=bal.layout_width_pt)
+    assert at_balanced.line_count == 2
+    assert (
+        _measure(text=text, font_size_pt=20.0, max_width_pt=bal.layout_width_pt - 4.0).line_count
+        > 2
+    )
+
+
+def test_balance_evens_line_lengths() -> None:
+    """The balanced longest line is tighter than the greedy longest line (same line count)."""
+    text = "The quick brown fox jumps over the lazy dog"
+    greedy = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0)
+    bal = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0, balance=True)
+    assert bal.line_count == greedy.line_count == 2
+    # At the balanced width every line fits within it, so the longest balanced line is at most
+    # layout_width_pt — and that is strictly below the greedy longest line, i.e. the two lines
+    # are more even without adding a line. This is the "same width, two lines" guarantee.
+    assert bal.layout_width_pt is not None
+    assert bal.layout_width_pt < greedy.width_pt
+
+
+def test_balance_rtl_farsi() -> None:
+    text = "این یک متن آزمایشی برای چیدمان دو خطی است"
+    bal = _measure(
+        text=text, font_families=("Vazirmatn",), direction="rtl",
+        font_size_pt=20.0, max_width_pt=300.0, balance=True,
+    )
+    assert bal.layout_width_pt is not None
+    assert bal.layout_width_pt < 300.0
+    at_balanced = _measure(
+        text=text, font_families=("Vazirmatn",), direction="rtl",
+        font_size_pt=20.0, max_width_pt=bal.layout_width_pt,
+    )
+    assert at_balanced.line_count == bal.line_count
+
+
+def test_balance_with_shrink_to_fit() -> None:
+    """balance composes with shrink_to_fit: it narrows at the resolved size, not the base size."""
+    text = "A rather long headline that will not fit at one size and needs shrinking"
+    common = {
+        "text": text,
+        "font_size_pt": 40.0,
+        "max_width_pt": 180.0,
+        "max_height_pt": 44.0,
+        "fit_policy": "shrink_to_fit",
+        "min_size_pt": 8.0,
+    }
+    res = _measure(**common, balance=True)
+    assert res.overflow_kind == "shrunk"
+    assert res.layout_width_pt is not None
+    assert res.layout_width_pt < 180.0
+    # The same line count holds at the narrowed width, at the same resolved size.
+    at_balanced = _measure(**{**common, "max_width_pt": res.layout_width_pt})
+    assert at_balanced.line_count == res.line_count
+    assert abs(at_balanced.resolved_size_pt - res.resolved_size_pt) < 0.01
+
+
 # ------------------------------------------------------------ solver-level fit policies
 _HEADER = """
 version: 0.1.0
@@ -437,3 +511,134 @@ def test_missing_glyph_warns_in_layout(tmp_path: Path) -> None:
     )
     assert any(w.code == "ARC-RND-011" for w in layout.warnings)
     assert not has_errors(list(layout.warnings))  # it is a warning, not an error
+
+
+# --------------------------------------------------- authorable hard breaks (A4)
+#
+# A literal ``\n`` in a data value is a forced line break and must be counted against
+# ``max_lines`` like a wrapped line. Before the probe stripped break characters, a two-line
+# value divided its own height and reported one line, so ``max_lines: 1`` silently painted two.
+# The Farsi case pins that the count survives RTL shaping; the shrink and solver cases pin that
+# the same count reaches both the fit search and the ARC-LAY-057 line-cap path.
+
+
+def test_hard_break_counts_as_two_lines() -> None:
+    res = _measure(text="Alpha\nBeta", font_size_pt=20.0, max_width_pt=300.0, max_lines=2)
+    assert res.line_count == 2
+    assert res.overflow_kind == "none"
+
+
+def test_hard_break_over_max_lines_overflows() -> None:
+    res = _measure(text="Alpha\nBeta", font_size_pt=20.0, max_width_pt=300.0, max_lines=1)
+    assert res.line_count == 2
+    assert res.overflow_kind == "overflowing"
+
+
+def test_hard_break_rtl_counts_as_two_lines() -> None:
+    res = _measure(
+        text="سلام\nدنیا",
+        font_families=("Vazirmatn",),
+        font_size_pt=20.0,
+        max_width_pt=300.0,
+        direction="rtl",
+        max_lines=2,
+    )
+    assert res.line_count == 2
+    assert res.overflow_kind == "none"
+
+
+def test_hard_break_shrink_counts_lines() -> None:
+    """The shrink branch shares _metrics, so the cap must bottom it out at min_size too."""
+    res = _measure(
+        text="Alpha\nBeta",
+        font_size_pt=20.0,
+        max_width_pt=300.0,
+        max_height_pt=300.0,
+        fit_policy="shrink_to_fit",
+        min_size_pt=10.0,
+        max_lines=1,
+    )
+    assert res.converged is False
+    assert res.overflow_kind == "overflowing"
+
+
+def test_hard_break_max_lines_raises_lay057(tmp_path: Path) -> None:
+    """A hard-break-only line-cap violation takes the ARC-LAY-057 path, not ARC-LAY-050."""
+    with pytest.raises(DiagnosticError) as exc:
+        _solve(
+            tmp_path,
+            """
+    - id: t
+      type: text
+      text: "Alpha\\nBeta"
+      style: {font: Inter, font_size: 20pt, color: black}
+      fit: {policy: wrap, max_lines: 1, overflow: error}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: 300pt, h: 300pt}
+""",
+        )
+    assert exc.value.diagnostics[0].code == "ARC-LAY-057"
+
+
+# ------------------------------------------ ARC-LAY-058 shrunk text below its declared size (A3)
+#
+# A 'shrink_to_fit' text node that *converges* at a size materially below the declared size used
+# to validate and render silently: the same headline ships at 54pt in one format and 46pt in
+# another with no diagnostic. ARC-LAY-058 makes that visible without failing the build (warnings
+# do not flip ok); --strict promotes it.
+_SHRINK_FIXTURE = """
+    - id: headline
+      type: text
+      text: "A rather long headline that will not fit at one size"
+      style: {font: Inter, font_size: 48pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 10pt}
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 200pt, h: 70pt}}
+"""
+
+
+def test_shrink_warns_arc_lay_058_with_node_format_and_sizes(tmp_path: Path) -> None:
+    layout = _solve(tmp_path, _SHRINK_FIXTURE)
+    warnings = [w for w in layout.warnings if w.code == "ARC-LAY-058"]
+    assert len(warnings) == 1
+    warning = warnings[0]
+    assert warning.severity == "warning"
+    assert "'headline'" in warning.message
+    assert "'square'" in warning.message
+    assert "48.0pt" in warning.message
+    assert "declared" in warning.message
+    assert "rendered" in warning.message
+    assert not has_errors(list(layout.warnings))
+
+
+def test_non_convergent_shrink_emits_only_lay051(tmp_path: Path) -> None:
+    """A shrink that bottoms out at min_size is ARC-LAY-051; ARC-LAY-058 must not double-report."""
+    layout = _solve(tmp_path, _FLOOR_MAX_LINES % "allow")
+    codes = [w.code for w in layout.warnings]
+    assert "ARC-LAY-051" in codes
+    assert "ARC-LAY-058" not in codes
+
+
+def test_fitting_text_emits_no_shrink_warning(tmp_path: Path) -> None:
+    """Text that fits at its declared size is not a shrink, so it does not warn."""
+    layout = _solve(
+        tmp_path,
+        """
+    - id: short
+      type: text
+      text: "Hi"
+      style: {font: Inter, font_size: 12pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 6pt}
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 300pt, h: 100pt}}
+""",
+    )
+    assert not any(w.code == "ARC-LAY-058" for w in layout.warnings)
+
+
+def test_shrink_is_noticeable_tolerance() -> None:
+    """Half a point is the human-facing threshold; smaller differences are invisible."""
+    from arcavex.builtin.layout_anchors.solver import _shrink_is_noticeable
+
+    assert _shrink_is_noticeable(54.0, 46.0) is True
+    assert _shrink_is_noticeable(54.0, 53.6) is False
+    assert _shrink_is_noticeable(54.0, 54.0) is False

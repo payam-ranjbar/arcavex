@@ -518,3 +518,49 @@ def test_list_rooted_data_file_rejected(tmp_path: Path) -> None:
     data.write_text("- 1\n- 2\n", encoding="utf-8")
     result = Compiler().compile(template, data, "square", None, None)
     assert any(d.code == "ARC-TPL-012" for d in result.diagnostics)
+
+
+_FIT_TEXT = """
+version: 0.1.0
+formats:
+  square: {canvas: {width: 100px, height: 100px, dpi: 96}}
+root:
+  type: group
+  id: root
+  children:
+    - id: t
+      type: text
+      text: "hello"
+      fit: {%s}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: fill, h: fit_content}
+"""
+
+
+def test_fit_balance_parsed(tmp_path: Path) -> None:
+    """fit.balance parses to a bool, defaulting False when omitted."""
+    on = _write(tmp_path, _FIT_TEXT % "policy: wrap, balance: true")
+    result = Compiler().compile(on, None, "square", None, None)
+    assert result.document is not None, result.diagnostics
+    node = result.document.root.children[0]
+    assert isinstance(node, CompiledText)
+    assert node.fit.balance is True
+
+    off = _write(tmp_path, _FIT_TEXT % "policy: wrap")
+    result = Compiler().compile(off, None, "square", None, None)
+    assert result.document is not None, result.diagnostics
+    node = result.document.root.children[0]
+    assert isinstance(node, CompiledText)
+    assert node.fit.balance is False
+
+
+def test_fit_balance_rejects_non_boolean(tmp_path: Path) -> None:
+    """A non-boolean balance is a located ARC-TPL-041, not the unknown-field code."""
+    template = _write(tmp_path, _FIT_TEXT % "policy: wrap, balance: sometimes")
+    result = Compiler().compile(template, None, "square", None, None)
+    assert result.document is None
+    diags = [d for d in result.diagnostics if d.code == "ARC-TPL-041"]
+    assert len(diags) == 1
+    assert diags[0].source is not None
+    assert diags[0].source.keypath == "root.children[0].fit.balance"

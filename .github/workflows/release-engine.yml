@@ -26,6 +26,9 @@ permissions:
 
 env:
   TAG: ${{ inputs.tag }}
+  # Only this lane marks artifacts as releases. Every other wheel or freeze is `dev`, and an
+  # editable install with no embedded build.json reports `source`.
+  ARCAVEX_BUILD_CHANNEL: release
 
 jobs:
   python-artifacts:
@@ -70,6 +73,9 @@ jobs:
           uv venv /tmp/verify
           uv pip install --python /tmp/verify dist/*.whl
           /tmp/verify/bin/arcavex --version
+          /tmp/verify/bin/arcavex --version | grep -q 'channel release'
+          /tmp/verify/bin/arcavex doctor --json > /tmp/doctor.json
+          /tmp/verify/bin/python -c "import json; r=json.load(open('/tmp/doctor.json')); assert r['build_channel']=='release' and r['build_commit'], r"
           /tmp/verify/bin/arcavex doctor
           # Written here, not taken from examples/: this verifies the wheel, which does not ship
           # repository content.
@@ -137,11 +143,26 @@ jobs:
       - name: Freeze the engine
         run: uv run python packaging/build.py
 
+      # The frozen exe is what the desktop ships; a dropped command group here is invisible to
+      # every other check because the wheel is built from a separate tree.
+      - name: Check the frozen CLI surface matches the source
+        run: uv run python scripts/check_cli_surface.py dist/frozen/arcavex/arcavex.exe
+
       # Digest comparison, not a smoke test: every way packaging breaks Arcavex is silent. A
       # missing font reflows text, absent package metadata changes the PDF Producer string, a
       # different ICU reshapes Farsi. This renders the fixture matrix both ways and compares.
       - name: Verify the frozen engine renders byte-identically
         run: uv run python packaging/verify_frozen.py
+
+      - name: Check the frozen exe reports the release channel
+        shell: pwsh
+        run: |
+          $version = & dist/frozen/arcavex/arcavex.exe --version
+          if ($version -notmatch 'channel release') { throw "--version is not a release build: $version" }
+          $doctor = (& dist/frozen/arcavex/arcavex.exe doctor --json) | ConvertFrom-Json
+          if ($doctor.build_channel -ne 'release' -or -not $doctor.build_commit) {
+            throw "doctor identity is not a pinned release: $($doctor | ConvertTo-Json -Compress)"
+          }
 
       - name: Archive the bundle
         shell: pwsh

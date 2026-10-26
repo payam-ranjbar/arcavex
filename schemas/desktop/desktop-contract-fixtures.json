@@ -345,6 +345,8 @@
       }
     ],
     "doctor": {
+      "build_channel": "release",
+      "build_commit": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
       "checks": [
         {
           "detail": "3 families",

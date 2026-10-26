@@ -56,6 +56,11 @@ _VERTICAL = ("top", "bottom", "center_y")
 # fed straight back as the layout max-width, can leave the same line a hair too wide to fit and
 # re-wrap it. Half a point reliably absorbs that boundary jitter without visibly widening boxes.
 _FIT_WIDTH_MARGIN = 0.5
+# A converged 'shrink_to_fit' that lands this far below the declared size is worth reporting.
+# The text service already classifies a shrink as "shrunk" past its own 0.25pt fit epsilon
+# (_FIT_EPS), but sub-half-point differences are invisible once rasterised; this is the
+# human-facing threshold (A3).
+_SHRINK_WARN_MIN_PT = 0.5
 
 
 def _q(value: float) -> float:
@@ -92,6 +97,7 @@ class AnchorLayoutSolver(LayoutSolver):
             measure,
             warnings,
             Matrix3.identity(),
+            doc.format_name,
         )
         return LayoutDocument(
             canvas=_resolved_canvas(doc),
@@ -109,6 +115,7 @@ class AnchorLayoutSolver(LayoutSolver):
         measure: MeasureFn,
         warnings: list[Diagnostic],
         parent_transform: Matrix3,
+        format_name: str | None = None,
     ) -> LayoutNode:
         transform = node.transform
         rotate_deg = transform.rotate_deg
@@ -120,7 +127,9 @@ class AnchorLayoutSolver(LayoutSolver):
         )
         absolute_transform = local_transform.then(parent_transform)
 
-        content, overflow = self._resolve_content(node, bounds, inherited_dir, measure, warnings)
+        content, overflow = self._resolve_content(
+            node, bounds, inherited_dir, measure, warnings, format_name
+        )
 
         children: tuple[LayoutNode, ...] = ()
         clip = False
@@ -136,6 +145,7 @@ class AnchorLayoutSolver(LayoutSolver):
                     measure,
                     warnings,
                     absolute_transform,
+                    format_name,
                 )
                 for child, rect in child_rects
             )
@@ -677,9 +687,12 @@ class AnchorLayoutSolver(LayoutSolver):
         inherited_dir: str,
         measure: MeasureFn,
         warnings: list[Diagnostic],
+        format_name: str | None = None,
     ) -> tuple[ResolvedContent, OverflowState]:
         if isinstance(node, CompiledText):
-            return self._resolve_text(node, bounds, inherited_dir, measure, warnings)
+            return self._resolve_text(
+                node, bounds, inherited_dir, measure, warnings, format_name
+            )
         if isinstance(node, CompiledImage):
             return ResolvedImage(asset_path=node.asset_path, fit=node.fit), OverflowState()
         if isinstance(node, CompiledShape):
@@ -704,6 +717,7 @@ class AnchorLayoutSolver(LayoutSolver):
         inherited_dir: str,
         measure: MeasureFn,
         warnings: list[Diagnostic],
+        format_name: str | None = None,
     ) -> tuple[ResolvedText, OverflowState]:
         direction = _resolve_dir(node.paragraph.direction, node.text, inherited_dir)
         base_size = node.style.font_size_pt or 16.0
@@ -755,6 +769,17 @@ class AnchorLayoutSolver(LayoutSolver):
                         **_loc(node),
                     )
                 )
+        # A converged shrink that lands materially below the declared size is a silent design
+        # change — the same headline renders at different sizes per format (A3). Non-convergent
+        # shrink is already ARC-LAY-051, so guard on convergence to avoid double-reporting.
+        if kind == "shrunk" and _shrink_is_noticeable(
+            base_size, result.resolved_size_pt or base_size
+        ):
+            warnings.append(
+                _shrunk_diag(
+                    node, format_name, base_size, result.resolved_size_pt or base_size
+                )
+            )
         resolved = ResolvedText(
             text=result.out_text or node.text,
             runs=out_runs,
@@ -769,6 +794,7 @@ class AnchorLayoutSolver(LayoutSolver):
             letter_spacing_pt=node.style.letter_spacing_pt,
             language=node.style.language,
             clip=clip,
+            layout_width_pt=result.layout_width_pt,
         )
         overflow = OverflowState(
             kind=kind,  # type: ignore[arg-type]
@@ -894,6 +920,7 @@ class AnchorLayoutSolver(LayoutSolver):
             fit_policy=node.fit.policy,
             min_size_pt=node.fit.min_size_pt,
             max_lines=node.fit.max_lines,
+            balance=node.fit.balance,
         )
 
     # ------------------------------------------------------------------ transforms
@@ -1105,5 +1132,31 @@ def _missing_glyph_diag(
         f"({unicodedata.name(chr(codepoint), 'unknown')}) in any bundled font",
         severity="warning",
         hint=f"Add a font covering it under library-seed/fonts. Tried: {chain}, then fallback.",
+        **_loc(node),
+    )
+
+
+def _shrink_is_noticeable(declared_pt: float, rendered_pt: float) -> bool:
+    """Whether a converged shrink is large enough to warn about (A3)."""
+    return declared_pt - rendered_pt >= _SHRINK_WARN_MIN_PT
+
+
+def _shrunk_diag(
+    node: CompiledText,
+    format_name: str | None,
+    declared_pt: float,
+    rendered_pt: float,
+) -> Diagnostic:
+    where = f" in format {format_name!r}" if format_name else ""
+    return diagnostic(
+        "ARC-LAY-058",
+        f"Text node {node.id!r}{where} was shrunk by 'shrink_to_fit': "
+        f"declared {declared_pt:.1f}pt, rendered {rendered_pt:.1f}pt",
+        severity="warning",
+        hint=(
+            "The box cannot hold the declared size. Enlarge the box or shorten the copy so "
+            "'shrink_to_fit' has nothing to shrink, or accept the smaller size; use --strict "
+            "to fail the build on it."
+        ),
         **_loc(node),
     )

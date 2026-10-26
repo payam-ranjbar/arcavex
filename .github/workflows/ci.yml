@@ -385,6 +385,9 @@ jobs:
         shell: pwsh
         run: ./scripts/stage_engine_sidecar.ps1 -Source Build -UpdateLock
 
+      - name: Check the frozen CLI surface matches the source
+        run: uv run python scripts/check_cli_surface.py apps/desktop/src-tauri/binaries/engine/arcavex.exe
+
       - name: Sidecar contract tests
         run: uv run pytest tests/e2e/test_engine_sidecar.py -q
 

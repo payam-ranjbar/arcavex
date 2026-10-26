@@ -157,6 +157,28 @@ def _check_extensions(exe: Path) -> list[str]:
         return []
 
 
+def _check_font_metrics(exe: Path) -> list[str]:
+    """Confirm the frozen build exposes ``font metrics`` with JSON and real measurements.
+
+    The command exists so an agent can size a box without a render; that only helps if the
+    command is actually in the shipped binary, so it is probed there rather than inferred from
+    the source tree. A non-zero exit or a non-positive line height means the binary's shaper
+    could not measure a bundled family.
+    """
+    with tempfile.TemporaryDirectory(prefix="arcavex-metrics-") as tmp:
+        env = dict(os.environ, ARCAVEX_HOME=str(Path(tmp) / "home"))
+        result = _run([str(exe), "font", "metrics", "Inter", "40pt", "--json"], tmp, env)
+        if result.returncode != 0:
+            print(f"  DIFF  font metrics          {(result.stdout or '').strip()[:70]}")
+            return ["font-metrics"]
+        payload = json.loads(result.stdout)
+        if not payload.get("ok") or payload.get("line_height_pt", 0) <= 0:
+            print("  DIFF  font metrics          missing/non-positive metrics")
+            return ["font-metrics"]
+        print("  ok    font metrics          line height/cap/advance reported")
+        return []
+
+
 def main() -> int:
     """Render both engines across the matrix and report any digest divergence."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -197,6 +219,7 @@ def main() -> int:
 
     failures.extend(_check_relocated(exe))
     failures.extend(_check_extensions(exe))
+    failures.extend(_check_font_metrics(exe))
 
     dev_tools, exe_tools = _tool_catalog(dev), _tool_catalog(frozen)
     if dev_tools == exe_tools:

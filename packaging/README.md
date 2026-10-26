@@ -196,10 +196,17 @@ that runs `arcavex.exe mcp serve`, then `mcpb pack`.
 
 ## Engine and skill identity
 
-Wheels and frozen executables embed `arcavex/_bundled/build.json` with the source commit.
-`arcavex --version`, `arcavex doctor`, and the frozen desktop handshake expose that identity.
-Source builds with modified tracked files are marked `-dirty`; a source distribution retains
-its captured identity when rebuilt without Git. If identity is unavailable it remains unknown.
+Wheels and frozen executables embed `arcavex/_bundled/build.json` with the source commit and
+build channel. `arcavex --version`, `arcavex doctor`, and the frozen desktop handshake expose
+that identity. Source builds with modified tracked files are marked `-dirty`; a source
+distribution retains its captured identity when rebuilt without Git. If identity is unavailable
+it remains unknown.
+
+The channel is stamped at build time by `packaging/payload.py`, which reads
+`ARCAVEX_BUILD_CHANNEL`. The tagged engine release lane sets it to `release`; any other build
+defaults to `dev`; an editable install or checkout with no embedded `build.json` reports
+`source`. The channel is never read from the environment at runtime, so a running process
+cannot misreport the artifact it was built from.
 
 The custom Hatch hook and PyInstaller spec both stage `arcavex-design-studio` with the same
 build header. The frozen bundle previously omitted the skill payload entirely, despite exposing

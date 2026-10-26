@@ -183,6 +183,8 @@ def _fixture_inputs() -> dict[str, dict[str, Any]]:
             "doctor": {
                 "ok": True,
                 "engine_version": "0.0.0-fixture",
+                "build_commit": _SHA256[:40],
+                "build_channel": "release",
                 "checks": [
                     {"name": "fonts", "status": "ok", "detail": "3 families"},
                     {

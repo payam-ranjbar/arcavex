@@ -25,6 +25,7 @@ from pydantic import UUID4, BaseModel, ConfigDict, Field, FiniteFloat, field_val
 
 from arcavex.kernel.contracts.types import (
     ExportOptions,
+    FontMetricsRequest,
     MeasureFn,
 )
 from arcavex.kernel.diagnostics import (
@@ -425,6 +426,40 @@ class FontListReport(BaseModel):
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
+class FontMetricsReport(BaseModel):
+    """The result of ``arcavex font metrics`` — typographic measurements for one family/size.
+
+    ``line_height_pt`` is a single line's natural height exactly as the engine's layout measures
+    it, so a ``fit_content`` text box sized from it is not one wrap short. ``cap_height_pt`` and
+    ``x_height_pt`` come from the font's own tables via Skia; ``advance_pt`` is the shaped width
+    of ``sample``. ``size_pt``/``size_px`` state the resolved size on both bases, so the ``dpi``
+    used to interpret a ``px`` size is never implicit. A family not in the database resolves to
+    ``resolved_family`` with ``fallback`` set and an ``ARC-RND-010`` error.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    family: str
+    resolved_family: str | None = None
+    fallback: bool = False
+    size: str = ""
+    size_pt: float = 0.0
+    size_px: float = 0.0
+    dpi: int = 96
+    sample: str = ""
+    weight: int = 400
+    italic: bool = False
+    ascent_pt: float = 0.0
+    descent_pt: float = 0.0
+    line_height_pt: float = 0.0
+    cap_height_pt: float = 0.0
+    x_height_pt: float = 0.0
+    advance_pt: float = 0.0
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
 class FontActionReport(BaseModel):
     """The result of ``arcavex font add`` / ``arcavex font remove``.
 
@@ -543,6 +578,8 @@ class DoctorReport(BaseModel):
     response_version: int = RESPONSE_VERSION
     ok: bool
     engine_version: str
+    build_commit: str | None = None
+    build_channel: str = "unknown"
     checks: list[DoctorCheck]
 
 
@@ -1297,9 +1334,12 @@ class SiblingOverlap(BaseModel):
 
     Scope: pairs are enumerated per group, so two nodes in different groups are never compared.
     An empty list means no sibling collisions, not that nothing on the canvas collides — on the
-    reference poster, 20-22 intersecting cross-group pairs go unreported per format. Callers
-    needing a whole-canvas check compare ``bounds_pt`` across the tree themselves; the reason the
-    scope is not simply widened is in docs/backlog.md.
+    reference poster, 20-22 intersecting cross-group pairs go unreported per format. A
+    whole-canvas check is now available via ``LayoutReport.cross_group_overlaps`` /
+    ``layout inspect --cross-group``: those entries use the containment-plus-paint-order backdrop
+    rule (a leaf that fully contains a later leaf and is painted below it is a backdrop) instead
+    of the area heuristic above. This class types both lists; the default ``overlaps`` semantics
+    are unchanged.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -1326,6 +1366,10 @@ class LayoutReport(BaseModel):
     dpi: int = 0
     root: LayoutNodeReport | None = None
     overlaps: list[SiblingOverlap] = Field(default_factory=list)
+    # Whole-canvas leaf-pair collisions, opt-in via ``layout inspect --cross-group``. Additive and
+    # defaulted, so a payload serialised before the field existed still parses (spec §2 rule 5);
+    # ``overlaps`` above stays per-group and unchanged. Same shape as ``overlaps``.
+    cross_group_overlaps: list[SiblingOverlap] = Field(default_factory=list)
     covered_fraction: float = 0.0
     # Maximal full-width empty horizontal bands (uncovered canvas), largest first — the summary
     # that surfaces e.g. an unfilled bottom slab (spec §6.1.1 free regions).
@@ -1485,7 +1529,14 @@ class AuthoringProtocol(Protocol):
         ...
 
     def patch_template(
-        self, template: Path, ops: list[PatchOp], base_sha256: str | None
+        self,
+        template: Path,
+        ops: list[PatchOp],
+        base_sha256: str | None,
+        *,
+        format_name: str | None = None,
+        locale: str | None = None,
+        unset: bool = False,
     ) -> PatchTemplateResult:
         """Apply path-addressed patch ops to a template file on disk (ruamel round-trip)."""
         ...
@@ -1968,6 +2019,7 @@ class Facade:
         extensions: ExtensionServiceProtocol | None = None,
         extension_load_diagnostics: list[Diagnostic] | None = None,
         fonts: FontServiceProtocol | None = None,
+        font_metrics_fn: Callable[[FontMetricsRequest], FontMetricsReport] | None = None,
         skills: SkillServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
@@ -2001,6 +2053,7 @@ class Facade:
         self._extensions = extensions
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
         self._fonts = fonts
+        self._font_metrics_fn = font_metrics_fn
         self._skills = skills
         self._budget = budget
         self._engine_version = engine_version
@@ -2374,15 +2427,19 @@ class Facade:
         format_name: str | None = None,
         locale: str | None = None,
         style: str | None = None,
+        cross_group: bool = False,
     ) -> LayoutReport:
         """Compile and lay out a template and report resolved geometry. Never raises.
 
         Reports per-node resolved bounds (points and device pixels), paint bounds, rotation,
         text-overflow state, the anchor derivation for each axis, sibling overlaps, and a
-        coverage summary (spec §6.1.1).
+        coverage summary (spec §6.1.1). ``cross_group`` additionally runs the opt-in
+        whole-canvas leaf-pair check into ``cross_group_overlaps``.
         """
         try:
-            return self._inspect_layout_inner(template, data, format_name, locale, style)
+            return self._inspect_layout_inner(
+                template, data, format_name, locale, style, cross_group=cross_group
+            )
         except DiagnosticError as exc:
             return LayoutReport(ok=False, diagnostics=list(exc.diagnostics))
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
@@ -2392,7 +2449,7 @@ class Facade:
 
     def inspect_project_layout(
         self, *, project: Path | None = None, format_name: str | None = None,
-        locale: str | None = None,
+        locale: str | None = None, cross_group: bool = False,
     ) -> LayoutReport:
         """Inspect a single project render target, including its data, style, and overrides."""
         if self._orchestrator is None:
@@ -2410,7 +2467,7 @@ class Facade:
             target_format, target_locale = inputs.targets[0]
             return self._inspect_layout_inner(
                 inputs.template_dir, inputs.data_path, target_format, target_locale, inputs.style,
-                inputs.patch_ops, inputs.patch_file,
+                inputs.patch_ops, inputs.patch_file, cross_group=cross_group,
             )
         except DiagnosticError as exc:
             return LayoutReport(ok=False, diagnostics=list(exc.diagnostics))
@@ -2428,6 +2485,7 @@ class Facade:
         style: str | None,
         project_patch: list[Any] | None = None,
         project_patch_file: Path | None = None,
+        cross_group: bool = False,
     ) -> LayoutReport:
         compiled = self._compiler.compile(
             template, data, format_name, locale, style,
@@ -2447,6 +2505,9 @@ class Facade:
         root = _build_node_report(
             compiled.document.root, layout.root, compiled.document.root.direction, dpi, overlaps
         )
+        cross_overlaps: list[SiblingOverlap] = []
+        if cross_group:
+            _collect_cross_group_overlaps(layout.root, cross_overlaps)
         covered = _covered_fraction(layout)
         return LayoutReport(
             ok=True,
@@ -2457,6 +2518,7 @@ class Facade:
             dpi=dpi,
             root=root,
             overlaps=overlaps,
+            cross_group_overlaps=cross_overlaps,
             covered_fraction=covered,
             free_regions=_free_regions(layout),
             inferred=inferred,
@@ -2724,6 +2786,55 @@ class Facade:
                 ok=False, diagnostics=[internal_error("font remove failed", detail=repr(exc))]
             )
 
+    def font_metrics(
+        self,
+        family: str,
+        size: str,
+        *,
+        sample: str = "Hamburgefonstiv",
+        weight: int = 400,
+        italic: bool = False,
+        dpi: int = 96,
+    ) -> FontMetricsReport:
+        """Report a family's line/cap/x-height and the advance of a sample string. Never raises.
+
+        The measurement itself lives behind an injected shaper method (``font_metrics_fn``),
+        exactly as ``measure_fn`` does for layout, so the kernel never imports the shaper and
+        there is only ever one shaping implementation.
+        """
+        try:
+            request = FontMetricsRequest(
+                family=family,
+                size=size,
+                dpi=dpi,
+                sample=sample,
+                weight=weight,
+                italic=italic,
+            )
+            if self._font_metrics_fn is None:  # pragma: no cover - always wired in production
+                return FontMetricsReport(
+                    ok=False,
+                    family=family,
+                    size=size,
+                    dpi=dpi,
+                    sample=sample,
+                    weight=weight,
+                    italic=italic,
+                    diagnostics=[_unwired("font metrics")],
+                )
+            return self._font_metrics_fn(request)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontMetricsReport(
+                ok=False,
+                family=family,
+                size=size,
+                dpi=dpi,
+                sample=sample,
+                weight=weight,
+                italic=italic,
+                diagnostics=[internal_error("font metrics failed", detail=repr(exc))],
+            )
+
     # ----------------------------------------------------------------------- skill install
     def list_skill_targets(
         self, path: Path | None = None, project: bool = False
@@ -2855,7 +2966,14 @@ class Facade:
             )
 
     def patch_template(
-        self, template: Path, ops: list[PatchOp], base_sha256: str | None = None
+        self,
+        template: Path,
+        ops: list[PatchOp],
+        base_sha256: str | None = None,
+        *,
+        format_name: str | None = None,
+        locale: str | None = None,
+        unset: bool = False,
     ) -> PatchTemplateResult:
         """Apply path-addressed patch ops to a template file on disk (§3.7, §4.1.4). Never raises.
 
@@ -2864,11 +2982,24 @@ class Facade:
         located ``ARC-TPL-092`` rather than a silent no-op. When ``base_sha256`` is given and no
         longer matches the file on disk the patch is refused (``ARC-TPL-110``) so a concurrent
         edit is never clobbered (§8.3). Reachable via CLI/API, so MCP adds no exclusive power.
+
+        ``format_name`` and/or ``locale`` target a format/locale patch list instead of the root
+        AST: the op is upserted into ``formats.<F>.patch`` / ``locales.<L>.patch`` / the narrowest
+        ``locales.<L>.formats.<F>.patch``, and ``unset`` deletes the op that addresses the same
+        path. ``PatchTemplateResult.path`` is then the file that owns that section — the sidecar
+        for a split template — and ``sha256``/``base_sha256`` hash *that* file.
         """
         if self._authoring is None:  # pragma: no cover - always wired in production
             return PatchTemplateResult(ok=False, diagnostics=[_unwired("authoring")])
         try:
-            return self._authoring.patch_template(Path(template), ops, base_sha256)
+            return self._authoring.patch_template(
+                Path(template),
+                ops,
+                base_sha256,
+                format_name=format_name,
+                locale=locale,
+                unset=unset,
+            )
         except DiagnosticError as exc:
             return PatchTemplateResult(ok=False, diagnostics=list(exc.diagnostics))
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
@@ -3738,6 +3869,48 @@ def _collect_overlaps(
             if _contains(ca, cb) and _is_backdrop(a, ca, region):
                 continue
             if _contains(cb, ca) and _is_backdrop(b, cb, region):
+                continue
+            kind, rect = classified
+            overlaps.append(
+                SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect, kind=kind)
+            )
+
+
+def _collect_cross_group_overlaps(root: LayoutNode, overlaps: list[SiblingOverlap]) -> None:
+    """Whole-canvas leaf-pair check for ``layout inspect --cross-group``.
+
+    ``_collect_overlaps`` sees siblings only, so nodes in different groups are never compared.
+    This walks every visible leaf in paint order and compares leaves with different parents (the
+    pairs the sibling pass cannot see). A leaf that fully contains a later leaf and is painted
+    below it is that leaf's backdrop — containment plus paint order, docs/backlog.md — so a
+    full-bleed background is suppressed without the 0.9 area heuristic. Ancestor/descendant
+    pairs cannot occur because only leaves are collected.
+    """
+    leaves: list[tuple[LayoutNode, str, Rect]] = []  # (leaf, parent id, content AABB)
+
+    def visit(node: LayoutNode, parent_id: str) -> None:
+        if not node.visible:
+            return
+        if node.children:
+            for child in node.children:
+                visit(child, node.source_node_id)
+            return
+        if node.kind != "group":  # an empty group is a container, not content
+            leaves.append((node, parent_id, _content_aabb(node)))
+
+    visit(root, root.source_node_id)
+    for i in range(len(leaves)):
+        a, a_parent, ca = leaves[i]  # a is earlier than b => painted below b
+        for j in range(i + 1, len(leaves)):
+            b, b_parent, cb = leaves[j]
+            if a_parent == b_parent:
+                continue  # sibling pair: already in ``overlaps``
+            if _contains(ca, cb):
+                continue  # a below and contains b => a is b's backdrop
+            classified = _classify_overlap(
+                ca, cb, _canvas_paint_bounds(a), _canvas_paint_bounds(b)
+            )
+            if classified is None:
                 continue
             kind, rect = classified
             overlaps.append(

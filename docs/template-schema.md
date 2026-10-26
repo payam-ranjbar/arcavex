@@ -103,21 +103,37 @@ precedence puzzle. `arcavex template split` performs the conversion losslessly.
 ## Nodes
 
 Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`,
-`shape` (`rect` | `rrect` | `circle`), `path`.
+`shape` (`rect` | `rrect` | `circle` | `ellipse`), `path`.
 
 | Node kind | Notes |
 |---|---|
 | `group` | A container. May set `layout: hstack\|vstack` (with `gap`/`padding`/`main_align`/`cross_align`) to flow its children, and a `direction`. |
 | `text` | Live shaped text (`text:` or a `runs:` list). Supports `style`, `paragraph`, and `fit` policies. |
 | `image` | References an `asset:` (template-relative path). `fit:` is `fill`/`contain`/`cover`. |
-| `shape` | `rect`, `rrect`, or `circle`; or a `generator:` (`starburst`, `speech_bubble`, `qr_code`). |
+| `shape` | `rect`, `rrect`, `circle` (inscribed in the shorter side), or `ellipse` (fills the box); or a `generator:` (`starburst`, `speech_bubble`, `qr_code`). |
 | `path` | A vector path. Geometry effects (e.g. `torn-paper`) apply to `shape`/`path` nodes only. |
 
 Common fields on any node: `visible: true|false` (a hidden node and its subtree are not rendered),
 `z` (draw order within siblings), `style`, `style_role`, `constraints`, `transform`
 (`translate`, `rotate`, `scale`, `origin` — composed as translate ∘ rotate ∘ scale about the
 pivot), and `mask` (`{component, params}` — built-ins: `rounded_rect`, `circle`,
-`diamond_grid`). Any node may also carry an `effects:` list or an `effect_preset:` shorthand.
+`diamond_grid`, and `linear_fade`). Any node may also carry an `effects:` list or an
+`effect_preset:` shorthand.
+
+A `linear_fade` mask fades the node's alpha along `direction`
+(`to_bottom`|`to_top`|`to_left`|`to_right`); `start`/`end` are fractions of the node box along that
+axis (a `0..1` number or `"NN%"`, default `0%`/`100%`), opaque before `start` and clear after
+`end`. It is a soft alpha mask, so a photo can fade into a patterned background with no
+pre-baked PNG:
+
+```yaml
+- id: hero
+  type: image
+  asset: photo.png
+  fit: cover
+  mask: {component: linear_fade, params: {direction: to_bottom, start: 10%, end: 80%}}
+  constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 60%, h: 50%}}
+```
 
 Beyond those, each kind adds only its own fields — and nothing else is accepted (`ARC-TPL-064`):
 
@@ -247,20 +263,31 @@ first child sits at the right edge and `main_align: start` packs from the right;
 
 ### Text fit
 
-A text node may set `fit: {policy, overflow, min_size, max_lines}`:
+A text node may set `fit: {policy, overflow, min_size, max_lines, balance}`:
 
 - `policy`: `wrap` (default), `shrink_to_fit` (binary-search the largest size in
   `[min_size, font_size]` that fits — combine with `fit_content` height + `max_lines` to hug the
   shrunk result), or `truncate` (measured-prefix ellipsis, RTL-correct placement).
 - `overflow`: `clip` (default), `allow`, or `error` (`ARC-LAY-050`, exit 1).
-- `max_lines` caps the line count; with `h: fit_content` it also caps the box height. When
+- `max_lines` caps the line count; with `h: fit_content` it also caps the box height. A `\n`
+  in a data value (or a template string) is a hard break: it starts a new line and is counted
+  against `max_lines` just like a wrapped line. When
   `shrink_to_fit` reaches its `min_size` floor and the text still needs more lines than the cap
   allows, `overflow: error` reports `ARC-LAY-057` — line count vs cap and the floor reached —
   instead of `ARC-LAY-050`. The box height is not the constraint there, so enlarging it cannot
   help; widen the box, lower `min_size`, or raise `max_lines`.
+- `balance: true` narrows the wrap width to the tightest that still holds the current line
+  count, evening the line lengths — set "two lines, same width" without guessing a box width.
+  The narrowed block is positioned inside the box by `paragraph.align`. It composes with
+  `policy` (the font size is fixed first, so it also applies under `shrink_to_fit`/`truncate`)
+  and is a no-op for a single line or when the layout width is unknown (`w: fit_content`). A
+  non-boolean value is `ARC-TPL-041`.
 - Non-convergent shrink and sub-line-height truncation emit `ARC-LAY-051` warnings with the measured
-  numbers. `paragraph: {align, direction}` sets alignment (`start`/`end` follow the base direction)
-  and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).
+  numbers. A `shrink_to_fit` that converges at least 0.5pt below the declared size emits an
+  `ARC-LAY-058` warning naming the node, the format, and the declared and rendered sizes, so a
+  headline that renders smaller in one format than another is visible; `validate --strict` and
+  `render --strict` turn warnings into failures. `paragraph: {align, direction}` sets alignment
+  (`start`/`end` follow the base direction) and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).
 
 Text metrics are paragraph-level and `line_height` is not yet honored — see
 [known-limitations.md](known-limitations.md).
@@ -322,12 +349,19 @@ base file) is a common mistake; the missing-variable hint calls it out. Full rat
 
 ### Patches
 
-`formats.<name>.patch` and `locales.<L>.patch` apply ordered
+`formats.<name>.patch`, `locales.<L>.patch`, and `locales.<L>.formats.<name>.patch` apply ordered
 `set`/`remove`/`insert_before`/`insert_after` operations addressing authored node IDs
 (`nodes.<id>[.<field>…]`, `nodes.root` included; field edits see through `repeat`/`if` wrappers).
 `set` modifies an **existing** field — an unknown final path segment is a located error
 (`ARC-TPL-092`), never a silent new key. Resolution order is style → template → format patch →
-locale patch → project override, before expressions.
+locale patch → locale+format patch → project override, before expressions.
+
+`arcavex template patch --format F --set …` upserts an op into `formats.<F>.patch`;
+`--locale L --set …` into `locales.<L>.patch`; both together into the narrowest
+`locales.<L>.formats.<F>.patch`. An existing op addressing the same path has its value replaced
+rather than duplicated, and `--unset --set P` deletes it. Locale fonts are set with
+`--locale L --set fonts.<Family> --value <stack>` (written to `locales.<L>.fonts`). For a split
+template the op is written to the sidecar that owns the section.
 
 `arcavex template inspect --resolved [--format F] [--locale L]` reports the resolved
 direction/digits and each applied patch with the value it produced and its originating layer (the

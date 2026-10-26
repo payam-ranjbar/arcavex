@@ -1,11 +1,12 @@
 """Unit-aware pydantic field types for effect/mask/shape parameter schemas.
 
 Component params are authored YAML: colors as hex/``rgba()`` strings, lengths as ``pt``/``mm``/
-``px`` numbers. These validators normalize them the same way the compiler does — a length is
-stored as DPI-independent points and a color is a straight-alpha RGBA tuple — so an extension's
-param schema reads declaratively. A ``px`` length is converted to points using the canvas DPI
-passed in the validation context (default 72 when validated outside a compile, e.g. unit tests);
-only relative ``%`` is rejected, since an effect length has no percentage basis.
+``px`` numbers, and box-relative fractions as bare ``0..1`` numbers or ``"NN%"`` strings. These
+validators normalize them the same way the compiler does — a length is stored as DPI-independent
+points and a color is a straight-alpha RGBA tuple — so an extension's param schema reads
+declaratively. A ``px`` length is converted to points using the canvas DPI passed in the validation
+context (default 72 when validated outside a compile, e.g. unit tests); only relative ``%`` is
+rejected for a length, since an effect length has no percentage basis.
 """
 
 from __future__ import annotations
@@ -61,7 +62,23 @@ def _as_rgba(value: object) -> RGBA:
     raise ValueError(f"invalid color {value!r}")
 
 
+def _as_fraction(value: object) -> float:
+    """Coerce a box-relative fraction: a bare ``0..1`` number or an ``"NN%"`` string."""
+    if isinstance(value, bool):
+        raise ValueError("expected a fraction, got a boolean")
+    if isinstance(value, str):
+        text = value.strip()
+        value = float(text[:-1]) / 100.0 if text.endswith("%") else float(text)
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"invalid fraction {value!r}")
+    fraction = float(value)
+    if not 0.0 <= fraction <= 1.0:
+        raise ValueError(f"fraction {fraction} is outside [0, 1]")
+    return fraction
+
+
 Points = Annotated[float, BeforeValidator(_as_pt)]
 RGBAColor = Annotated[RGBA, BeforeValidator(_as_rgba)]
+Fraction = Annotated[float, BeforeValidator(_as_fraction)]
 
-__all__ = ["RGBA", "Points", "RGBAColor"]
+__all__ = ["RGBA", "Fraction", "Points", "RGBAColor"]
