@@ -138,6 +138,66 @@ root:
     ]
 
 
+def _cross_group_template(tmp_path: Path) -> Path:
+    """A full-bleed backdrop, and two leaves in *different* groups that genuinely collide.
+
+    ``a`` sits in ``left-group`` and ``b`` in the adjacent ``right-group``, so the sibling pass
+    never sees the pair; ``bg`` is painted first and contains both, so it must be suppressed as a
+    backdrop rather than reported.
+    """
+    template = tmp_path / "cross-group.yaml"
+    template.write_text(
+        "version: 0.1.0\n"
+        "formats: {sq: {canvas: {width: 400pt, height: 400pt, dpi: 72}}}\n"
+        "root:\n  type: group\n  id: root\n  children:\n"
+        "    - id: bg\n      type: shape\n      shape: rect\n"
+        "      style: {fill: '#eeeeee'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 400pt, h: 400pt}}\n"
+        "    - id: left-group\n      type: group\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100pt, h: 100pt}}\n"
+        "      children:\n"
+        "        - id: a\n          type: shape\n          shape: rect\n"
+        "          style: {fill: '#3366cc'}\n"
+        "          constraints: {anchor: {top: parent.top, left: parent.left+50pt}, "
+        "size: {w: 100pt, h: 100pt}}\n"
+        "    - id: right-group\n      type: group\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left+100pt}, "
+        "size: {w: 100pt, h: 100pt}}\n"
+        "      children:\n"
+        "        - id: b\n          type: shape\n          shape: rect\n"
+        "          style: {fill: '#cc3366'}\n"
+        "          constraints: {anchor: {top: parent.top, left: parent.left-100pt}, "
+        "size: {w: 100pt, h: 100pt}}\n",
+        encoding="utf-8",
+    )
+    return template
+
+
+def test_cross_group_overlaps_finds_pairs_the_sibling_pass_cannot(tmp_path: Path) -> None:
+    report = build_facade().inspect_layout(
+        _cross_group_template(tmp_path), format_name="sq", cross_group=True
+    )
+    assert report.ok, [d.model_dump() for d in report.diagnostics]
+    assert report.overlaps == []
+    assert {(o.a, o.b) for o in report.cross_group_overlaps} == {("a", "b")}
+    assert report.cross_group_overlaps[0].kind == "content"
+
+
+def test_cross_group_overlaps_suppresses_a_backdrop_painted_below(tmp_path: Path) -> None:
+    report = build_facade().inspect_layout(
+        _cross_group_template(tmp_path), format_name="sq", cross_group=True
+    )
+    assert report.ok
+    assert not any(o.a == "bg" or o.b == "bg" for o in report.cross_group_overlaps)
+
+
+def test_cross_group_overlaps_are_opt_in(tmp_path: Path) -> None:
+    report = build_facade().inspect_layout(_cross_group_template(tmp_path), format_name="sq")
+    assert report.cross_group_overlaps == []
+
+
 def test_inspect_failure_reports_diagnostics(tmp_path: Path) -> None:
     bad = tmp_path / "t.yaml"
     bad.write_text("version: 0.1.0\nroot: {type: group, id: root}\n", encoding="utf-8")
