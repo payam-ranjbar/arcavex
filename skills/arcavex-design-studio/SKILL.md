@@ -16,13 +16,25 @@ when needed. The live binary's help and diagnostics are authoritative.
 
 ```bash
 arcavex --version
+arcavex --help
 arcavex doctor --json
-arcavex render --help
 ```
 
-Compare `--version` with the engine build above. If versions or commits differ, use the running
-binary's `--help` and refresh this skill with `arcavex skill install --force`. A header with no
-commit is an unpinned source copy; do not claim it identifies an installed release.
+Run `arcavex --help` before the first command of a session and use only the commands it lists:
+builds that all report `0.1.0` expose different command groups. For options, read
+[commands.md](references/commands.md), generated from this build's help model, instead of probing
+`--help` command by command, which wastes calls. Compare `--version` with the
+engine build above; if versions or commits differ, refresh this skill with
+`arcavex skill install --force`. A header with no commit is an unpinned source copy; do not claim
+it identifies an installed release.
+
+Builds without an optional group:
+
+- No `font` group: `arcavex doctor --json` lists the resolvable families (its `fonts` check); to
+  add one, copy the TTF into `$ARCAVEX_HOME/fonts/` and use the family name doctor then reports,
+  never the filename.
+- No `editor` group: edit with `template patch` (it has no undo, so copy the template first or
+  rely on git).
 
 If `arcavex` is absent from PATH, locate the installed executable once. The standard Windows
 standalone location is `%LOCALAPPDATA%\Programs\Arcavex\arcavex.exe`; use its actual install
@@ -40,8 +52,8 @@ arcavex doctor --json
 
 Keep that working directory for later commands. For a campaign outside the current directory,
 set `ARCAVEX_HOME` once to its absolute `.arcavex-home` path. PowerShell:
-`$env:ARCAVEX_HOME = 'C:\campaign\.arcavex-home'`. Use paths that exist in the current shell:
-Git Bash `/tmp` and Windows `C:\tmp` are different locations.
+`$env:ARCAVEX_HOME = 'C:\campaign\.arcavex-home'`. On Windows, read the platform box in
+[engine-and-loop.md](references/engine-and-loop.md#windows) first.
 
 Install only `arcavex-design-studio` from the same engine build. If an old `arcavex-poster-studio`
 copy is also loaded from `.claude/skills` or `.agents/skills`, flag the conflicting installation;
@@ -108,11 +120,10 @@ A locale block is optional until a locale is selected. Use explicit locales for 
 | Numeric style fields, stack settings, fit sizes | Use literals, style roles, or format/locale patches. Numeric style expressions are rejected with an alternative. |
 | Anchors | Logical `start`/`end` mirror in RTL; physical `left`/`right` stay fixed. |
 | Stack children | Position comes from `hstack`/`vstack`; do not add anchors on the children. |
-| Paragraphs | Use `paragraph.align` and `paragraph.direction`; no line-height control in this build. |
+| Paragraphs | Use `paragraph.align` and `paragraph.direction`; no line-height control in this build; see the line-height trap in [engine-and-loop.md](references/engine-and-loop.md#field-notes). |
 
-Let the engine wrap and fit a headline instead of splitting it into separately positioned lines:
-
-The complete group recipe (replace or insert it with `template patch`):
+Let the engine wrap and fit a headline instead of splitting it into separately positioned lines; the
+complete group recipe (replace or insert it with `template patch`):
 
 ```yaml
 id: copy
@@ -187,8 +198,10 @@ The generated [commands.md](references/commands.md) lists only commands this CLI
 
 Verify every required format × locale × realistic content profile: longest headline, optional
 fields omitted, RTL digits, transparency and crops. Inspect overflow, collisions, margins,
-contrast against the real backdrop, missing glyphs, and hierarchy. Use a recorded render and
-`rerun --check` to check identical bytes. See [verification.md](references/verification.md).
+contrast against the real backdrop, missing glyphs, and hierarchy. Record a render with
+`render --record`, list run ids with `list-runs`, then reproduce it byte-identically into a new
+run directory with `rerun <run>`; use `diff` to compare two runs. See
+[verification.md](references/verification.md).
 
 If an independent reviewer is available and authorized, request that pass. If it cannot run,
 complete the same fixed checklist yourself and say the independent pass did not run. Do not

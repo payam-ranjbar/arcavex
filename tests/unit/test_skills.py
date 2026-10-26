@@ -29,19 +29,32 @@ def test_skill_frontmatter_is_present() -> None:
     assert "description:" in head
 
 
-def test_every_reference_link_resolves() -> None:
-    """A dead reference link sends the agent looking for a file that is not there."""
-    source = bundled_skill_dir()
-    assert source is not None
-    text = (source / "SKILL.md").read_text(encoding="utf-8")
+def _heading_anchors(markdown: str) -> set[str]:
+    """GitHub-style heading slugs: lowercase, punctuation dropped, spaces to hyphens."""
     import re
 
-    missing = [
-        target
-        for target in re.findall(r"\]\((references/[^)]+)\)", text)
-        if not (source / target).is_file()
-    ]
-    assert not missing, f"SKILL.md links to missing files: {missing}"
+    return {
+        re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-")
+        for heading in re.findall(r"^#+ (.+)$", markdown, flags=re.MULTILINE)
+    }
+
+
+def test_every_reference_link_resolves() -> None:
+    """A dead link or #anchor sends the agent looking for a file or section that is not there."""
+    import re
+
+    source = bundled_skill_dir()
+    assert source is not None
+    missing = []
+    for doc in [source / "SKILL.md", *sorted((source / "references").glob("*.md"))]:
+        for target in re.findall(r"\]\(([\w./-]+\.md(?:#[\w-]+)?)\)", doc.read_text("utf-8")):
+            path, _, anchor = target.partition("#")
+            linked = doc.parent / path
+            if not linked.is_file() or (
+                anchor and anchor not in _heading_anchors(linked.read_text("utf-8"))
+            ):
+                missing.append(f"{doc.name} -> {target}")
+    assert not missing, f"Skill links to missing files or sections: {missing}"
 
 
 def test_install_writes_the_tree(tmp_path: Path) -> None:
