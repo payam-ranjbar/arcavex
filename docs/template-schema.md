@@ -103,14 +103,14 @@ precedence puzzle. `arcavex template split` performs the conversion losslessly.
 ## Nodes
 
 Every node needs a stable `id` and a `type`. Types: `group`, `text`, `image`,
-`shape` (`rect` | `rrect` | `circle`), `path`.
+`shape` (`rect` | `rrect` | `circle` | `ellipse`), `path`.
 
 | Node kind | Notes |
 |---|---|
 | `group` | A container. May set `layout: hstack\|vstack` (with `gap`/`padding`/`main_align`/`cross_align`) to flow its children, and a `direction`. |
 | `text` | Live shaped text (`text:` or a `runs:` list). Supports `style`, `paragraph`, and `fit` policies. |
 | `image` | References an `asset:` (template-relative path). `fit:` is `fill`/`contain`/`cover`. |
-| `shape` | `rect`, `rrect`, or `circle`; or a `generator:` (`starburst`, `speech_bubble`, `qr_code`). |
+| `shape` | `rect`, `rrect`, `circle` (inscribed in the shorter side), or `ellipse` (fills the box); or a `generator:` (`starburst`, `speech_bubble`, `qr_code`). |
 | `path` | A vector path. Geometry effects (e.g. `torn-paper`) apply to `shape`/`path` nodes only. |
 
 Common fields on any node: `visible: true|false` (a hidden node and its subtree are not rendered),

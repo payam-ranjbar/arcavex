@@ -120,3 +120,47 @@ def test_qr_code_data_from_expression(facade, tmp_path) -> None:  # noqa: ANN001
     out = tmp_path / "qr.png"
     result = facade.render_file(template, format_name="sq", output=out)
     assert result.ok, [d.model_dump() for d in result.diagnostics]
+
+
+def _pixels(path: Path):  # noqa: ANN202 - numpy array
+    import skia
+
+    image = skia.Image.MakeFromEncoded(skia.Data.MakeWithCopy(path.read_bytes()))
+    return image.toarray(colorType=skia.kRGBA_8888_ColorType)
+
+
+def test_ellipse_primitive_fills_its_box(facade, tmp_path) -> None:  # noqa: ANN001
+    """``shape: ellipse`` touches all four box edges; ``circle`` stays inscribed in the short side."""
+    template = _write(
+        tmp_path,
+        "formats: {sq: {canvas: {width: 200px, height: 100px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: oval\n      type: shape\n      shape: ellipse\n"
+        "      style: {fill: '#ff0000'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: fill, h: fill}}\n",
+    )
+    out = tmp_path / "out.png"
+    result = facade.render_file(template, format_name="sq", output=out)
+    assert result.ok, [d.model_dump() for d in result.diagnostics]
+    px = _pixels(out)
+    assert px.shape[:2] == (100, 200)
+    # Near the left and right ends of the long axis: inside an ellipse, outside a 50-radius circle.
+    assert px[50, 8][0] > 200 and px[50, 8][3] > 200
+    assert px[50, 191][0] > 200 and px[50, 191][3] > 200
+    # The box corners stay empty.
+    assert px[3, 3][3] == 0 and px[96, 196][3] == 0
+
+
+def test_unknown_shape_hint_lists_ellipse(facade, tmp_path) -> None:  # noqa: ANN001
+    template = _write(
+        tmp_path,
+        "formats: {sq: {canvas: {width: 100px, height: 100px, dpi: 96}}}\n"
+        "root:\n  id: root\n  type: group\n  children:\n"
+        "    - id: s\n      type: shape\n      shape: hexagon\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: fill, h: fill}}\n",
+    )
+    diags = facade.validate_template(template, format_name="sq")
+    d = next(d for d in diags if d.code == "ARC-TPL-036")
+    assert "ellipse" in (d.hint or "")

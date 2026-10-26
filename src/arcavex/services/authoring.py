@@ -123,6 +123,15 @@ _SCAFFOLD_TEMPLATE = """\
 version: 0.1.0
 
 # A minimal, self-contained card that renders out of the box (no external assets).
+#
+# Constructs this build accepts (anything else fails validation with the code shown;
+# `arcavex explain <code>` prints the fix):
+#   shape:            rect | rrect | circle | ellipse, or generator: starburst | speech_bubble
+#                     | qr_code                                                   (ARC-TPL-036)
+#   numeric style:    font_size, font_weight, stroke_width, corner_radius, letter_spacing and
+#                     opacity take literals, a style_role or format/locale patches, never
+#                     {{ expressions }}                                           (ARC-TPL-069)
+#   mask/effect/shape lengths: pt, mm or px (px converts at the format's dpi)     (ARC-FX-902)
 variables:
   title: {type: string, required: true, doc: "Main headline shown large"}
   subtitle: {type: string, required: false, doc: "Optional supporting line"}
