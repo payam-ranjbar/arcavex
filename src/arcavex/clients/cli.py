@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import typer
@@ -30,6 +31,7 @@ from arcavex.kernel.api import (
     Facade,
     FontListReport,
     FontMetricsReport,
+    LayoutNodeReport,
     LayoutReport,
     PatchOp,
     PreviewResult,
@@ -1071,28 +1073,52 @@ def layout_inspect(
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
     locale: str | None = typer.Option(None, "--locale", "-l", help="Locale name."),
+    text_only: bool = typer.Option(
+        False, "--text-only",
+        help="Only text nodes, and only overlaps involving a text node.",
+    ),
+    overflow_only: bool = typer.Option(
+        False, "--overflow-only",
+        help="Only nodes whose text overflow outcome is not none "
+             "(clipped, truncated, shrunk, overflowing).",
+    ),
+    cross_group: bool = typer.Option(
+        False, "--cross-group",
+        help="Also check leaf pairs across groups (whole-canvas); separate from sibling overlaps.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
 ) -> None:
-    """Report resolved geometry: per-node bounds, anchors, overflow, and sibling overlaps."""
+    """Report resolved geometry: per-node bounds, anchors, overflow, and sibling overlaps.
+
+    ``--text-only`` and ``--overflow-only`` prune the tree (and filter overlaps); ``--cross-group``
+    adds the opt-in whole-canvas leaf-pair check.
+    """
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color)
     facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
-    report = (facade.inspect_project_layout(project=project, format_name=format_name, locale=locale)
-              if template is None else facade.inspect_layout(template, data, format_name, locale))
+    report = (facade.inspect_project_layout(
+                  project=project, format_name=format_name, locale=locale, cross_group=cross_group)
+              if template is None
+              else facade.inspect_layout(
+                  template, data, format_name, locale, cross_group=cross_group))
+    if text_only or overflow_only:
+        report = _apply_layout_filters(report, text_only=text_only, overflow_only=overflow_only)
     if json_out:
         _emit_json(report)
     elif not quiet:
         if not report.ok:
             _print_diagnostics(console, report.diagnostics, quiet)
         else:
-            _print_layout_report(console, report)
+            _print_layout_report(console, report, cross_group=cross_group)
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
 
-def _print_layout_report(console: Console, report: LayoutReport) -> None:
+def _print_layout_report(
+    console: Console, report: LayoutReport, *, cross_group: bool = False
+) -> None:
     _report_inferences(console, report.inferred, quiet=False)
     console.print(
         f"[bold]canvas[/bold] {report.canvas_pt[0]:g}x{report.canvas_pt[1]:g}pt "
@@ -1103,6 +1129,10 @@ def _print_layout_report(console: Console, report: LayoutReport) -> None:
         _print_layout_node(console, report.root, 0)
     if report.overlaps:
         _print_overlaps(console, report)
+    if report.cross_group_overlaps:
+        _print_cross_group_overlaps(console, report)
+    elif cross_group:
+        console.print("[bold]cross-group overlaps[/bold]: 0 content, 0 effect spill")
     console.print(f"[bold]coverage[/bold]: {report.covered_fraction:.0%} of canvas")
     if report.free_regions:
         console.print("[bold]free regions[/bold] (empty horizontal bands):")
@@ -1140,6 +1170,82 @@ def _print_overlaps(console: Console, report: LayoutReport) -> None:
             console.print(
                 f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
             )
+
+
+def _print_cross_group_overlaps(console: Console, report: LayoutReport) -> None:
+    """Print the opt-in whole-canvas collisions as their own section.
+
+    Same content/halo demotion as ``overlaps`` — the point of the flag is to surface real
+    cross-group collisions, not to reintroduce the intentional layering this section suppresses.
+    """
+    content = [ov for ov in report.cross_group_overlaps if ov.kind == "content"]
+    halo = [ov for ov in report.cross_group_overlaps if ov.kind == "halo"]
+    console.print(
+        f"[bold]cross-group overlaps[/bold]: {len(content)} content, {len(halo)} effect spill"
+    )
+    for ov in content:
+        console.print(f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}")
+    if not content:
+        console.print("  [dim]no cross-group content collisions[/dim]")
+    for ov in halo:
+        console.print(
+            f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
+        )
+
+
+def _iter_layout_nodes(node: LayoutNodeReport) -> Iterator[LayoutNodeReport]:
+    yield node
+    for child in node.children:
+        yield from _iter_layout_nodes(child)
+
+
+def _filter_layout_tree(
+    node: LayoutNodeReport, keep: Callable[[LayoutNodeReport], bool]
+) -> LayoutNodeReport | None:
+    """Prune a report tree: keep matching nodes and any group needed to reach one."""
+    kept: list[LayoutNodeReport] = []
+    for child in node.children:
+        filtered = _filter_layout_tree(child, keep)
+        if filtered is not None:
+            kept.append(filtered)
+    if keep(node) or kept:
+        return node.model_copy(update={"children": kept})
+    return None
+
+
+def _apply_layout_filters(
+    report: LayoutReport, *, text_only: bool, overflow_only: bool
+) -> LayoutReport:
+    """Apply ``--text-only`` / ``--overflow-only`` to the tree and the overlap lists.
+
+    Presentation-only: the Facade stays unfiltered, and the filtered report is what both human
+    and ``--json`` output carry so an agent gets the same view as an operator (A8).
+    """
+    if report.root is None:
+        return report
+    text_ids = (
+        {n.id for n in _iter_layout_nodes(report.root) if n.kind == "text"}
+        if text_only else set()
+    )
+
+    def keep(node: LayoutNodeReport) -> bool:
+        if text_only and node.kind != "text":
+            return False
+        if overflow_only and not (
+            node.overflow is not None and node.overflow.kind != "none"
+        ):
+            return False
+        return True
+
+    updates: dict[str, object] = {"root": _filter_layout_tree(report.root, keep)}
+    if text_only:  # only text overlaps survive, on both lists
+        updates["overlaps"] = [
+            o for o in report.overlaps if o.a in text_ids or o.b in text_ids
+        ]
+        updates["cross_group_overlaps"] = [
+            o for o in report.cross_group_overlaps if o.a in text_ids or o.b in text_ids
+        ]
+    return report.model_copy(update=updates)
 
 
 def _print_layout_node(console: Console, node: object, depth: int) -> None:

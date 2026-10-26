@@ -259,7 +259,7 @@ nothing is written. For a split template the write goes to the sidecar that owns
 ## layout inspect
 
 ```
-arcavex layout inspect TEMPLATE [-d -f -l] [--json]
+arcavex layout inspect TEMPLATE [-d -f -l] [--text-only] [--overflow-only] [--cross-group] [--json]
 ```
 
 Report resolved geometry: per-node bounds (pt + px), the anchor derivation for each axis, overflow,
@@ -329,11 +329,29 @@ containment by a node covering ≥90% of its parent region, or by a group, is st
 collision. A node's shadow cannot buy it that exemption: the threshold is measured on the layout
 box, not the paint box.
 
-**Pairs are enumerated within each group.** Two nodes in different groups are never compared, so
-an empty `overlaps` list means no sibling collisions, not that nothing on the canvas collides —
-on the reference poster, 20-22 intersecting cross-group pairs go unreported per format. For a
-whole-canvas check, compare `bounds_pt` across the tree from `--json`. The reasoning and the
-measured trade-off are in
+### Inspection filters
+
+Three opt-in flags narrow what `layout inspect` reports, on both human and `--json` output:
+
+| Flag | Effect |
+|---|---|
+| `--text-only` | Keep only text nodes (and the groups needed to reach them), and drop overlaps where neither endpoint is a text node. |
+| `--overflow-only` | Keep only nodes whose text overflow outcome is not `none` — `clipped`, `truncated`, `shrunk`, or `overflowing`. |
+| `--cross-group` | Add the whole-canvas collision check below, reported separately in `cross_group_overlaps`. |
+
+`--overflow-only` deliberately includes `shrunk`: text that shrank to its floor is a warning sign
+even when it fits. Both tree filters keep an ancestor group only when a kept descendant needs it,
+so the remaining nodes keep the anchor context that locates them.
+
+**Sibling `overlaps` are enumerated within each group.** Two nodes in different groups are never
+compared there, so an empty `overlaps` list means no sibling collisions, not that nothing on the
+canvas collides — on the reference poster, 20-22 intersecting cross-group pairs go unreported per
+format. Pass `--cross-group` for an opt-in whole-canvas check: it compares every visible leaf pair
+with different parents and reports the collisions in a separate `cross_group_overlaps` field (and a
+*cross-group overlaps* section in human output), leaving `overlaps` unchanged. A leaf that fully
+contains a later leaf and is painted below it is a backdrop — containment plus paint order — so a
+full-bleed background is suppressed without the 90% area heuristic. The reasoning and the measured
+trade-off are in
 [known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
 
 ## style

@@ -49,18 +49,22 @@ bounds and baseline rather than per-glyph rectangles. Fit policies, BiDi/RTL, an
 implemented in the Arcavex text service on top of the scalar metrics the binding does expose, so the
 public template contract is unaffected.
 
-## Overlap reporting is per-group
+## Overlap reporting is per-group by default
 
 `layout inspect` enumerates overlapping pairs **within each group**. Two nodes in different groups
-are never compared, however much they intersect — on the reference poster that is 20-22 unreported
-intersecting pairs per format. A clean `overlaps` list therefore means "no sibling collisions",
-not "nothing on this canvas collides".
+are never compared there, however much they intersect — on the reference poster that is 20-22
+unreported intersecting pairs per format. A clean `overlaps` list therefore means "no sibling
+collisions", not "nothing on this canvas collides".
 
-Nearly all of those unreported pairs are legitimate layering (a background under everything, a card
-panel under its own labels), which is why widening the scope is a redesign of the containment rule
-rather than an enumeration change; the measured trade-off is in [backlog.md](backlog.md). If you
-need a whole-canvas guarantee today, compare `bounds_pt` across the tree yourself — `layout inspect
---json` reports every node's box.
+`layout inspect --cross-group` is the opt-in whole-canvas check. It compares every visible leaf pair
+with different parents and reports the collisions separately in `cross_group_overlaps`, so the
+default `overlaps` field is unchanged. It suppresses a leaf that fully contains a later leaf and is
+painted below it — containment plus paint order — which drops the full-bleed backdrop and other
+legitimate layering without the 90% area heuristic. The remaining limitation is deliberate: a
+decorative leaf fully containing a leaf drawn over it is treated as a backdrop, whether or not that
+was intended. The rule and its measured trade-off are in [backlog.md](backlog.md). If you need a
+raw whole-canvas view, compare `bounds_pt` across the tree yourself — `layout inspect --json`
+reports every node's box.
 
 ## Validation checks geometry, not design
 

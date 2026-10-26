@@ -1334,9 +1334,12 @@ class SiblingOverlap(BaseModel):
 
     Scope: pairs are enumerated per group, so two nodes in different groups are never compared.
     An empty list means no sibling collisions, not that nothing on the canvas collides — on the
-    reference poster, 20-22 intersecting cross-group pairs go unreported per format. Callers
-    needing a whole-canvas check compare ``bounds_pt`` across the tree themselves; the reason the
-    scope is not simply widened is in docs/backlog.md.
+    reference poster, 20-22 intersecting cross-group pairs go unreported per format. A
+    whole-canvas check is now available via ``LayoutReport.cross_group_overlaps`` /
+    ``layout inspect --cross-group``: those entries use the containment-plus-paint-order backdrop
+    rule (a leaf that fully contains a later leaf and is painted below it is a backdrop) instead
+    of the area heuristic above. This class types both lists; the default ``overlaps`` semantics
+    are unchanged.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -1363,6 +1366,10 @@ class LayoutReport(BaseModel):
     dpi: int = 0
     root: LayoutNodeReport | None = None
     overlaps: list[SiblingOverlap] = Field(default_factory=list)
+    # Whole-canvas leaf-pair collisions, opt-in via ``layout inspect --cross-group``. Additive and
+    # defaulted, so a payload serialised before the field existed still parses (spec §2 rule 5);
+    # ``overlaps`` above stays per-group and unchanged. Same shape as ``overlaps``.
+    cross_group_overlaps: list[SiblingOverlap] = Field(default_factory=list)
     covered_fraction: float = 0.0
     # Maximal full-width empty horizontal bands (uncovered canvas), largest first — the summary
     # that surfaces e.g. an unfilled bottom slab (spec §6.1.1 free regions).
@@ -2420,15 +2427,19 @@ class Facade:
         format_name: str | None = None,
         locale: str | None = None,
         style: str | None = None,
+        cross_group: bool = False,
     ) -> LayoutReport:
         """Compile and lay out a template and report resolved geometry. Never raises.
 
         Reports per-node resolved bounds (points and device pixels), paint bounds, rotation,
         text-overflow state, the anchor derivation for each axis, sibling overlaps, and a
-        coverage summary (spec §6.1.1).
+        coverage summary (spec §6.1.1). ``cross_group`` additionally runs the opt-in
+        whole-canvas leaf-pair check into ``cross_group_overlaps``.
         """
         try:
-            return self._inspect_layout_inner(template, data, format_name, locale, style)
+            return self._inspect_layout_inner(
+                template, data, format_name, locale, style, cross_group=cross_group
+            )
         except DiagnosticError as exc:
             return LayoutReport(ok=False, diagnostics=list(exc.diagnostics))
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
@@ -2438,7 +2449,7 @@ class Facade:
 
     def inspect_project_layout(
         self, *, project: Path | None = None, format_name: str | None = None,
-        locale: str | None = None,
+        locale: str | None = None, cross_group: bool = False,
     ) -> LayoutReport:
         """Inspect a single project render target, including its data, style, and overrides."""
         if self._orchestrator is None:
@@ -2456,7 +2467,7 @@ class Facade:
             target_format, target_locale = inputs.targets[0]
             return self._inspect_layout_inner(
                 inputs.template_dir, inputs.data_path, target_format, target_locale, inputs.style,
-                inputs.patch_ops, inputs.patch_file,
+                inputs.patch_ops, inputs.patch_file, cross_group=cross_group,
             )
         except DiagnosticError as exc:
             return LayoutReport(ok=False, diagnostics=list(exc.diagnostics))
@@ -2474,6 +2485,7 @@ class Facade:
         style: str | None,
         project_patch: list[Any] | None = None,
         project_patch_file: Path | None = None,
+        cross_group: bool = False,
     ) -> LayoutReport:
         compiled = self._compiler.compile(
             template, data, format_name, locale, style,
@@ -2493,6 +2505,9 @@ class Facade:
         root = _build_node_report(
             compiled.document.root, layout.root, compiled.document.root.direction, dpi, overlaps
         )
+        cross_overlaps: list[SiblingOverlap] = []
+        if cross_group:
+            _collect_cross_group_overlaps(layout.root, cross_overlaps)
         covered = _covered_fraction(layout)
         return LayoutReport(
             ok=True,
@@ -2503,6 +2518,7 @@ class Facade:
             dpi=dpi,
             root=root,
             overlaps=overlaps,
+            cross_group_overlaps=cross_overlaps,
             covered_fraction=covered,
             free_regions=_free_regions(layout),
             inferred=inferred,
@@ -3853,6 +3869,48 @@ def _collect_overlaps(
             if _contains(ca, cb) and _is_backdrop(a, ca, region):
                 continue
             if _contains(cb, ca) and _is_backdrop(b, cb, region):
+                continue
+            kind, rect = classified
+            overlaps.append(
+                SiblingOverlap(a=a.source_node_id, b=b.source_node_id, rect_pt=rect, kind=kind)
+            )
+
+
+def _collect_cross_group_overlaps(root: LayoutNode, overlaps: list[SiblingOverlap]) -> None:
+    """Whole-canvas leaf-pair check for ``layout inspect --cross-group``.
+
+    ``_collect_overlaps`` sees siblings only, so nodes in different groups are never compared.
+    This walks every visible leaf in paint order and compares leaves with different parents (the
+    pairs the sibling pass cannot see). A leaf that fully contains a later leaf and is painted
+    below it is that leaf's backdrop — containment plus paint order, docs/backlog.md — so a
+    full-bleed background is suppressed without the 0.9 area heuristic. Ancestor/descendant
+    pairs cannot occur because only leaves are collected.
+    """
+    leaves: list[tuple[LayoutNode, str, Rect]] = []  # (leaf, parent id, content AABB)
+
+    def visit(node: LayoutNode, parent_id: str) -> None:
+        if not node.visible:
+            return
+        if node.children:
+            for child in node.children:
+                visit(child, node.source_node_id)
+            return
+        if node.kind != "group":  # an empty group is a container, not content
+            leaves.append((node, parent_id, _content_aabb(node)))
+
+    visit(root, root.source_node_id)
+    for i in range(len(leaves)):
+        a, a_parent, ca = leaves[i]  # a is earlier than b => painted below b
+        for j in range(i + 1, len(leaves)):
+            b, b_parent, cb = leaves[j]
+            if a_parent == b_parent:
+                continue  # sibling pair: already in ``overlaps``
+            if _contains(ca, cb):
+                continue  # a below and contains b => a is b's backdrop
+            classified = _classify_overlap(
+                ca, cb, _canvas_paint_bounds(a), _canvas_paint_bounds(b)
+            )
+            if classified is None:
                 continue
             kind, rect = classified
             overlaps.append(
