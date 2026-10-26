@@ -177,7 +177,7 @@ def test_rejected_construct_explanations_match_this_build() -> None:
 
 
 def test_explain_does_not_hide_the_shipped_stack_layout() -> None:
-    """Agents hand-chained sibling anchors after `explain` said stacks arrive in a later phase (A2)."""
+    """Agents hand-chained sibling anchors after `explain` said stacks come later (A2)."""
     facade = build_facade()
     for code in ("ARC-TPL-052", "ARC-LAY-020"):
         help_ = facade.explain_diagnostic(code)

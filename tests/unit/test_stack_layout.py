@@ -37,8 +37,8 @@ def _nodes(data: str, format_name: str, locale: str) -> dict[str, LayoutNodeRepo
 def _gaps(nodes: dict[str, LayoutNodeReport]) -> list[float]:
     """Vertical space between consecutive stack children, in pt."""
     gaps = []
-    for upper, lower in zip(_ORDER, _ORDER[1:]):
-        ux, uy, uw, uh = nodes[upper].bounds_pt
+    for upper, lower in zip(_ORDER, _ORDER[1:], strict=False):
+        _, uy, _, uh = nodes[upper].bounds_pt
         gaps.append(round(nodes[lower].bounds_pt[1] - (uy + uh), 2))
     return gaps
 
