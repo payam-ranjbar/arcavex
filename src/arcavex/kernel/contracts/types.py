@@ -107,6 +107,25 @@ class MeasureResult(BaseModel):
     missing_glyphs: tuple[tuple[int, tuple[str, ...]], ...] = ()
 
 
+class FontMetricsRequest(BaseModel):
+    """A request for one family's typographic metrics at an authored size.
+
+    ``size`` is a CLI length (``40pt``, ``54px``, or a bare number meaning points); ``dpi``
+    resolves a ``px`` size, and ``sample`` is the one-line string whose advance is measured.
+    A bare number is *points* — unlike a template's ``font_size``, where a suffix-less number is
+    pixels — because ``font metrics Inter 40`` is how a person writes a 40-point face.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    family: str
+    size: str
+    dpi: int = 96
+    sample: str = "Hamburgefonstiv"
+    weight: int = 400
+    italic: bool = False
+
+
 MeasureFn = Callable[[MeasureRequest], MeasureResult]
 
 
