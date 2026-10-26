@@ -110,6 +110,7 @@ Arcavex engine 0.1.0
 ┌───────────┬────────┬────────────────────────────────────────────────────────┐
 │ check     │ status │ detail                                                 │
 ├───────────┼────────┼────────────────────────────────────────────────────────┤
+│ build     │ ok     │ commit 6a1c0f2… (channel release)                      │
 │ python    │ ok     │ Python 3.12.13                                         │
 │ skia      │ ok     │ skia-python 144.0.post2                                │
 │ icu       │ ok     │ ICU available (skia.Unicode built)                     │
@@ -127,6 +128,7 @@ Arcavex engine 0.1.0
 
 | Row | What it proves |
 |---|---|
+| `build` | The embedded commit and build channel (`release`, `dev`, or `source`). |
 | `python` | The interpreter version (3.11+). |
 | `skia` | `skia-python` imported and its version. |
 | `icu` | ICU/Unicode is available — shaping and BiDi will work. |

@@ -87,6 +87,8 @@ def test_engine_handshake_report_carries_the_versioned_desktop_contract() -> Non
             "response_version": 1,
             "ok": True,
             "engine_version": "0.1.0",
+            "build_commit": None,
+            "build_channel": "unknown",
             "checks": [{
                 "name": "python",
                 "status": "ok",
@@ -227,7 +229,7 @@ def test_bootstrap_wires_live_engine_versions_home_and_doctor(arcavex_home: Path
     assert report.response_version == 1
     assert report.accepted_ir_versions == ["1.0"]
     assert report.produced_ir_version == "1.0"
-    assert report.extension_sdk_version == "1.0"
+    assert report.extension_sdk_version == "1.1"
     assert report.capabilities == sorted(report.capabilities)
     assert {"layers.tree", "selection.hit-test"} <= set(report.capabilities)
     assert report.paths.home == str(arcavex_home.resolve())

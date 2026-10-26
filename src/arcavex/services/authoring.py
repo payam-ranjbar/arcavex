@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+
 from arcavex.kernel.api import (
     CompilerProtocol,
     FormatInfo,
@@ -71,6 +73,10 @@ _SPLIT_MAP: tuple[tuple[str, str], ...] = (
     ("preview_data", "preview-data.yaml"),
 )
 
+# The patch verbs, in the order ``PatchOp.to_patch_dict`` emits them. Kept in one place so the
+# boundary validator, the scoped upsert, and the addressed-path reader stay in lockstep.
+_PATCH_VERBS: tuple[str, ...] = ("set", "remove", "insert_before", "insert_after")
+
 
 @dataclass(frozen=True)
 class AuthoredEffect:
@@ -123,6 +129,15 @@ _SCAFFOLD_TEMPLATE = """\
 version: 0.1.0
 
 # A minimal, self-contained card that renders out of the box (no external assets).
+#
+# Constructs this build accepts (anything else fails validation with the code shown;
+# `arcavex explain <code>` prints the fix):
+#   shape:            rect | rrect | circle | ellipse, or generator: starburst | speech_bubble
+#                     | qr_code                                                   (ARC-TPL-036)
+#   numeric style:    font_size, font_weight, stroke_width, corner_radius, letter_spacing and
+#                     opacity take literals, a style_role or format/locale patches, never
+#                     {{ expressions }}                                           (ARC-TPL-069)
+#   mask/effect/shape lengths: pt, mm or px (px converts at the format's dpi)     (ARC-FX-902)
 variables:
   title: {type: string, required: true, doc: "Main headline shown large"}
   subtitle: {type: string, required: false, doc: "Optional supporting line"}
@@ -180,9 +195,9 @@ root:
         anchor: {left: parent.left+64px, top: parent.center_y+70px}
         size: {w: 82%, h: fit_content}
 
-    # Conditional node: included only when `badge` is supplied. `if:` is fully usable today
-    # because this single node has its own distinct anchor. (Laying out a *dynamic* number of
-    # repeated nodes needs layout stacks, which arrive in Phase 2 — see the template README.)
+    # Conditional node: included only when `badge` is supplied. This single node has its own
+    # distinct anchor; for blocks of variable height or a dynamic number of repeated nodes, put
+    # them in a `layout: vstack` group with a `gap` instead of chaining sibling anchors.
     - if: "{{ badge is not none }}"
       node:
         id: badge
@@ -398,7 +413,14 @@ class AuthoringService:
 
     # -------------------------------------------------------------------- patch
     def patch_template(
-        self, template: Path, ops: list[PatchOp], base_sha256: str | None = None
+        self,
+        template: Path,
+        ops: list[PatchOp],
+        base_sha256: str | None = None,
+        *,
+        format_name: str | None = None,
+        locale: str | None = None,
+        unset: bool = False,
     ) -> PatchTemplateResult:
         """Apply path-addressed patch ops to a template file on disk, preserving comments.
 
@@ -411,7 +433,28 @@ class AuthoringService:
         addressed path raises a located ``ARC-TPL-092``; a stale ``base_sha256`` (the file changed
         on disk since the agent read it) is refused with ``ARC-TPL-110`` before anything is
         written, so a concurrent edit is never overwritten (spec §8.3). Never raises.
+
+        With ``format_name`` and/or ``locale`` the op is not applied to the root AST but upserted
+        into the matching format/locale patch list the compiler applies at render time
+        (``formats.<F>.patch``, ``locales.<L>.patch``, or the narrowest
+        ``locales.<L>.formats.<F>.patch``) — see :meth:`_patch_scoped_template`, which also
+        documents ``unset`` and locale ``fonts.<Family>`` overrides.
         """
+        if format_name is None and locale is None:
+            return self._patch_root_template(template, ops, base_sha256)
+        return self._patch_scoped_template(
+            template,
+            ops,
+            base_sha256,
+            format_name=format_name,
+            locale=locale,
+            unset=unset,
+        )
+
+    def _patch_root_template(
+        self, template: Path, ops: list[PatchOp], base_sha256: str | None
+    ) -> PatchTemplateResult:
+        """Apply ops to ``template.yaml``'s ``root`` AST (the unscoped A1..A4 contract)."""
         try:
             _root_dir, template_yaml = resolve_template_path(template)
         except DiagnosticError as exc:
@@ -477,6 +520,308 @@ class AuthoringService:
             ok=True, path=str(template_yaml), sha256=new_sha, applied=len(ops)
         )
 
+    def _patch_scoped_template(
+        self,
+        template: Path,
+        ops: list[PatchOp],
+        base_sha256: str | None,
+        *,
+        format_name: str | None,
+        locale: str | None,
+        unset: bool,
+    ) -> PatchTemplateResult:
+        """Upsert ops into a format/locale patch list instead of the root AST (A5).
+
+        ``formats.<F>.patch``, ``locales.<L>.patch``, or the narrowest
+        ``locales.<L>.formats.<F>.patch`` — the list the compiler already applies at render time
+        (:mod:`services.template.compiler`), so a ``--format square`` edit is stored exactly
+        once and affects exactly that format. Locale font overrides use ``fonts.<Family>`` and
+        land in ``locales.<L>.fonts``. An op is matched by its addressed path: a second ``set``
+        on the same path replaces the value in place rather than appending a duplicate, and
+        ``unset`` deletes the matching op.
+
+        The write goes to whichever file *owns* the section: the ``formats.yaml``/``locales.yaml``
+        sidecar of a split template, else ``template.yaml`` (:meth:`TemplateSource.file_for`).
+        ``base_sha256`` therefore hashes that owning file, not necessarily ``template.yaml``.
+        Unlike the root path, a scoped op is deliberately **not** dry-run against the root AST: a
+        format/locale op may legally address a field an earlier op in the same list creates, so
+        node existence is the compiler's job at validate/render — exactly as it is for a
+        hand-authored patch. The fixed-vocabulary leaf check still runs, so a typo'd style field
+        is located before the write. Never raises.
+        """
+        try:
+            source = load_template(template)
+        except DiagnosticError as exc:
+            return PatchTemplateResult(ok=False, diagnostics=list(exc.diagnostics))
+
+        # ``file_for`` is the sidecar of a split template, else template.yaml. Writing anywhere
+        # else would leave the section defined twice once the loader merges sidecars (ARC-TPL-097).
+        section = "locales" if locale is not None else "formats"
+        owning_file = source.file_for(section)
+        is_sidecar = owning_file != source.template_path
+        current_sha = sha256_bytes(owning_file.read_bytes())
+        if base_sha256 is not None and base_sha256 != current_sha:
+            return _scoped_error(
+                owning_file,
+                current_sha,
+                None,
+                "Template changed on disk since it was read; patch not applied",
+                code="ARC-TPL-110",
+                hint="Re-inspect the template to get its current hash, rebase your edit on it, "
+                "and retry — another writer changed the file.",
+            )
+
+        # Grammar sanity before any parse: fonts.<Family> is locale-only, node patches address
+        # nodes.*. This keeps an op that could never be applied from being written into a list.
+        for op in ops:
+            path = _addressed_path(op)
+            if path.startswith("fonts."):
+                family = path[len("fonts."):]
+                if locale is None or format_name is not None:
+                    return _scoped_error(
+                        owning_file,
+                        current_sha,
+                        path,
+                        "fonts.<Family> is a locale-only patch path",
+                        hint="Pass --locale without --format to override locale fonts.",
+                    )
+                if not family:
+                    return _scoped_error(
+                        owning_file,
+                        current_sha,
+                        path,
+                        "fonts.<Family> needs a family name",
+                        hint="Name the family to override, e.g. --set fonts.Inter.",
+                    )
+                if op.set is None and op.remove is None:
+                    return _scoped_error(
+                        owning_file,
+                        current_sha,
+                        path,
+                        "fonts.<Family> accepts set or remove only",
+                    )
+            elif not path.startswith("nodes."):
+                return _scoped_error(
+                    owning_file,
+                    current_sha,
+                    path,
+                    f"Scoped patch paths address nodes.* or fonts.*, not {path!r}",
+                )
+
+        # Boundary validation (CR-1/DX-4): reject ambiguous ops and typo'd leaf fields before
+        # any write, so a malformed patch is a located diagnostic, never a partial mutation.
+        op_diags = _validate_patch_ops(ops, owning_file)
+        if has_errors(op_diags):
+            return PatchTemplateResult(
+                ok=False, path=str(owning_file), sha256=current_sha, diagnostics=op_diags
+            )
+
+        try:
+            # ``source.raw`` has sidecars merged in, so the section node is the same node the
+            # loader read from (and will be written back to) the owning file.
+            section_map = source.raw.get(section)
+            if not isinstance(section_map, dict):
+                return _scoped_error(
+                    owning_file,
+                    current_sha,
+                    section,
+                    f"Template declares no {section!r} section",
+                    hint=f"Add a {section!r} section before patching into it.",
+                )
+
+            # Locate the exact target entry before mutating anything: an unknown locale/format is
+            # a located error, and because the dump happens only after every op succeeds a refusal
+            # leaves the file byte-for-byte unchanged.
+            if locale is not None:
+                locale_entry = section_map.get(locale)
+                if not isinstance(locale_entry, dict):
+                    return _scoped_error(
+                        owning_file,
+                        current_sha,
+                        f"locales.{locale}",
+                        f"Unknown locale {locale!r}",
+                        hint=_declared_names_hint(section_map, "locale"),
+                    )
+                if format_name is not None:
+                    # The compound layer is `locales.<L>.formats.<F>.patch`; F must be a globally
+                    # declared format, but the per-locale entry itself is created on demand so a
+                    # locale can opt into a per-format override without hand-editing YAML.
+                    global_formats = source.raw.get("formats")
+                    if not isinstance(global_formats, dict) or format_name not in global_formats:
+                        return _scoped_error(
+                            owning_file,
+                            current_sha,
+                            f"formats.{format_name}",
+                            f"Unknown format {format_name!r}",
+                            hint=_declared_names_hint(global_formats, "format"),
+                        )
+                    per_format = locale_entry.get("formats")
+                    if per_format is not None and not isinstance(per_format, dict):
+                        return _scoped_error(
+                            owning_file,
+                            current_sha,
+                            f"locales.{locale}.formats",
+                            f"Locale {locale!r} 'formats' must be a mapping",
+                        )
+            elif format_name is not None and not isinstance(section_map.get(format_name), dict):
+                return _scoped_error(
+                    owning_file,
+                    current_sha,
+                    f"formats.{format_name}",
+                    f"Unknown format {format_name!r}",
+                    hint=_declared_names_hint(section_map, "format"),
+                )
+
+            font_ops = [op for op in ops if _addressed_path(op).startswith("fonts.")]
+            node_ops = [op for op in ops if not _addressed_path(op).startswith("fonts.")]
+
+            if font_ops:
+                locale_entry = section_map[locale]
+                fonts = locale_entry.get("fonts")
+                if not isinstance(fonts, dict):
+                    fonts = CommentedMap()
+                    locale_entry["fonts"] = fonts
+                for op in font_ops:
+                    family = _addressed_path(op).split(".", 1)[1]
+                    if unset or op.remove is not None:
+                        if family not in fonts:
+                            return _scoped_error(
+                                owning_file,
+                                current_sha,
+                                f"locales.{locale}.fonts.{family}",
+                                f"No font override to unset for {family!r}",
+                            )
+                        del fonts[family]
+                    else:
+                        fonts[family] = op.value
+
+            if node_ops:
+                patch_seq = _ensure_patch_seq(section_map, locale, format_name)
+                for op in node_ops:
+                    if unset:
+                        if _remove_matching_ops(patch_seq, _addressed_path(op)) == 0:
+                            return _scoped_error(
+                                owning_file,
+                                current_sha,
+                                _addressed_path(op),
+                                f"No patch op to unset for {_addressed_path(op)!r}",
+                            )
+                    else:
+                        _upsert_patch_op(patch_seq, op.to_patch_dict())
+            if is_sidecar:
+                dump_yaml(section_map, owning_file)
+            else:
+                dump_yaml(source.raw, owning_file)
+        except DiagnosticError as exc:
+            return PatchTemplateResult(
+                ok=False,
+                path=str(owning_file),
+                sha256=current_sha,
+                diagnostics=list(exc.diagnostics),
+            )
+        return PatchTemplateResult(
+            ok=True,
+            path=str(owning_file),
+            sha256=sha256_bytes(owning_file.read_bytes()),
+            applied=len(ops),
+        )
+
+
+def _ensure_patch_seq(
+    section_map: Any, locale: str | None, format_name: str | None
+) -> CommentedSeq:
+    """Return the target entry's ``patch`` sequence, creating missing intermediate nodes."""
+    if locale is None:
+        entry = section_map[format_name]
+    elif format_name is None:
+        entry = section_map[locale]
+    else:
+        per_format = section_map[locale].get("formats")
+        if not isinstance(per_format, dict):
+            per_format = CommentedMap()
+            section_map[locale]["formats"] = per_format
+        entry = per_format.get(format_name)
+        if not isinstance(entry, dict):
+            entry = CommentedMap()
+            per_format[format_name] = entry
+    patch = entry.get("patch")
+    if not isinstance(patch, list):
+        patch = CommentedSeq()
+        entry["patch"] = patch
+    return patch
+
+
+def _upsert_patch_op(seq: CommentedSeq, op: dict[str, Any]) -> None:
+    """Insert ``op``, replacing an existing op that names the same verb and path.
+
+    A second ``set`` on the same path updates the value in place (never appends a duplicate) and
+    drops any earlier duplicate, so ``--format square --set …`` is idempotent instead of growing
+    an unbounded patch list. That one-op-per-path rule is the whole point of the command.
+    """
+    verb = next(v for v in _PATCH_VERBS if v in op)
+    path = op[verb]
+    matches = [
+        i
+        for i, entry in enumerate(seq)
+        if isinstance(entry, dict) and entry.get(verb) == path
+    ]
+    if not matches:
+        seq.append(CommentedMap(op))
+        return
+    last = matches[-1]
+    if verb == "set":
+        seq[last]["value"] = op["value"]
+    else:
+        seq[last] = CommentedMap(op)
+    for i in reversed(matches[:-1]):
+        del seq[i]
+
+
+def _remove_matching_ops(seq: CommentedSeq, path: str) -> int:
+    """Delete every op addressing ``path`` (any verb) and return how many were removed."""
+    removed = 0
+    for i in reversed(range(len(seq))):
+        entry = seq[i]
+        if isinstance(entry, dict) and any(entry.get(v) == path for v in _PATCH_VERBS):
+            del seq[i]
+            removed += 1
+    return removed
+
+
+def _addressed_path(op: PatchOp) -> str:
+    """Return the single path this op addresses, or ``""`` for a verb-less op."""
+    for verb in _PATCH_VERBS:
+        path = getattr(op, verb)
+        if path is not None:
+            return str(path)
+    return ""
+
+
+def _declared_names_hint(mapping: Any, kind: str) -> str:
+    """List the declared names of ``kind`` so an unknown-target error is self-correcting."""
+    if isinstance(mapping, dict) and mapping:
+        names = ", ".join(sorted(str(name) for name in mapping))
+        return f"Declared {kind}s are: {names}."
+    return f"The template declares no {kind}s."
+
+
+def _scoped_error(
+    file: Path,
+    sha256: str | None,
+    keypath: str | None,
+    message: str,
+    *,
+    code: str = "ARC-TPL-092",
+    hint: str | None = None,
+) -> PatchTemplateResult:
+    """Build a located refusal for a scoped patch; nothing has been written."""
+    return PatchTemplateResult(
+        ok=False,
+        path=str(file),
+        sha256=sha256,
+        diagnostics=[diagnostic(code, message, file=str(file), keypath=keypath, hint=hint)],
+    )
+
 
 def _patch_section(raw: Any, op: dict[str, Any], verb: str, file: Path) -> None:
     """Set/remove template metadata; node edits keep their existing nodes.<id> grammar."""
@@ -512,11 +857,7 @@ def _patch_section(raw: Any, op: dict[str, Any], verb: str, file: Path) -> None:
 
 def _patch_verbs(op: PatchOp) -> list[str]:
     """Return the verb fields this op actually names (should be exactly one)."""
-    return [
-        verb
-        for verb in ("set", "remove", "insert_before", "insert_after")
-        if getattr(op, verb) is not None
-    ]
+    return [verb for verb in _PATCH_VERBS if getattr(op, verb) is not None]
 
 
 def _validate_patch_ops(ops: list[PatchOp], template_yaml: Path) -> list[Diagnostic]:

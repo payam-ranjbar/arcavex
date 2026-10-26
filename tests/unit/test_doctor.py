@@ -37,6 +37,24 @@ def test_doctor_fonts_probe_lists_families() -> None:
     assert "Inter" in fonts.detail
 
 
+def test_doctor_fonts_detail_never_truncates_a_multiword_family() -> None:
+    """A multi-word family is reported in full — 'Archivo Black', never 'Archivo' (A6).
+
+    The doctor row was misread in s1 because "Archivo Black" was shortened to "Archivo", a
+    different family. The row joins the names the shaper resolves, so it must never re-format
+    or clip them; this pins that even when the backend's own family name is the truncated one.
+    """
+    from types import SimpleNamespace
+
+    from arcavex.services import doctor
+
+    provider = SimpleNamespace(families={"Archivo Black", "Inter"})
+    check = doctor._check_fonts(provider)  # type: ignore[arg-type]
+    assert check.status == "ok"
+    assert "Archivo Black" in check.detail
+    assert "Inter" in check.detail
+
+
 def test_doctor_paths_and_cache_agree_on_home(monkeypatch) -> None:
     """DX-1: the 'paths' and 'cache' checks must report the same home root under one config.
 

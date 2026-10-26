@@ -229,6 +229,9 @@ class FitSpec(BaseModel):
     ``policy`` is ``wrap`` (default), ``shrink_to_fit`` (reduce size to ``min_size_pt``), or
     ``truncate`` (clip to an ellipsis). ``overflow`` decides what happens when text still does
     not fit: ``clip`` (hard clip), ``allow`` (paint beyond bounds), or ``error`` (fail).
+    ``balance`` narrows the wrap width to the tightest that still holds the line count, evening
+    the line lengths; it composes with any policy (it runs after the size is fixed) and the
+    narrowed block is positioned inside the box per the paragraph alignment.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -237,6 +240,7 @@ class FitSpec(BaseModel):
     min_size_pt: float | None = None
     overflow: OverflowPolicy = "clip"
     max_lines: int | None = None
+    balance: bool = False
 
 
 OverflowKind = Literal["none", "clipped", "truncated", "shrunk", "overflowing"]
@@ -312,7 +316,7 @@ class CompiledImage(_CompiledNodeBase):
 
 
 class CompiledShape(_CompiledNodeBase):
-    """A shape node: a primitive (``rect``/``rrect``/``circle``) or a registered generator.
+    """A shape node: a primitive (``rect``/``rrect``/``circle``/``ellipse``) or a generator.
 
     When ``generator`` is set (e.g. ``starburst``, ``qr_code``), the renderer resolves it
     through the shape-generator registry and builds a parametric path within the node bounds;
@@ -321,7 +325,7 @@ class CompiledShape(_CompiledNodeBase):
     """
 
     type: Literal["shape"] = "shape"
-    shape: Literal["rect", "rrect", "circle"] = "rect"
+    shape: Literal["rect", "rrect", "circle", "ellipse"] = "rect"
     generator: str | None = None
     generator_params: dict[str, object] = Field(default_factory=dict)
 
@@ -390,6 +394,10 @@ class CompiledDocument(BaseModel):
     seed: int = 0
     fonts: tuple[FontRef, ...] = ()
     root: CompiledGroup
+    # Provenance only: the format this document was compiled against, so layout diagnostics
+    # can name it. Excluded from serialization/canonical hashing, like node.source above —
+    # canonical forms must not gain a render-context field.
+    format_name: str | None = Field(default=None, exclude=True)
 
     def canonical_dict(self) -> dict[str, object]:
         """Return a JSON-compatible dict for canonical hashing."""
@@ -416,7 +424,8 @@ class ResolvedText(BaseModel):
 
     ``font_size_pt`` is the *resolved* size after any ``shrink_to_fit`` pass; the runs carry
     the same size unless a run overrode it. ``clip`` tells the renderer to clip painting to the
-    node bounds (``overflow: clip`` or ``truncate``).
+    node bounds (``overflow: clip`` or ``truncate``). ``layout_width_pt`` is the narrowed layout
+    width when ``fit.balance`` ran, else ``None`` (the painter lays out at the box width).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -434,6 +443,9 @@ class ResolvedText(BaseModel):
     letter_spacing_pt: float
     language: str | None = None
     clip: bool = False
+    # The narrowed layout width when fit.balance ran, else None (box width). The painter lays
+    # out at this width and offsets the block inside the box per align.
+    layout_width_pt: float | None = None
 
 
 class ResolvedImage(BaseModel):
@@ -450,7 +462,7 @@ class ResolvedShape(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    shape: Literal["rect", "rrect", "circle"]
+    shape: Literal["rect", "rrect", "circle", "ellipse"]
     fill: RGBA | None
     stroke: RGBA | None
     stroke_width_pt: float

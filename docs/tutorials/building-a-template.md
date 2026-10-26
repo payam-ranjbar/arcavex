@@ -63,7 +63,7 @@ Every node has a stable `id` and a `type`. The scaffold uses three of the five
 ```
 
 `text` nodes carry an expression in `text:` (here `{{ title }}` binds the variable); `shape` nodes
-draw `rect`/`rrect`/`circle`; `image` nodes reference a template-relative `asset:`.
+draw `rect`/`rrect`/`circle`/`ellipse`; `image` nodes reference a template-relative `asset:`.
 
 ## 4. Constraints and anchors
 

@@ -78,6 +78,8 @@ $ arcavex doctor --json
   "response_version": 1,
   "ok": true,
   "engine_version": "0.1.0",
+  "build_commit": "6a1c0f2…",
+  "build_channel": "release",
   "checks": [
     {"name": "python", "status": "ok", "detail": "Python 3.12.13", "hint": null},
     {"name": "skia", "status": "ok", "detail": "skia-python 144.0.post2", "hint": null},

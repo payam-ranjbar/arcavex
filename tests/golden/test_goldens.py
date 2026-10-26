@@ -118,6 +118,41 @@ def test_effect_golden(facade, tmp_path, effect_name):  # noqa: ANN001,ANN201
     compare_to_golden(f"effect-{effect_name}", array)
 
 
+def test_linear_fade_mask_golden(facade, tmp_path):  # noqa: ANN001,ANN201
+    """A photo with a directional alpha fade over a diamond-lattice patterned background."""
+    text = (
+        "formats: {square: {canvas: {width: 256px, height: 256px, dpi: 96}}}\n"
+        "seed: 5\n"
+        "root:\n"
+        "  id: root\n"
+        "  type: group\n"
+        "  children:\n"
+        "    - id: bg\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#101820'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100%, h: 100%}}\n"
+        "    - id: pattern\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#3aa0ff'}\n"
+        "      mask: {component: diamond_grid, params: {cell: 22pt, gutter: 8pt, angle: 45}}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100%, h: 100%}}\n"
+        "    - id: photo\n"
+        "      type: image\n"
+        f"      asset: {_SUBJECT.as_posix()!r}\n"
+        "      fit: cover\n"
+        "      mask: {component: linear_fade, params: {direction: to_bottom, "
+        "start: 0.1, end: 0.85}}\n"
+        "      constraints: {anchor: {center_x: parent.center_x, center_y: parent.center_y}, "
+        "size: {w: 68%, h: 68%}}\n"
+    )
+    array = _render(facade, tmp_path, text, "mask-linear-fade")
+    compare_to_golden("mask-linear-fade", array)
+
+
 def test_fused_color_chain_golden(facade, tmp_path):  # noqa: ANN001,ANN201
     """A three-effect color chain (two fusing matrices + a table) rendered on the fixture."""
     effects = (
@@ -238,3 +273,120 @@ def test_editor_transforms_golden(facade, tmp_path):  # noqa: ANN001,ANN201
     result = facade.render_file(template, format_name="square", output=out)
     assert result.ok, [d.model_dump() for d in result.diagnostics]
     compare_to_golden("editor-transforms", load_png(out))
+
+
+@pytest.mark.parametrize(
+    ("case", "data", "format_name", "locale"),
+    [
+        ("name-1-line", "data-short.yaml", "square", "en"),
+        ("name-2-lines", "data-long.yaml", "square", "en"),
+        ("rtl", "data-short.yaml", "square", "fa"),
+        ("gap-format-patch", "data-long.yaml", "story", "en"),
+    ],
+)
+def test_stack_card_golden(facade, tmp_path, case, data, format_name, locale):  # noqa: ANN001,ANN201
+    """A vertical stack of variable-height text: even gaps, RTL packing, a patched gap (A2)."""
+    fixture = _REPO / "tests" / "fixtures" / "stack-card"
+    out = tmp_path / f"stack-{case}.png"
+    result = facade.render_file(
+        fixture / "template.yaml", data=fixture / data, format_name=format_name, locale=locale,
+        output=out,
+    )
+    assert result.ok, [d.model_dump() for d in result.diagnostics]
+    compare_to_golden(f"stack-card-{case}", load_png(out))
+
+
+def test_hard_break_golden(facade, tmp_path):  # noqa: ANN001,ANN201
+    """Explicit ``\\n`` breaks in LTR and RTL text, and a third line cut by ``max_lines: 2``.
+
+    Each text box hugs its lines (``h: fit_content``) and an orange rule sits under it, so the
+    picture shows the box height the line count produced: two lines for each block, including
+    the three-line value whose cap now counts its hard breaks (before, it counted one line and
+    the box grew to all three).
+    """
+
+    def block(node_id: str, top: str, text: str, extra: str) -> str:
+        return (
+            f"    - id: {node_id}\n"
+            "      type: text\n"
+            f"      text: {text}\n"
+            f"      {extra}\n"
+            "      fit: {policy: wrap, max_lines: 2}\n"
+            f"      constraints: {{anchor: {{top: {top}, left: parent.left+16px}}, "
+            "size: {w: 224px, h: fit_content}}\n"
+            f"    - id: {node_id}-rule\n"
+            "      type: shape\n"
+            "      shape: rect\n"
+            "      style: {fill: '#f07828'}\n"
+            f"      constraints: {{anchor: {{top: {node_id}.bottom+4px, left: parent.left+16px}}, "
+            "size: {w: 224px, h: 3px}}\n"
+        )
+
+    text = (
+        "formats: {square: {canvas: {width: 256px, height: 256px, dpi: 96}}}\n"
+        "root:\n"
+        "  id: root\n"
+        "  type: group\n"
+        "  children:\n"
+        "    - id: bg\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#ececec'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100%, h: 100%}}\n"
+        + block("ltr", "parent.top+16px", '"First line\\nSecond line"',
+                "style: {font: Inter, font_size: 16pt, color: black}")
+        + block("rtl", "ltr-rule.bottom+16px", '"\u0633\u0637\u0631 \u0627\u0648\u0644'
+                '\\n\u0633\u0637\u0631 \u062f\u0648\u0645"',
+                "style: {font: Vazirmatn, font_size: 16pt, color: black}\n"
+                "      paragraph: {direction: rtl, align: start}")
+        + block("capped", "rtl-rule.bottom+16px", '"One\\nTwo\\nThree"',
+                "style: {font: Inter, font_size: 16pt, color: black}")
+    )
+    array = _render(facade, tmp_path, text, "text-hard-break")
+    compare_to_golden("text-hard-break", array)
+
+
+def test_balanced_wrap_golden(facade, tmp_path):  # noqa: ANN001,ANN201
+    """Golden for `fit.balance`: the same copy wrapped greedily (top) and balanced (bottom).
+
+    Both sit in the same 224px box, drawn as a pale column. Greedy wrapping fills the first line
+    and leaves a short second one; the balanced block holds the same two lines at the tightest
+    width, centered in the box.
+    """
+
+    def block(node_id: str, top: str, balance: str) -> str:
+        return (
+            f"    - id: {node_id}\n"
+            "      type: text\n"
+            "      text: 'The quick brown fox jumps over the dog'\n"
+            "      style: {font: Inter, font_size: 18pt, color: '#1a1a1a'}\n"
+            "      paragraph: {align: center}\n"
+            f"      fit: {{policy: wrap, balance: {balance}}}\n"
+            f"      constraints: {{anchor: {{top: {top}, left: parent.left+16px}}, "
+            "size: {w: 224px, h: fit_content}}\n"
+        )
+
+    template = (
+        "formats: {square: {canvas: {width: 256px, height: 288px, dpi: 96}}}\n"
+        "root:\n"
+        "  id: root\n"
+        "  type: group\n"
+        "  children:\n"
+        "    - id: bg\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#f4f2ec'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: fill, h: fill}}\n"
+        "    - id: box\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#e2ddd0'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left+16px}, "
+        "size: {w: 224px, h: fill}}\n"
+        + block("greedy", "parent.top+24px", "false")
+        + block("balanced", "greedy.bottom+40px", "true")
+    )
+    array = _render(facade, tmp_path, template, "text-balanced-wrap")
+    compare_to_golden("text-balanced-wrap", array)

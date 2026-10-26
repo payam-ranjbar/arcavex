@@ -73,3 +73,13 @@ def test_split_refuses_when_already_split(tmp_path: Path) -> None:
     second = facade.split_template(target)
     assert not second.ok
     assert any(d.code == "ARC-TPL-071" for d in second.diagnostics)
+
+
+def test_scaffold_states_the_rejected_constructs(tmp_path: Path) -> None:
+    """The scaffold names what this build rejects, so authors learn it before render."""
+    facade = build_facade()
+    target = tmp_path / "card"
+    facade.scaffold_template("card", target)
+    text = (target / "template.yaml").read_text(encoding="utf-8")
+    for needle in ("ellipse", "ARC-TPL-036", "ARC-TPL-069", "ARC-FX-902", "arcavex explain"):
+        assert needle in text, needle

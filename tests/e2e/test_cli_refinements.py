@@ -204,3 +204,140 @@ def test_documented_minimal_image_card_renders(tmp_path: Path, arcavex_home: Pat
         tmp_path, format_name="square", locale="en", output=tmp_path / "card.png"
     )
     assert rendered.ok, rendered.diagnostics
+
+
+# ------------------------------------------------------------------- A5 scoped patch
+def test_cli_template_patch_format_upserts_exactly_one_op(template: Path) -> None:
+    """--format writes into formats.<F>.patch and a re-set updates it instead of duplicating."""
+    first = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--format", "square",
+            "--set", "nodes.title.style.color", "--value", '"#ff0000"',
+        ],
+    )
+    assert first.exit_code == 0, first.output
+    assert len(load_yaml(template)["formats"]["square"]["patch"]) == 1
+
+    second = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--format", "square",
+            "--set", "nodes.title.style.color", "--value", '"#00ff00"',
+        ],
+    )
+    assert second.exit_code == 0, second.output
+    patch = load_yaml(template)["formats"]["square"]["patch"]
+    assert len(patch) == 1
+    assert patch[0]["value"] == "#00ff00"
+
+
+def test_cli_template_patch_unknown_format_is_located(template: Path) -> None:
+    """An unknown --format is a located ARC-TPL-092 and leaves the file byte-for-byte intact."""
+    before = template.read_bytes()
+    result = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--format", "nope",
+            "--set", "nodes.title.style.color", "--value", '"#fff"', "--json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    diagnostics = json.loads(result.stdout)["diagnostics"]
+    assert diagnostics[0]["code"] == "ARC-TPL-092"
+    assert diagnostics[0]["source"]["keypath"] == "formats.nope"
+    assert template.read_bytes() == before
+
+
+def test_cli_template_patch_locale_targets_locale_patch_and_fonts(template: Path) -> None:
+    """--locale writes a node op into locales.<L>.patch and fonts.<Family> into fonts."""
+    node = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--locale", "en",
+            "--set", "nodes.title.text", "--value", '"Hi"',
+        ],
+    )
+    assert node.exit_code == 0, node.output
+    font = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--locale", "en",
+            "--set", "fonts.Inter", "--value", "Vazirmatn",
+        ],
+    )
+    assert font.exit_code == 0, font.output
+    raw = load_yaml(template)
+    assert len(raw["locales"]["en"]["patch"]) == 1
+    assert raw["locales"]["en"]["fonts"]["Inter"] == "Vazirmatn"
+
+
+def test_cli_template_patch_format_and_locale_target_narrowest_block(template: Path) -> None:
+    """Both flags address locales.<L>.formats.<F>.patch, not the broader lists."""
+    result = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--locale", "en", "--format", "square",
+            "--set", "nodes.title.style.font_size", "--value", '"40pt"',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    raw = load_yaml(template)
+    assert len(raw["locales"]["en"]["formats"]["square"]["patch"]) == 1
+    assert "patch" not in raw["formats"]["square"]
+    assert "patch" not in raw["locales"]["en"]
+
+
+def test_cli_template_patch_unset_removes_op(template: Path) -> None:
+    """--unset deletes the op addressing the same --set path instead of writing one."""
+    runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--format", "square",
+            "--set", "nodes.title.style.color", "--value", '"#ff0000"',
+        ],
+    )
+    result = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template), "--format", "square",
+            "--unset", "--set", "nodes.title.style.color",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert load_yaml(template)["formats"]["square"]["patch"] == []
+
+
+def test_cli_template_patch_split_writes_owner_sidecar(template: Path) -> None:
+    """A split template is patched in formats.yaml/locales.yaml, never back into template.yaml."""
+    split = runner.invoke(app, ["template", "split", str(template)])
+    assert split.exit_code == 0, split.output
+    formats = template.parent / "formats.yaml"
+    locales = template.parent / "locales.yaml"
+    assert formats.is_file() and locales.is_file()
+
+    before = template.read_bytes()
+    result = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template.parent), "--format", "square",
+            "--set", "nodes.title.style.color", "--value", '"#ff0000"',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "formats.yaml" in result.output
+    assert template.read_bytes() == before
+    assert "nodes.title.style.color" in formats.read_text(encoding="utf-8")
+
+    before = template.read_bytes()
+    result = runner.invoke(
+        app,
+        [
+            "template", "patch", str(template.parent), "--locale", "en",
+            "--set", "nodes.title.text", "--value", '"Hi"',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "locales.yaml" in result.output
+    assert template.read_bytes() == before
+    assert "nodes.title.text" in locales.read_text(encoding="utf-8")

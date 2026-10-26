@@ -176,8 +176,10 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-TPL-036",
             "Unsupported shape",
-            "A shape node uses a shape kind not supported in this build.",
-            "Use 'rect', 'rrect', or 'circle'.",
+            "A shape node uses a shape kind not supported in this build. The primitives are "
+            "rect, rrect, circle (inscribed in the shorter side) and ellipse (fills the box).",
+            "Use 'rect', 'rrect', 'circle' or 'ellipse', or a 'generator:' (starburst, "
+            "speech_bubble, qr_code).",
         ),
         _e(
             "ARC-TPL-037",
@@ -210,8 +212,8 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-TPL-041",
             "Invalid text fit policy",
             "A text node's 'fit' block has an invalid value: 'policy' must be wrap/shrink_to_fit/"
-            "truncate and 'overflow' must be clip/allow/error.",
-            "Correct the fit policy or overflow value; add 'min_size' for shrink_to_fit.",
+            "truncate, 'overflow' must be clip/allow/error, and 'balance' must be true or false.",
+            "Correct the fit policy, overflow, or balance value; add 'min_size' for shrink_to_fit.",
         ),
         _e(
             "ARC-TPL-051",
@@ -227,9 +229,13 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-TPL-052",
-            "Stacks not supported yet",
-            "Stack layouts (hstack/vstack) are not available in this build.",
-            "Use anchor constraints; stacks arrive in Phase 2.",
+            "Retired: stacks are supported",
+            "Reserved from the build that had no stack layout; no current build raises it. A "
+            "group with 'layout: vstack' or 'layout: hstack' lays out its children with 'gap', "
+            "'padding', 'main_align' and 'cross_align', mirrors under rtl, and sizes to its "
+            "children with 'h: fit_content'.",
+            "Put variable-height siblings in a 'layout: vstack' group instead of chaining "
+            "'<node>.bottom+N' anchors; a format patch can override its 'gap'.",
         ),
         _e(
             "ARC-TPL-053",
@@ -608,9 +614,11 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         ),
         _e(
             "ARC-LAY-020",
-            "fit_content on a non-text node",
-            "Only text nodes support the 'fit_content' size mode in this build.",
-            "Give the node an explicit size, or make it a text node.",
+            "fit_content on a node with no content to size to",
+            "'fit_content' sizes a text node to its text and a stack (a group with 'layout: "
+            "vstack' or 'hstack') to its children. An anchored group, an image or a shape has "
+            "no intrinsic size.",
+            "Give the node an explicit size or an aspect, or turn the group into a stack.",
         ),
         _e(
             "ARC-LAY-030",
@@ -714,6 +722,17 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "'shrink_to_fit' also consider lowering min_size so it can shrink further; under "
             "'wrap' there is no floor to lower, so reduce the font size or switch to "
             "'shrink_to_fit' with a min_size. Enlarging the box height cannot help.",
+        ),
+        _e(
+            "ARC-LAY-058",
+            "Text shrank below its declared size",
+            "A text node using 'shrink_to_fit' converged by rendering at a smaller font size than "
+            "the style declares, because the resolved box could not hold the declared size. This "
+            "is a warning: the render is correct, but the same headline renders smaller in one "
+            "format than in another. The message names the node, the format, the declared size "
+            "and the rendered size.",
+            "Enlarge the box or shorten the copy so the declared size fits, or accept the "
+            "shrink. Run validate/render with --strict to make this a build failure.",
         ),
         _e(
             "ARC-RND-010",
@@ -837,8 +856,9 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-FX-902",
             "Invalid mask or effect parameters",
             "A mask's or effect's parameters failed validation against the component's parameter "
-            "schema (wrong name, type, or out-of-range value). Effect length params accept pt, "
-            "mm, or px (px converts against the canvas DPI); mask length params are pt or mm.",
+            "schema (wrong name, type, or out-of-range value). Mask, shape and effect length "
+            "params accept pt, mm, or px (px converts against the canvas DPI); a bare number "
+            "is points and % has no absolute basis.",
             "Check each parameter against the component's documented schema; the message lists "
             "every offending field so you can fix them in one pass.",
         ),

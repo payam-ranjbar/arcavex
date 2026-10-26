@@ -47,7 +47,7 @@ class Effect(ABC):
 
 
 class MaskGenerator(ABC):
-    """Builds a clip path for a mask from typed parameters and node bounds."""
+    """Builds a clip path, or an optional alpha shader, for a mask from typed parameters."""
 
     name: ClassVar[str]
     param_schema: ClassVar[type[BaseModel]]
@@ -55,6 +55,16 @@ class MaskGenerator(ABC):
     @abstractmethod
     def build(self, params: BaseModel, bounds: Rect) -> Path2D:
         """Build the mask path within ``bounds``."""
+
+    def build_alpha(self, params: BaseModel, bounds: Rect) -> object | None:
+        """Return an optional alpha shader for the mask, else ``None`` for a pure clip path.
+
+        The default keeps every existing and third-party mask a clip-path mask. A generator that
+        overrides this may return a Skia shader whose alpha multiplies the node content (the Skia
+        backend applies it inside a ``saveLayer`` with ``DstIn``); ``build`` then supplies the
+        bounded fallback region a backend without alpha-shader support can clip to.
+        """
+        return None
 
 
 class ShapeGenerator(ABC):

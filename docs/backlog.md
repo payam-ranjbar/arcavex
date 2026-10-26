@@ -14,7 +14,7 @@ during reviews. Nothing here is required v1 scope.
 - Automatic installation of older engine versions for compatibility reruns (§12 open)
 - Hyphenation (unless a concrete template requires it — none did in v1)
 
-## Candidate: whole-canvas overlap reporting (not committed)
+## Candidate: whole-canvas overlap reporting (ships behind `--cross-group`)
 
 `layout inspect` enumerates overlapping pairs **per group**, so two nodes in different groups are
 never compared. Measured on the reference poster, that leaves 20-22 intersecting cross-group pairs
@@ -44,6 +44,12 @@ a missed collision if it is not. Deciding that is a design call about what an ov
 and it changes a field already shipped on the CLI and MCP surfaces. Not taken on that basis; the
 scope limit is documented instead, on `SiblingOverlap` and in
 [known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
+
+A8 later shipped the containment-plus-paint-order rule as an **opt-in** `layout inspect
+--cross-group` check, reported in a new additive `cross_group_overlaps` field rather than by
+widening `overlaps`. The default `overlaps` semantics — and the measured table above — are
+unchanged; a caller opts into the behaviour change only when hunting a cross-group collision. An
+MCP flag for the check is still open.
 
 ## Candidate: a narrow `audit` command (not committed)
 
