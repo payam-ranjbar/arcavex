@@ -165,3 +165,12 @@ def test_catalog_never_silently_reuses_a_diagnostic_code() -> None:
         and node.func.id == "_e" and isinstance(node.args[0], ast.Constant)
     ]
     assert len(codes) == len(set(codes))
+
+
+def test_rejected_construct_explanations_match_this_build() -> None:
+    """Agents read `explain` before rendering, so it must not contradict what the engine accepts."""
+    facade = build_facade()
+    shape = facade.explain_diagnostic("ARC-TPL-036")
+    assert "ellipse" in (shape.fix or "")
+    mask = facade.explain_diagnostic("ARC-FX-902")
+    assert "px" in (mask.summary or "") and "pt or mm" not in (mask.summary or "")

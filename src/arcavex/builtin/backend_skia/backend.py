@@ -368,6 +368,8 @@ class SkiaBackend(RendererBackend):
         if shape.shape == "circle":
             radius = min(bounds.w, bounds.h) / 2.0
             path.addCircle(bounds.center_x, bounds.center_y, radius)
+        elif shape.shape == "ellipse":
+            path.addOval(_skrect(bounds))
         elif shape.shape == "rrect" or shape.corner_radius_pt > 0:
             r = shape.corner_radius_pt
             path.addRoundRect(_skrect(bounds), r, r)
@@ -406,6 +408,8 @@ class SkiaBackend(RendererBackend):
         if shape.shape == "circle":
             radius = min(bounds.w, bounds.h) / 2.0
             canvas.drawCircle(bounds.center_x, bounds.center_y, radius, paint)  # type: ignore[attr-defined]
+        elif shape.shape == "ellipse":
+            canvas.drawOval(rect, paint)  # type: ignore[attr-defined]
         elif shape.shape == "rrect" or shape.corner_radius_pt > 0:
             r = shape.corner_radius_pt
             canvas.drawRoundRect(rect, r, r, paint)  # type: ignore[attr-defined]

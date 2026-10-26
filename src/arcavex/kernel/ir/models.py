@@ -312,7 +312,7 @@ class CompiledImage(_CompiledNodeBase):
 
 
 class CompiledShape(_CompiledNodeBase):
-    """A shape node: a primitive (``rect``/``rrect``/``circle``) or a registered generator.
+    """A shape node: a primitive (``rect``/``rrect``/``circle``/``ellipse``) or a generator.
 
     When ``generator`` is set (e.g. ``starburst``, ``qr_code``), the renderer resolves it
     through the shape-generator registry and builds a parametric path within the node bounds;
@@ -321,7 +321,7 @@ class CompiledShape(_CompiledNodeBase):
     """
 
     type: Literal["shape"] = "shape"
-    shape: Literal["rect", "rrect", "circle"] = "rect"
+    shape: Literal["rect", "rrect", "circle", "ellipse"] = "rect"
     generator: str | None = None
     generator_params: dict[str, object] = Field(default_factory=dict)
 
@@ -450,7 +450,7 @@ class ResolvedShape(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    shape: Literal["rect", "rrect", "circle"]
+    shape: Literal["rect", "rrect", "circle", "ellipse"]
     fill: RGBA | None
     stroke: RGBA | None
     stroke_width_pt: float

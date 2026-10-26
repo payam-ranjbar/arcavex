@@ -176,8 +176,10 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
         _e(
             "ARC-TPL-036",
             "Unsupported shape",
-            "A shape node uses a shape kind not supported in this build.",
-            "Use 'rect', 'rrect', or 'circle'.",
+            "A shape node uses a shape kind not supported in this build. The primitives are "
+            "rect, rrect, circle (inscribed in the shorter side) and ellipse (fills the box).",
+            "Use 'rect', 'rrect', 'circle' or 'ellipse', or a 'generator:' (starburst, "
+            "speech_bubble, qr_code).",
         ),
         _e(
             "ARC-TPL-037",
@@ -837,8 +839,9 @@ CATALOG: dict[str, DiagnosticDoc] = dict(
             "ARC-FX-902",
             "Invalid mask or effect parameters",
             "A mask's or effect's parameters failed validation against the component's parameter "
-            "schema (wrong name, type, or out-of-range value). Effect length params accept pt, "
-            "mm, or px (px converts against the canvas DPI); mask length params are pt or mm.",
+            "schema (wrong name, type, or out-of-range value). Mask, shape and effect length "
+            "params accept pt, mm, or px (px converts against the canvas DPI); a bare number "
+            "is points and % has no absolute basis.",
             "Check each parameter against the component's documented schema; the message lists "
             "every offending field so you can fix them in one pass.",
         ),

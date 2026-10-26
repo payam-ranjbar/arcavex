@@ -1586,15 +1586,15 @@ class Compiler:
                 )
                 return CompiledShape(**common, generator=gen, generator_params=params)
             shape = raw.get("shape", "rect")
-            if shape not in {"rect", "rrect", "circle"}:
+            if shape not in {"rect", "rrect", "circle", "ellipse"}:
                 raise DiagnosticError(
                     diagnostic(
                         "ARC-TPL-036",
                         f"Shape node {node_id!r} has unsupported shape {shape!r}",
                         file=str(template),
                         keypath=f"{keypath}.shape",
-                        hint="Use 'rect', 'rrect', 'circle', or a 'generator:' (starburst, "
-                        "speech_bubble, qr_code).",
+                        hint="Use 'rect', 'rrect', 'circle', 'ellipse', or a 'generator:' "
+                        "(starburst, speech_bubble, qr_code).",
                     )
                 )
             return CompiledShape(**common, shape=shape)
