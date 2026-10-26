@@ -68,7 +68,12 @@ margin and gutter system. Judge the **optical** edge — a glyph's ink, not its 
 carry side bearing that makes tight spacing look tighter than the numbers suggest.
 
 **Illegibility at real size.** Compute the rendered size at the actual viewing scale, not at the
-canvas resolution. A 15px caption on a 2000px canvas is invisible in a feed.
+canvas resolution. A 15px caption on a 2000px canvas is invisible in a feed. Measure the rendered px
+of each text role and compare it with the floors table in
+[art-direction.md](art-direction.md#readability-floors-defaults): font size in canvas px = size in pt
+x canvas dpi / 72 (a `px` size is already px). If `layout inspect` shows the node's `overflow` as
+`shrunk`, the declared size is not what rendered: measure the cap height in the rendered PNG instead
+(cap height is roughly 0.7 x font size for most Latin faces). Report any role under its floor.
 
 **Weak contrast** between text and its true backdrop — the backdrop is whatever is actually behind
 it, which may be an image, not the surface color.
