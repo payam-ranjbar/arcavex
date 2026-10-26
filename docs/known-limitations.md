@@ -29,8 +29,9 @@ These are intentional v1 boundaries (spec §12 / §7.4), tracked in [backlog.md]
 Each of these is a *located* diagnostic, so you learn the boundary at authoring time rather than
 getting silently-wrong output:
 
-- **`fit_content` is text-only.** Sizing an image or group to its intrinsic content is not available
-  (`ARC-LAY-020`); give those nodes an explicit size or an `aspect` ratio.
+- **`fit_content` covers text and stacks only.** A text node sizes to its text and a `vstack`/`hstack`
+  group to its children; an image, a shape or an anchored group has no intrinsic size
+  (`ARC-LAY-020`), so give it an explicit size or an `aspect` ratio.
 - **Wrapping stacks are deferred.** A stack with `wrap: true` reports `ARC-LAY-056` rather than faking
   multi-row flow; lay wrapped rows out with nested stacks for now.
 - **`line_height` is not yet honored.** The bundled text stack (skia-python 144) exposes no strut
@@ -41,23 +42,29 @@ getting silently-wrong output:
 
 skia-python 144 exposes no per-line/per-glyph boxes ([ADR-0001](adr/0001-skia-python-144-platform-baseline.md)),
 so `max_lines` is approximated by dividing the measured paragraph height by a *measured* single-line
-height (not an invented constant) — exact for uniform text — and layout inspection reports paragraph
+height (not an invented constant). Hard breaks (`\n`) are counted by stripping the break characters
+in that single-line probe, so they are exact for a single style and approximate when lines carry
+different font sizes; layout inspection reports paragraph
 bounds and baseline rather than per-glyph rectangles. Fit policies, BiDi/RTL, and locale digits are
 implemented in the Arcavex text service on top of the scalar metrics the binding does expose, so the
 public template contract is unaffected.
 
-## Overlap reporting is per-group
+## Overlap reporting is per-group by default
 
 `layout inspect` enumerates overlapping pairs **within each group**. Two nodes in different groups
-are never compared, however much they intersect — on the reference poster that is 20-22 unreported
-intersecting pairs per format. A clean `overlaps` list therefore means "no sibling collisions",
-not "nothing on this canvas collides".
+are never compared there, however much they intersect — on the reference poster that is 20-22
+unreported intersecting pairs per format. A clean `overlaps` list therefore means "no sibling
+collisions", not "nothing on this canvas collides".
 
-Nearly all of those unreported pairs are legitimate layering (a background under everything, a card
-panel under its own labels), which is why widening the scope is a redesign of the containment rule
-rather than an enumeration change; the measured trade-off is in [backlog.md](backlog.md). If you
-need a whole-canvas guarantee today, compare `bounds_pt` across the tree yourself — `layout inspect
---json` reports every node's box.
+`layout inspect --cross-group` is the opt-in whole-canvas check. It compares every visible leaf pair
+with different parents and reports the collisions separately in `cross_group_overlaps`, so the
+default `overlaps` field is unchanged. It suppresses a leaf that fully contains a later leaf and is
+painted below it — containment plus paint order — which drops the full-bleed backdrop and other
+legitimate layering without the 90% area heuristic. The remaining limitation is deliberate: a
+decorative leaf fully containing a leaf drawn over it is treated as a backdrop, whether or not that
+was intended. The rule and its measured trade-off are in [backlog.md](backlog.md). If you need a
+raw whole-canvas view, compare `bounds_pt` across the tree yourself — `layout inspect --json`
+reports every node's box.
 
 ## Validation checks geometry, not design
 

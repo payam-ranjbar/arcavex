@@ -21,7 +21,7 @@ What this module re-exports:
 - **Path / surface utilities** — :class:`SurfacePool`, :func:`render_to_pool`,
   :func:`image_to_rgba`, :func:`rgba_to_image`.
 - **Param-schema helpers** — the pydantic base (re-exported :class:`BaseModel`/:class:`Field`)
-  plus the unit-aware fields :data:`Points` and :data:`RGBAColor`.
+  plus the unit-aware fields :data:`Points`, :data:`Fraction`, and :data:`RGBAColor`.
 - **IR value types** — :class:`Rect`, :class:`Insets`, :class:`Dim`, :class:`Matrix3`,
   :class:`Unit`, :class:`Color`, and the :class:`Path2D` / :class:`Surface` handle protocols.
 - **Layout output types** — :class:`LayoutDocument`, :class:`LayoutNode`,
@@ -89,7 +89,7 @@ from arcavex.sdk.context import (
     RasterContext,
 )
 from arcavex.sdk.golden import BoundsHonesty, GoldenHarness, GoldenResult, load_png, save_png
-from arcavex.sdk.params import RGBA, Points, RGBAColor
+from arcavex.sdk.params import RGBA, Fraction, Points, RGBAColor
 from arcavex.sdk.registration import (
     COMPONENT_KINDS,
     ComponentKind,
@@ -100,7 +100,7 @@ from arcavex.sdk.surface import SurfacePool, image_to_rgba, render_to_pool, rgba
 
 # The stable version of the SDK surface. Bumped when the re-exported surface changes in a way an
 # extension can observe; distinct from the engine and IR versions an extension declares against.
-SDK_VERSION = "1.0"
+SDK_VERSION = "1.1"
 
 __all__ = [
     "COMPONENT_KINDS",
@@ -128,6 +128,7 @@ __all__ = [
     "ExportReport",
     "Exporter",
     "Field",
+    "Fraction",
     "GeometryContext",
     "GoldenHarness",
     "GoldenResult",

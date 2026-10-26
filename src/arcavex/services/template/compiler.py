@@ -114,7 +114,7 @@ _STYLE_KEYS = frozenset({
     "letter_spacing",
 })
 _PARAGRAPH_KEYS = frozenset({"align", "direction"})
-_FIT_KEYS = frozenset({"policy", "min_size", "overflow", "max_lines"})
+_FIT_KEYS = frozenset({"policy", "min_size", "overflow", "max_lines", "balance"})
 _CONSTRAINT_KEYS = frozenset({"anchor", "size"})
 _SIZE_MAP_KEYS = frozenset({"value", "aspect", "min", "max"})
 _RUN_KEYS = frozenset({
@@ -527,7 +527,9 @@ class Compiler:
                     )
                 )
 
-            doc = CompiledDocument(canvas=canvas, seed=seed, root=root)
+            doc = CompiledDocument(
+                canvas=canvas, seed=seed, root=root, format_name=resolved_format
+            )
             # The resolved variable snapshot (defaults/overlays applied) drops derived
             # injections like ``palette`` (re-derived from the style on rerun) so it captures
             # exactly the authored/derived variable values a rerun needs (§5.3).
@@ -1586,15 +1588,15 @@ class Compiler:
                 )
                 return CompiledShape(**common, generator=gen, generator_params=params)
             shape = raw.get("shape", "rect")
-            if shape not in {"rect", "rrect", "circle"}:
+            if shape not in {"rect", "rrect", "circle", "ellipse"}:
                 raise DiagnosticError(
                     diagnostic(
                         "ARC-TPL-036",
                         f"Shape node {node_id!r} has unsupported shape {shape!r}",
                         file=str(template),
                         keypath=f"{keypath}.shape",
-                        hint="Use 'rect', 'rrect', 'circle', or a 'generator:' (starburst, "
-                        "speech_bubble, qr_code).",
+                        hint="Use 'rect', 'rrect', 'circle', 'ellipse', or a 'generator:' "
+                        "(starburst, speech_bubble, qr_code).",
                     )
                 )
             return CompiledShape(**common, shape=shape)
@@ -2704,8 +2706,24 @@ class Compiler:
             if max_lines is not None
             else None
         )
+        balance = f.get("balance", False)
+        if not isinstance(balance, bool):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-041",
+                    f"Text node {node_id!r} has invalid fit balance {balance!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.fit.balance",
+                    line=line_of(f, "balance"),
+                    hint="Use true or false.",
+                )
+            )
         return FitSpec(
-            policy=policy, min_size_pt=min_pt, overflow=overflow, max_lines=max_lines_int
+            policy=policy,
+            min_size_pt=min_pt,
+            overflow=overflow,
+            max_lines=max_lines_int,
+            balance=balance,
         )
 
     def _parse_transform(

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import typer
@@ -29,6 +30,8 @@ from arcavex.kernel.api import (
     ExtensionListReport,
     Facade,
     FontListReport,
+    FontMetricsReport,
+    LayoutNodeReport,
     LayoutReport,
     PatchOp,
     PreviewResult,
@@ -191,6 +194,16 @@ def _exit_code_for(diagnostics: list[Diagnostic], ok: bool) -> int:
     return EXIT_VALIDATION
 
 
+def _strict_diagnostics(diagnostics: list[Diagnostic], strict: bool) -> list[Diagnostic]:
+    """--strict: promote every warning to an error so the command fails on it (A3)."""
+    if not strict:
+        return diagnostics
+    return [
+        d if d.is_error() else d.model_copy(update={"severity": "error"})
+        for d in diagnostics
+    ]
+
+
 def _force_utf8_stdout() -> None:
     """Make JSON and human output codepage-independent on Windows consoles."""
     for stream in (sys.stdout, sys.stderr):
@@ -315,6 +328,10 @@ def render(
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
+    strict: bool = typer.Option(
+        False, "--strict",
+        help="Treat warnings as errors (exit non-zero); the output file is still written.",
+    ),
 ) -> None:
     """Render a template to an image or PDF, or (no template) the current project's runs."""
     if json_out:
@@ -327,11 +344,19 @@ def render(
             project=project, formats=[format_name] if format_name else None,
             locales=[locale] if locale else None, dpi=dpi,
         )
+        diagnostics = _strict_diagnostics(list(report.diagnostics), strict)
+        report = report.model_copy(
+            update={"diagnostics": diagnostics, "ok": report.ok and not has_errors(diagnostics)}
+        )
         _emit_run_report(console, report, json_out, quiet)
         raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
     if record:
         report = facade.record_render(
             template, data=data, format_name=format_name, locale=locale, style=style, dpi=dpi
+        )
+        diagnostics = _strict_diagnostics(list(report.diagnostics), strict)
+        report = report.model_copy(
+            update={"diagnostics": diagnostics, "ok": report.ok and not has_errors(diagnostics)}
         )
         _emit_run_report(console, report, json_out, quiet)
         raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
@@ -352,16 +377,18 @@ def render(
         quality=quality,
         lossless=lossless,
     )
+    diagnostics = _strict_diagnostics(list(result.diagnostics), strict)
+    ok = result.ok and not has_errors(diagnostics)
     if json_out:
         typer.echo(
             json.dumps(
                 {
                     "response_version": RESPONSE_VERSION,
-                    "ok": result.ok,
+                    "ok": ok,
                     "output_path": result.output_path,
                     "content_sha256": result.content_sha256,
                     "inferred": result.inferred,
-                    "diagnostics": [_diag_to_dict(d) for d in result.diagnostics],
+                    "diagnostics": [_diag_to_dict(d) for d in diagnostics],
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -372,10 +399,10 @@ def render(
         # the pipeline are reported now, without repeating what the plan already showed.
         remaining = {k: v for k, v in result.inferred.items() if k not in plan}
         _report_inferences(console, remaining, quiet)
-        _print_diagnostics(console, result.diagnostics, quiet)
-        if result.ok and not quiet:
+        _print_diagnostics(console, diagnostics, quiet)
+        if ok and not quiet:
             console.print(f"[green]Rendered[/green] {result.output_path}")
-    raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
+    raise typer.Exit(_exit_code_for(diagnostics, ok))
 
 
 @app.command()
@@ -399,6 +426,7 @@ def validate(
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
+    strict: bool = typer.Option(False, "--strict", help="Treat warnings as errors."),
 ) -> None:
     """Validate a template, or (with no template) the current project, without rendering."""
     if json_out:
@@ -419,6 +447,8 @@ def validate(
             template=template, data=data, format_name=format_name, locale=locale, style=style
         )
         ok = not has_errors(diagnostics)
+    diagnostics = _strict_diagnostics(diagnostics, strict)
+    ok = not has_errors(diagnostics)
     if json_out:
         typer.echo(
             json.dumps(
@@ -955,6 +985,20 @@ def template_patch(
     base_sha256: str | None = typer.Option(
         None, "--base-sha256", help="Reject the patch if the file changed (from a prior inspect)."
     ),
+    format_name: str | None = typer.Option(
+        None, "--format", "-f", help="Write the op into formats.<F>.patch instead of the root."
+    ),
+    locale: str | None = typer.Option(
+        None,
+        "--locale",
+        "-l",
+        help="Write into locales.<L>.patch (or locales.<L>.formats.<F>.patch with --format).",
+    ),
+    unset: bool = typer.Option(
+        False,
+        "--unset",
+        help="With --format/--locale, delete the op addressing the same --set path.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
@@ -962,11 +1006,19 @@ def template_patch(
     """Apply path-addressed set/remove/insert ops to a template on disk (comment-preserving).
 
     The AI mutation contract (spec §4.1.4), also reachable from the CLI: each op addresses a
-    stable node id. Pass one op via the flags, or a batch via --ops-file.
+    stable node id. Pass one op via the flags, or a batch via --ops-file. With --format and/or
+    --locale the op is upserted into that scope's patch list (and locale fonts via
+    --set fonts.<Family> --value <stack>); --unset removes the op addressing the same path.
     """
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
+    if unset and format_name is None and locale is None:
+        console.print("[red]--unset needs a target[/red]: pass --format and/or --locale.")
+        raise typer.Exit(EXIT_USAGE)
+    if unset and ops_file is None and set_path is None:
+        console.print("[red]--unset needs a path[/red]: pass --set PATH.")
+        raise typer.Exit(EXIT_USAGE)
     node_map = _parse_scalar(node) if node is not None else None
     if ops_file is not None:
         try:
@@ -992,7 +1044,14 @@ def template_patch(
             raise typer.Exit(EXIT_USAGE)
         ops = [op]
     facade = _build_facade_or_exit(console, quiet)
-    result = facade.patch_template(template, ops, base_sha256)
+    result = facade.patch_template(
+        template,
+        ops,
+        base_sha256,
+        format_name=format_name,
+        locale=locale,
+        unset=unset,
+    )
     if json_out:
         _emit_json(result)
     else:
@@ -1014,28 +1073,52 @@ def layout_inspect(
     data: Path | None = typer.Option(None, "--data", "-d", help="Path to the data YAML file."),
     format_name: str | None = typer.Option(None, "--format", "-f", help="Format name."),
     locale: str | None = typer.Option(None, "--locale", "-l", help="Locale name."),
+    text_only: bool = typer.Option(
+        False, "--text-only",
+        help="Only text nodes, and only overlaps involving a text node.",
+    ),
+    overflow_only: bool = typer.Option(
+        False, "--overflow-only",
+        help="Only nodes whose text overflow outcome is not none "
+             "(clipped, truncated, shrunk, overflowing).",
+    ),
+    cross_group: bool = typer.Option(
+        False, "--cross-group",
+        help="Also check leaf pairs across groups (whole-canvas); separate from sibling overlaps.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
 ) -> None:
-    """Report resolved geometry: per-node bounds, anchors, overflow, and sibling overlaps."""
+    """Report resolved geometry: per-node bounds, anchors, overflow, and sibling overlaps.
+
+    ``--text-only`` and ``--overflow-only`` prune the tree (and filter overlaps); ``--cross-group``
+    adds the opt-in whole-canvas leaf-pair check.
+    """
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color)
     facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
-    report = (facade.inspect_project_layout(project=project, format_name=format_name, locale=locale)
-              if template is None else facade.inspect_layout(template, data, format_name, locale))
+    report = (facade.inspect_project_layout(
+                  project=project, format_name=format_name, locale=locale, cross_group=cross_group)
+              if template is None
+              else facade.inspect_layout(
+                  template, data, format_name, locale, cross_group=cross_group))
+    if text_only or overflow_only:
+        report = _apply_layout_filters(report, text_only=text_only, overflow_only=overflow_only)
     if json_out:
         _emit_json(report)
     elif not quiet:
         if not report.ok:
             _print_diagnostics(console, report.diagnostics, quiet)
         else:
-            _print_layout_report(console, report)
+            _print_layout_report(console, report, cross_group=cross_group)
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
 
-def _print_layout_report(console: Console, report: LayoutReport) -> None:
+def _print_layout_report(
+    console: Console, report: LayoutReport, *, cross_group: bool = False
+) -> None:
     _report_inferences(console, report.inferred, quiet=False)
     console.print(
         f"[bold]canvas[/bold] {report.canvas_pt[0]:g}x{report.canvas_pt[1]:g}pt "
@@ -1046,6 +1129,10 @@ def _print_layout_report(console: Console, report: LayoutReport) -> None:
         _print_layout_node(console, report.root, 0)
     if report.overlaps:
         _print_overlaps(console, report)
+    if report.cross_group_overlaps:
+        _print_cross_group_overlaps(console, report)
+    elif cross_group:
+        console.print("[bold]cross-group overlaps[/bold]: 0 content, 0 effect spill")
     console.print(f"[bold]coverage[/bold]: {report.covered_fraction:.0%} of canvas")
     if report.free_regions:
         console.print("[bold]free regions[/bold] (empty horizontal bands):")
@@ -1083,6 +1170,82 @@ def _print_overlaps(console: Console, report: LayoutReport) -> None:
             console.print(
                 f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
             )
+
+
+def _print_cross_group_overlaps(console: Console, report: LayoutReport) -> None:
+    """Print the opt-in whole-canvas collisions as their own section.
+
+    Same content/halo demotion as ``overlaps`` — the point of the flag is to surface real
+    cross-group collisions, not to reintroduce the intentional layering this section suppresses.
+    """
+    content = [ov for ov in report.cross_group_overlaps if ov.kind == "content"]
+    halo = [ov for ov in report.cross_group_overlaps if ov.kind == "halo"]
+    console.print(
+        f"[bold]cross-group overlaps[/bold]: {len(content)} content, {len(halo)} effect spill"
+    )
+    for ov in content:
+        console.print(f"  {_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}")
+    if not content:
+        console.print("  [dim]no cross-group content collisions[/dim]")
+    for ov in halo:
+        console.print(
+            f"    [dim]{_esc(ov.a)} ∩ {_esc(ov.b)} at {_rect_pt(ov.rect_pt)}[/dim]"
+        )
+
+
+def _iter_layout_nodes(node: LayoutNodeReport) -> Iterator[LayoutNodeReport]:
+    yield node
+    for child in node.children:
+        yield from _iter_layout_nodes(child)
+
+
+def _filter_layout_tree(
+    node: LayoutNodeReport, keep: Callable[[LayoutNodeReport], bool]
+) -> LayoutNodeReport | None:
+    """Prune a report tree: keep matching nodes and any group needed to reach one."""
+    kept: list[LayoutNodeReport] = []
+    for child in node.children:
+        filtered = _filter_layout_tree(child, keep)
+        if filtered is not None:
+            kept.append(filtered)
+    if keep(node) or kept:
+        return node.model_copy(update={"children": kept})
+    return None
+
+
+def _apply_layout_filters(
+    report: LayoutReport, *, text_only: bool, overflow_only: bool
+) -> LayoutReport:
+    """Apply ``--text-only`` / ``--overflow-only`` to the tree and the overlap lists.
+
+    Presentation-only: the Facade stays unfiltered, and the filtered report is what both human
+    and ``--json`` output carry so an agent gets the same view as an operator (A8).
+    """
+    if report.root is None:
+        return report
+    text_ids = (
+        {n.id for n in _iter_layout_nodes(report.root) if n.kind == "text"}
+        if text_only else set()
+    )
+
+    def keep(node: LayoutNodeReport) -> bool:
+        if text_only and node.kind != "text":
+            return False
+        if overflow_only and not (
+            node.overflow is not None and node.overflow.kind != "none"
+        ):
+            return False
+        return True
+
+    updates: dict[str, object] = {"root": _filter_layout_tree(report.root, keep)}
+    if text_only:  # only text overlaps survive, on both lists
+        updates["overlaps"] = [
+            o for o in report.overlaps if o.a in text_ids or o.b in text_ids
+        ]
+        updates["cross_group_overlaps"] = [
+            o for o in report.cross_group_overlaps if o.a in text_ids or o.b in text_ids
+        ]
+    return report.model_copy(update=updates)
 
 
 def _print_layout_node(console: Console, node: object, depth: int) -> None:
@@ -2013,6 +2176,37 @@ def font_list(
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
 
+@font_app.command("metrics")
+def font_metrics(
+    family: str = typer.Argument(..., help="Font family name a template uses (not a file)."),
+    size: str = typer.Argument(
+        ..., help="Text size: 40pt or 54px; a bare number is pixels, as in a template."
+    ),
+    sample: str = typer.Option(
+        "Hamburgefonstiv", "--sample", help="One-line string whose advance is measured."
+    ),
+    weight: int = typer.Option(400, "--weight", help="Font weight (1-1000)."),
+    italic: bool = typer.Option(False, "--italic", help="Measure the italic face."),
+    dpi: int = typer.Option(96, "--dpi", help="DPI used to resolve a px size (pt is exact)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Report line height, cap height, x-height, and a sample's advance for a font family."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.font_metrics(
+        family, size, sample=sample, weight=weight, italic=italic, dpi=dpi
+    )
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_font_metrics(console, report)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
 @font_app.command("add")
 def font_add(
     path: Path = typer.Argument(..., help="Font file (.ttf) to install."),
@@ -2092,6 +2286,34 @@ def _print_font_list(console: Console, report: FontListReport) -> None:
             console.print(f"  [dim]{_esc(file.name)}[/dim]")
     console.print(f"[dim]install fonts into:[/dim] {report.install_dir}")
     console.print("[dim]add one with:[/dim] arcavex font add <path/to/font.ttf>")
+
+
+def _print_font_metrics(console: Console, report: FontMetricsReport) -> None:
+    _print_diagnostics(console, report.diagnostics, quiet=False)
+    if not report.ok:
+        return
+    # Both bases are printed so a box authored in px and one authored in pt both read off the
+    # same row, and the dpi that linked them is never implicit.
+    console.print(
+        f"[cyan]{_esc(report.resolved_family)}[/cyan] {_esc(report.size)} "
+        f"= {report.size_pt:.3f} pt = {report.size_px:.3f} px (dpi {report.dpi})"
+    )
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("metric")
+    table.add_column("pt", justify="right")
+    for label, value in (
+        ("ascent", report.ascent_pt),
+        ("descent", report.descent_pt),
+        ("line height", report.line_height_pt),
+        ("cap height", report.cap_height_pt),
+        ("x-height", report.x_height_pt),
+    ):
+        table.add_row(label, f"{value:.3f}")
+    console.print(table)
+    console.print(
+        f"advance of {_esc(report.sample)!r}: [bold]{report.advance_pt:.3f} pt[/bold]"
+    )
+
 
 # --------------------------------------------------------------------------- skill install
 @skill_app.command("install")

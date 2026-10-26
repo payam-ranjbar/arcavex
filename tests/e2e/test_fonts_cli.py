@@ -102,6 +102,73 @@ def test_font_list_human_output_marks_bundled_vs_installed(arcavex_home: Path) -
     assert "fonts" in result.output
 
 
+# --------------------------------------------------------------------------------- metrics
+def test_font_metrics_json_reports_positive_metrics(arcavex_home: Path) -> None:
+    """'font metrics FAMILY SIZE' reports every measurement a box-sizing agent needs."""
+    result = runner.invoke(app, ["font", "metrics", "Inter", "40pt", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["response_version"] == 1
+    assert payload["ok"] is True
+    assert payload["family"] == payload["resolved_family"] == "Inter"
+    assert payload["fallback"] is False
+    assert payload["size_pt"] == pytest.approx(40.0)
+    for key in (
+        "ascent_pt",
+        "descent_pt",
+        "line_height_pt",
+        "cap_height_pt",
+        "x_height_pt",
+        "advance_pt",
+    ):
+        assert payload[key] > 0, key
+
+
+def test_font_metrics_px_states_the_dpi_basis(arcavex_home: Path) -> None:
+    """A px size is resolved at the reported dpi; the report names both pt and px."""
+    result = runner.invoke(
+        app, ["font", "metrics", "Inter", "54px", "--dpi", "96", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["dpi"] == 96
+    assert payload["size_pt"] == pytest.approx(40.5)  # 54 * 72 / 96
+    assert payload["size_px"] == pytest.approx(54.0)
+
+
+def test_font_metrics_bare_number_is_pixels(arcavex_home: Path) -> None:
+    result = runner.invoke(app, ["font", "metrics", "Inter", "40", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["size_px"] == pytest.approx(40.0)
+
+
+def test_font_metrics_human_output_lists_metrics(arcavex_home: Path) -> None:
+    result = runner.invoke(app, ["font", "metrics", "Inter", "40pt"])
+    assert result.exit_code == 0, result.output
+    for label in ("ascent", "descent", "line height", "cap height", "x-height", "Inter"):
+        assert label in result.output
+
+
+def test_font_metrics_unknown_family_errors_but_names_the_fallback(
+    arcavex_home: Path,
+) -> None:
+    """An unknown family is ARC-RND-010 (exit 3), and the report says what it measured instead."""
+    result = runner.invoke(app, ["font", "metrics", "Nonesuch", "40pt", "--json"])
+    assert result.exit_code == 3, result.output
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["fallback"] is True
+    assert payload["resolved_family"] == "Inter"
+    diag = payload["diagnostics"][0]
+    assert diag["code"] == "ARC-RND-010" and diag["severity"] == "error"
+
+
+def test_font_metrics_rejects_a_bad_size(arcavex_home: Path) -> None:
+    result = runner.invoke(app, ["font", "metrics", "Inter", "huge", "--json"])
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.stdout)["diagnostics"][0]["code"] == "ARC-IR-011"
+
+
 # ------------------------------------------------------------------------------------- add
 def test_font_add_reports_family_as_the_engine_resolves_it(
     arcavex_home: Path, tmp_path: Path

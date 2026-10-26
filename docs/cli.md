@@ -8,8 +8,13 @@ diagnostic codes any command can emit see [diagnostics.md](diagnostics.md).
 
 ```console
 $ arcavex --version
-arcavex 0.1.0
+arcavex 0.1.0 (commit 6a1c0f2…, channel source)
 ```
+
+The identity names the exact build: the package version, the source commit (or `unknown`), and
+the build channel — `release` for a tagged engine release, `dev` for any other wheel or frozen
+executable, and `source` for an editable install or checkout. Compare it with the skill's header
+before following any command instructions.
 
 ## Conventions
 
@@ -18,7 +23,9 @@ arcavex 0.1.0
   diagnostics/line only). `--json` output always carries a `response_version` integer.
 - **Exit codes.** `0` success (warnings included), `1` validation/authoring error, `2` invalid CLI
   usage, `3` missing template/asset/font, `4` resource budget exceeded, `5` internal failure
-  (`ARC-INT-999`). See [diagnostics.md](diagnostics.md#exit-codes).
+  (`ARC-INT-999`). Pass `--strict` to `render` or `validate` to promote every warning to an error,
+  so the command exits `1` (for `render`, the output file is still written). See
+  [diagnostics.md](diagnostics.md#exit-codes).
 - **Direct mode vs project mode.** `render`, `validate`, and `preview` take an optional `TEMPLATE`
   argument. With it, they operate on that file (direct mode). Without it, they discover the current
   project by walking upward for a `project.yaml` (project mode); `--project PATH` overrides
@@ -74,6 +81,7 @@ arcavex render [TEMPLATE] [OPTIONS]
 | `--dpi INTEGER` | Override render DPI (highest-precedence layer, §6.3). |
 | `--quality 1..100` | Lossy encoder quality (JPEG, lossy WebP; default 90). Ignored for PNG/PDF. |
 | `--lossless` | Encode WebP losslessly (ignored for other formats). |
+| `--strict` | Treat warnings as errors (exit non-zero); the output file is still written. |
 | `--debug` | Overlay node bounds, ids, baselines, and the safe-area margin. |
 
 ```console
@@ -99,8 +107,8 @@ Validate a template, or (with no template) the current project, without renderin
 arcavex validate [TEMPLATE] [OPTIONS]
 ```
 
-Accepts `-d/--data`, `-f/--format`, `-l/--locale`, `--style`, `--project`. Exit `0` on success
-(including warnings), `1` on a validation error.
+Accepts `-d/--data`, `-f/--format`, `-l/--locale`, `--style`, `--project`, `--strict`. Exit `0` on
+success (including warnings), `1` on a validation error or on a warning promoted by `--strict`.
 
 ## preview
 
@@ -140,7 +148,8 @@ Arcavex engine 0.1.0
 └───────────┴────────┴────────────────────────────────────────────────────────┘
 ```
 
-`doctor --json` emits the same report as versioned JSON. See [install.md](install.md#doctor) for
+`doctor --json` emits the same report as versioned JSON, with top-level `build_commit` and
+`build_channel` fields alongside `engine_version`. See [install.md](install.md#doctor) for
 what each row proves and the ICU remediation path.
 
 ## explain
@@ -207,7 +216,7 @@ Template authoring commands.
 | `check PATH [-f -l --style]` | Validate a template without data (schema + structure + `preview_data`). |
 | `inspect PATH [--json] [--resolved -f -l]` | Report the authored contract; `--resolved` shows the resolved direction/digits and each applied patch with its originating layer. |
 | `split PATH` | Convert a one-file template into a split directory, losslessly. |
-| `patch PATH …` | Apply path-addressed `set`/`remove`/`insert_before`/`insert_after` ops to a template on disk (comment-preserving). The AI-mutation contract, also on the CLI. |
+| `patch PATH …` | Apply path-addressed `set`/`remove`/`insert_before`/`insert_after` ops to a template on disk (comment-preserving). The AI-mutation contract, also on the CLI. `[--format F] [--locale L] [--unset]` scope the op to a format/locale patch list. |
 | `publish DIR --name N --version V [--no-default]` | Publish a template into the library as an immutable `N@V`. |
 | `detach [--project P]` | Copy the project's library template into the project (disables version upgrades). |
 
@@ -238,10 +247,19 @@ functions:
 `--insert-after P --node J`, or `--ops-file F`, with an optional `--base-sha256 H` guard that
 refuses the write if the file changed on disk since it was read (`ARC-TPL-110`).
 
+`--format F` and/or `--locale L` do not touch the root AST: the op is upserted into the matching
+patch list the compiler already applies at render time — `formats.<F>.patch`, `locales.<L>.patch`,
+or, with both flags, the narrowest `locales.<L>.formats.<F>.patch`. A second `--set` on the same
+path replaces the value rather than appending a duplicate; `--unset --set P` deletes the op
+addressing `P`. Locale font overrides use `--locale L --set fonts.<Family> --value <stack>`,
+which writes `locales.<L>.fonts.<Family>`. An unknown format/locale is a located `ARC-TPL-092` and
+nothing is written. For a split template the write goes to the sidecar that owns the section
+(`formats.yaml`/`locales.yaml`), and `--base-sha256`/`sha256` cover that file.
+
 ## layout inspect
 
 ```
-arcavex layout inspect TEMPLATE [-d -f -l] [--json]
+arcavex layout inspect TEMPLATE [-d -f -l] [--text-only] [--overflow-only] [--cross-group] [--json]
 ```
 
 Report resolved geometry: per-node bounds (pt + px), the anchor derivation for each axis, overflow,
@@ -311,11 +329,29 @@ containment by a node covering ≥90% of its parent region, or by a group, is st
 collision. A node's shadow cannot buy it that exemption: the threshold is measured on the layout
 box, not the paint box.
 
-**Pairs are enumerated within each group.** Two nodes in different groups are never compared, so
-an empty `overlaps` list means no sibling collisions, not that nothing on the canvas collides —
-on the reference poster, 20-22 intersecting cross-group pairs go unreported per format. For a
-whole-canvas check, compare `bounds_pt` across the tree from `--json`. The reasoning and the
-measured trade-off are in
+### Inspection filters
+
+Three opt-in flags narrow what `layout inspect` reports, on both human and `--json` output:
+
+| Flag | Effect |
+|---|---|
+| `--text-only` | Keep only text nodes (and the groups needed to reach them), and drop overlaps where neither endpoint is a text node. |
+| `--overflow-only` | Keep only nodes whose text overflow outcome is not `none` — `clipped`, `truncated`, `shrunk`, or `overflowing`. |
+| `--cross-group` | Add the whole-canvas collision check below, reported separately in `cross_group_overlaps`. |
+
+`--overflow-only` deliberately includes `shrunk`: text that shrank to its floor is a warning sign
+even when it fits. Both tree filters keep an ancestor group only when a kept descendant needs it,
+so the remaining nodes keep the anchor context that locates them.
+
+**Sibling `overlaps` are enumerated within each group.** Two nodes in different groups are never
+compared there, so an empty `overlaps` list means no sibling collisions, not that nothing on the
+canvas collides — on the reference poster, 20-22 intersecting cross-group pairs go unreported per
+format. Pass `--cross-group` for an opt-in whole-canvas check: it compares every visible leaf pair
+with different parents and reports the collisions in a separate `cross_group_overlaps` field (and a
+*cross-group overlaps* section in human output), leaving `overlaps` unchanged. A leaf that fully
+contains a later leaf and is painted below it is a backdrop — containment plus paint order — so a
+full-bleed background is suppressed without the 90% area heuristic. The reasoning and the measured
+trade-off are in
 [known-limitations.md](known-limitations.md#overlap-reporting-is-per-group).
 
 ## style
@@ -361,6 +397,7 @@ four bundled families must be installed before a template may name it.
 | Subcommand | Purpose |
 |---|---|
 | `list [--json]` | List every resolvable family, its files, and whether it is bundled or installed; names the install directory. |
+| `metrics FAMILY SIZE [--sample TEXT] [--weight N] [--italic] [--dpi N] [--json]` | Report line height, cap/x-height, and a sample's advance without rendering. |
 | `add PATH [--license PATH]` | Install a `.ttf` into `$ARCAVEX_HOME/fonts` and report the family name templates must use. |
 | `remove FAMILY [--json]` | Remove an installed family. A family bundled with the engine is refused (`ARC-RND-032`). |
 
@@ -380,6 +417,33 @@ Vazirmatn bundled (5 file(s))
 install fonts into: C:\Users\you\.arcavex\fonts
 add one with: arcavex font add <path/to/font.ttf>
 ```
+
+`metrics` measures one family at an authored size without rendering, so a `fit_content` box can be
+sized from the engine's own numbers instead of a second metrics library. The line height is exactly
+what a one-line text node occupies at that size; `cap height` and `x-height` come from the font's
+tables; `advance` is the shaped width of the sample. A size takes a unit (`40pt`, `54px`) or is a
+bare number of pixels, exactly like a template's `font_size`, so a value copied from a template
+measures what it renders. A `px` size resolves at `--dpi` (default 96), which the report states:
+
+```console
+$ arcavex font metrics Inter 40pt
+Inter 40pt = 40.000 pt = 53.333 px (dpi 96)
+┌─────────────┬────────┐
+│ metric      │     pt │
+├─────────────┼────────┤
+│ ascent      │ 38.750 │
+│ descent     │  9.250 │
+│ line height │ 48.000 │
+│ cap height  │ 29.102 │
+│ x-height    │ 21.836 │
+└─────────────┴────────┘
+advance of 'Hamburgefonstiv': 325.234 pt
+```
+
+Use `--sample TEXT` to measure a different string, `--weight N` / `--italic` to choose a face, and
+`--json` for the machine-readable report. A family that is not available measures the fallback
+family but reports [`ARC-RND-010`](diagnostics/ARC-RND-010.md) and exits 3, so a wrong name is
+never mistaken for real metrics.
 
 `add` reports the family name **as the engine resolves it**, read from the file itself. A file stem
 and its internal family name routinely differ, and `style.font` must name the *family*, so this is

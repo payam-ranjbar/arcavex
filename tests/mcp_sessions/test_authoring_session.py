@@ -15,6 +15,7 @@ from mcp.types import TextContent
 
 from arcavex.clients.mcp_server import ArcavexTools
 from arcavex.kernel.api import PatchOp, PreviewResult
+from arcavex.services.template.loader import load_yaml
 
 
 def _preview_result(blocks: list) -> tuple[bool, PreviewResult]:
@@ -78,6 +79,28 @@ def test_preview_failure_returns_structured_diagnostics(
     assert not has_image
     assert not preview.ok
     assert any(d.code == "ARC-IR-030" for d in preview.diagnostics)
+
+
+def test_template_patch_can_target_a_format(tools: ArcavexTools, scaffold: Path) -> None:
+    """A5: the MCP tool mirrors --format, upserting into formats.<F>.patch only."""
+    patched = tools.template_patch(
+        str(scaffold),
+        [PatchOp(set="nodes.title.style.color", value="#00ffcc")],
+        format="square",
+    )
+    assert patched.ok and patched.applied == 1
+    raw = load_yaml(scaffold / "template.yaml")
+    assert len(raw["formats"]["square"]["patch"]) == 1
+    assert "patch" not in raw["formats"]["story"]
+
+    again = tools.template_patch(
+        str(scaffold),
+        [PatchOp(set="nodes.title.style.color", value="#00ffff")],
+        format="square",
+    )
+    assert again.ok
+    patch = load_yaml(scaffold / "template.yaml")["formats"]["square"]["patch"]
+    assert len(patch) == 1 and patch[0]["value"] == "#00ffff"
 
 
 def test_data_and_asset_tools_round_trip(tools: ArcavexTools, tmp_path: Path) -> None:

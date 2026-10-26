@@ -14,7 +14,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from arcavex.build_info import build_commit, engine_version
+from arcavex.build_info import build_channel, build_commit, engine_version
 from arcavex.kernel.api import DoctorCheck, DoctorReport
 from arcavex.services.text import TextService
 
@@ -29,9 +29,10 @@ def run_doctor(text_service: TextService | None = None) -> DoctorReport:
             ``None``, the font probe builds one so ``doctor`` works standalone.
     """
     commit = build_commit(source=True)
+    channel = build_channel()
     checks: list[DoctorCheck] = [
         DoctorCheck(name="build", status="ok" if commit else "warn",
-                    detail=f"commit {commit or 'unknown'}"),
+                    detail=f"commit {commit or 'unknown'} (channel {channel})"),
         _check_python(),
         _check_skia(),
         _check_icu(),
@@ -44,7 +45,10 @@ def run_doctor(text_service: TextService | None = None) -> DoctorReport:
     ]
     # 'ok' is true when no probe failed; warnings do not flip overall success.
     ok = all(c.status != "fail" for c in checks)
-    return DoctorReport(ok=ok, engine_version=engine_version(), checks=checks)
+    return DoctorReport(
+        ok=ok, engine_version=engine_version(), build_commit=commit,
+        build_channel=channel, checks=checks,
+    )
 
 
 def _check_python() -> DoctorCheck:

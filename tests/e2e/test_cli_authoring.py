@@ -32,6 +32,16 @@ def test_doctor_json_shape() -> None:
     assert {"python", "skia", "icu", "fonts", "temp_dir"} <= names
 
 
+def test_doctor_json_carries_build_identity() -> None:
+    """A source run reports its commit and channel so skill instructions can be trusted."""
+    proc = _run(["doctor", "--json"])
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["build_commit"]
+    assert payload["build_channel"] == "source"
+    assert payload["engine_version"]
+
+
 # ------------------------------------------------------------------------ explain
 def test_explain_known_code_exit_0() -> None:
     proc = _run(["explain", "ARC-TPL-014"])

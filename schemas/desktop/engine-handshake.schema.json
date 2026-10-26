@@ -96,6 +96,23 @@
     "DoctorReport": {
       "description": "The result of ``arcavex doctor``: engine version plus per-probe check rows.",
       "properties": {
+        "build_channel": {
+          "default": "unknown",
+          "title": "Build Channel",
+          "type": "string"
+        },
+        "build_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build Commit"
+        },
         "checks": {
           "items": {
             "$ref": "#/$defs/DoctorCheck"

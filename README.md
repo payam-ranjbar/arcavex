@@ -378,8 +378,8 @@ specification.
 
 ### Agent-run CLI refinements
 
-`arcavex --version` and `doctor` expose the build commit. Wheels and standalone binaries ship
-that metadata and the matching design skill. Refresh it with `arcavex skill install --force`.
+`arcavex --version` and `doctor` expose the build commit and channel (`release`, `dev`, or
+`source`). Wheels and standalone binaries ship that metadata and the matching design skill. Refresh it with `arcavex skill install --force`.
 The skill's command reference is generated from the live CLI and checked in CI.
 
 An existing `.arcavex-home` is discovered from the working directory up to its project root;
