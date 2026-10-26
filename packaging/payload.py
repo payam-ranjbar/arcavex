@@ -6,6 +6,7 @@ Only stdlib imports: Hatch's isolated build must not import the rendering stack.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tomllib
@@ -40,15 +41,21 @@ def stage_payload(root: Path, target: Path) -> Path:
         )
     project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     version = project["version"]
+    # Only the tagged release lane stamps ``release``; every other wheel or freeze is ``dev``.
+    channel = os.environ.get("ARCAVEX_BUILD_CHANNEL", "dev")
+    if channel not in {"release", "dev"}:
+        raise SystemExit(f"ARCAVEX_BUILD_CHANNEL must be 'release' or 'dev', not {channel!r}")
     (target / "build.json").write_text(
-        json.dumps({"version": version, "commit": commit}, indent=2) + "\n", encoding="utf-8"
+        json.dumps({"version": version, "commit": commit, "channel": channel}, indent=2) + "\n",
+        encoding="utf-8",
     )
     skill = target / "skill"
     shutil.copytree(root / "skills" / "arcavex-design-studio", skill, dirs_exist_ok=True)
     marker = skill / "SKILL.md"
     marker.write_text(
         marker.read_text(encoding="utf-8").replace(
-            "<!-- engine-build -->", f"Engine build: `{version} (commit {commit or 'unknown'})`."
+            "<!-- engine-build -->",
+            f"Engine build: `{version} (commit {commit or 'unknown'}, channel {channel})`.",
         ),
         encoding="utf-8",
         newline="\n",

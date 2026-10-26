@@ -8,8 +8,13 @@ diagnostic codes any command can emit see [diagnostics.md](diagnostics.md).
 
 ```console
 $ arcavex --version
-arcavex 0.1.0
+arcavex 0.1.0 (commit 6a1c0f2…, channel source)
 ```
+
+The identity names the exact build: the package version, the source commit (or `unknown`), and
+the build channel — `release` for a tagged engine release, `dev` for any other wheel or frozen
+executable, and `source` for an editable install or checkout. Compare it with the skill's header
+before following any command instructions.
 
 ## Conventions
 
@@ -140,7 +145,8 @@ Arcavex engine 0.1.0
 └───────────┴────────┴────────────────────────────────────────────────────────┘
 ```
 
-`doctor --json` emits the same report as versioned JSON. See [install.md](install.md#doctor) for
+`doctor --json` emits the same report as versioned JSON, with top-level `build_commit` and
+`build_channel` fields alongside `engine_version`. See [install.md](install.md#doctor) for
 what each row proves and the ICU remediation path.
 
 ## explain

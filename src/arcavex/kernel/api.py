@@ -543,6 +543,8 @@ class DoctorReport(BaseModel):
     response_version: int = RESPONSE_VERSION
     ok: bool
     engine_version: str
+    build_commit: str | None = None
+    build_channel: str = "unknown"
     checks: list[DoctorCheck]
 
 

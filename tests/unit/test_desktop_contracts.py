@@ -87,6 +87,8 @@ def test_engine_handshake_report_carries_the_versioned_desktop_contract() -> Non
             "response_version": 1,
             "ok": True,
             "engine_version": "0.1.0",
+            "build_commit": None,
+            "build_channel": "unknown",
             "checks": [{
                 "name": "python",
                 "status": "ok",
