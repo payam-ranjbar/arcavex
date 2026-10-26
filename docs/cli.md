@@ -23,7 +23,9 @@ before following any command instructions.
   diagnostics/line only). `--json` output always carries a `response_version` integer.
 - **Exit codes.** `0` success (warnings included), `1` validation/authoring error, `2` invalid CLI
   usage, `3` missing template/asset/font, `4` resource budget exceeded, `5` internal failure
-  (`ARC-INT-999`). See [diagnostics.md](diagnostics.md#exit-codes).
+  (`ARC-INT-999`). Pass `--strict` to `render` or `validate` to promote every warning to an error,
+  so the command exits `1` (for `render`, the output file is still written). See
+  [diagnostics.md](diagnostics.md#exit-codes).
 - **Direct mode vs project mode.** `render`, `validate`, and `preview` take an optional `TEMPLATE`
   argument. With it, they operate on that file (direct mode). Without it, they discover the current
   project by walking upward for a `project.yaml` (project mode); `--project PATH` overrides
@@ -79,6 +81,7 @@ arcavex render [TEMPLATE] [OPTIONS]
 | `--dpi INTEGER` | Override render DPI (highest-precedence layer, §6.3). |
 | `--quality 1..100` | Lossy encoder quality (JPEG, lossy WebP; default 90). Ignored for PNG/PDF. |
 | `--lossless` | Encode WebP losslessly (ignored for other formats). |
+| `--strict` | Treat warnings as errors (exit non-zero); the output file is still written. |
 | `--debug` | Overlay node bounds, ids, baselines, and the safe-area margin. |
 
 ```console
@@ -104,8 +107,8 @@ Validate a template, or (with no template) the current project, without renderin
 arcavex validate [TEMPLATE] [OPTIONS]
 ```
 
-Accepts `-d/--data`, `-f/--format`, `-l/--locale`, `--style`, `--project`. Exit `0` on success
-(including warnings), `1` on a validation error.
+Accepts `-d/--data`, `-f/--format`, `-l/--locale`, `--style`, `--project`, `--strict`. Exit `0` on
+success (including warnings), `1` on a validation error or on a warning promoted by `--strict`.
 
 ## preview
 

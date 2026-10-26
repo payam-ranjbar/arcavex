@@ -579,3 +579,66 @@ def test_hard_break_max_lines_raises_lay057(tmp_path: Path) -> None:
 """,
         )
     assert exc.value.diagnostics[0].code == "ARC-LAY-057"
+
+
+# ------------------------------------------ ARC-LAY-058 shrunk text below its declared size (A3)
+#
+# A 'shrink_to_fit' text node that *converges* at a size materially below the declared size used
+# to validate and render silently: the same headline ships at 54pt in one format and 46pt in
+# another with no diagnostic. ARC-LAY-058 makes that visible without failing the build (warnings
+# do not flip ok); --strict promotes it.
+_SHRINK_FIXTURE = """
+    - id: headline
+      type: text
+      text: "A rather long headline that will not fit at one size"
+      style: {font: Inter, font_size: 48pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 10pt}
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 200pt, h: 70pt}}
+"""
+
+
+def test_shrink_warns_arc_lay_058_with_node_format_and_sizes(tmp_path: Path) -> None:
+    layout = _solve(tmp_path, _SHRINK_FIXTURE)
+    warnings = [w for w in layout.warnings if w.code == "ARC-LAY-058"]
+    assert len(warnings) == 1
+    warning = warnings[0]
+    assert warning.severity == "warning"
+    assert "'headline'" in warning.message
+    assert "'square'" in warning.message
+    assert "48.0pt" in warning.message
+    assert "declared" in warning.message
+    assert "rendered" in warning.message
+    assert not has_errors(list(layout.warnings))
+
+
+def test_non_convergent_shrink_emits_only_lay051(tmp_path: Path) -> None:
+    """A shrink that bottoms out at min_size is ARC-LAY-051; ARC-LAY-058 must not double-report."""
+    layout = _solve(tmp_path, _FLOOR_MAX_LINES % "allow")
+    codes = [w.code for w in layout.warnings]
+    assert "ARC-LAY-051" in codes
+    assert "ARC-LAY-058" not in codes
+
+
+def test_fitting_text_emits_no_shrink_warning(tmp_path: Path) -> None:
+    """Text that fits at its declared size is not a shrink, so it does not warn."""
+    layout = _solve(
+        tmp_path,
+        """
+    - id: short
+      type: text
+      text: "Hi"
+      style: {font: Inter, font_size: 12pt, color: black}
+      fit: {policy: shrink_to_fit, min_size: 6pt}
+      constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 300pt, h: 100pt}}
+""",
+    )
+    assert not any(w.code == "ARC-LAY-058" for w in layout.warnings)
+
+
+def test_shrink_is_noticeable_tolerance() -> None:
+    """Half a point is the human-facing threshold; smaller differences are invisible."""
+    from arcavex.builtin.layout_anchors.solver import _shrink_is_noticeable
+
+    assert _shrink_is_noticeable(54.0, 46.0) is True
+    assert _shrink_is_noticeable(54.0, 53.6) is False
+    assert _shrink_is_noticeable(54.0, 54.0) is False

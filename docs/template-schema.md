@@ -267,8 +267,11 @@ A text node may set `fit: {policy, overflow, min_size, max_lines, balance}`:
   and is a no-op for a single line or when the layout width is unknown (`w: fit_content`). A
   non-boolean value is `ARC-TPL-041`.
 - Non-convergent shrink and sub-line-height truncation emit `ARC-LAY-051` warnings with the measured
-  numbers. `paragraph: {align, direction}` sets alignment (`start`/`end` follow the base direction)
-  and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).
+  numbers. A `shrink_to_fit` that converges at least 0.5pt below the declared size emits an
+  `ARC-LAY-058` warning naming the node, the format, and the declared and rendered sizes, so a
+  headline that renders smaller in one format than another is visible; `validate --strict` and
+  `render --strict` turn warnings into failures. `paragraph: {align, direction}` sets alignment
+  (`start`/`end` follow the base direction) and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).
 
 Text metrics are paragraph-level and `line_height` is not yet honored — see
 [known-limitations.md](known-limitations.md).

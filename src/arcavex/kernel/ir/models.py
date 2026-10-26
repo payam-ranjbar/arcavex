@@ -394,6 +394,10 @@ class CompiledDocument(BaseModel):
     seed: int = 0
     fonts: tuple[FontRef, ...] = ()
     root: CompiledGroup
+    # Provenance only: the format this document was compiled against, so layout diagnostics
+    # can name it. Excluded from serialization/canonical hashing, like node.source above —
+    # canonical forms must not gain a render-context field.
+    format_name: str | None = Field(default=None, exclude=True)
 
     def canonical_dict(self) -> dict[str, object]:
         """Return a JSON-compatible dict for canonical hashing."""
