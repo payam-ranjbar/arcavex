@@ -1,0 +1,71 @@
+# A speaker card laid out by a vertical stack: name, role and a bullet of variable height keep the
+# same gap whether the name takes one line or two, without sibling anchors (audit A2). The story
+# format widens the gap through a format patch; the fa locale exercises RTL start/end.
+# All content is invented.
+version: 0.1.0
+variables:
+  name: {type: string, required: true, doc: "Speaker name; may wrap to two lines."}
+  role: {type: string, required: true, doc: "Role line under the name."}
+  bullet: {type: string, required: true, doc: "One talking point."}
+formats:
+  square: {canvas: {width: 480px, height: 480px, dpi: 96}}
+  story:
+    canvas: {width: 480px, height: 720px, dpi: 96}
+    patch:
+      - {set: "nodes.card.gap", value: 36px}
+locales:
+  en: {direction: ltr, digits: en}
+  fa:
+    direction: rtl
+    digits: fa
+    fonts: {Inter: [Vazirmatn, Inter]}
+preview_data:
+  name: "Ada Example"
+  role: "Keynote speaker"
+  bullet: "Ships layouts that hold their rhythm."
+root:
+  type: group
+  id: root
+  children:
+    - id: background
+      type: shape
+      shape: rect
+      style: {fill: "#14161F"}
+      constraints:
+        anchor: {top: parent.top, left: parent.left}
+        size: {w: fill, h: fill}
+    - id: card
+      type: group
+      layout: vstack
+      gap: 14px
+      padding: 20px
+      cross_align: start
+      constraints:
+        anchor: {top: parent.top+40px, start: parent.start+40px}
+        size: {w: 300px, h: fit_content}
+      children:
+        - id: name
+          type: text
+          text: "{{ name }}"
+          style: {font: Inter, font_size: 34px, font_weight: 700, color: "#F5F5F2"}
+          paragraph: {align: start, direction: auto}
+          fit: {policy: wrap, max_lines: 2}
+          constraints: {size: {w: fill, h: fit_content}}
+        - id: rule
+          type: shape
+          shape: rect
+          style: {fill: "#F07828"}
+          constraints: {size: {w: 64px, h: 6px}}
+        - id: role
+          type: text
+          text: "{{ role }}"
+          style: {font: Inter, font_size: 20px, color: "#9AA0AE"}
+          paragraph: {align: start, direction: auto}
+          constraints: {size: {w: fill, h: fit_content}}
+        - id: bullet
+          type: text
+          text: "{{ bullet }}"
+          style: {font: Inter, font_size: 18px, color: "#D9DBE3"}
+          paragraph: {align: start, direction: auto}
+          fit: {policy: wrap, max_lines: 3}
+          constraints: {size: {w: fill, h: fit_content}}

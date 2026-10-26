@@ -238,3 +238,24 @@ def test_editor_transforms_golden(facade, tmp_path):  # noqa: ANN001,ANN201
     result = facade.render_file(template, format_name="square", output=out)
     assert result.ok, [d.model_dump() for d in result.diagnostics]
     compare_to_golden("editor-transforms", load_png(out))
+
+
+@pytest.mark.parametrize(
+    ("case", "data", "format_name", "locale"),
+    [
+        ("name-1-line", "data-short.yaml", "square", "en"),
+        ("name-2-lines", "data-long.yaml", "square", "en"),
+        ("rtl", "data-short.yaml", "square", "fa"),
+        ("gap-format-patch", "data-long.yaml", "story", "en"),
+    ],
+)
+def test_stack_card_golden(facade, tmp_path, case, data, format_name, locale):  # noqa: ANN001,ANN201
+    """A vertical stack of variable-height text: even gaps, RTL packing, a patched gap (A2)."""
+    fixture = _REPO / "tests" / "fixtures" / "stack-card"
+    out = tmp_path / f"stack-{case}.png"
+    result = facade.render_file(
+        fixture / "template.yaml", data=fixture / data, format_name=format_name, locale=locale,
+        output=out,
+    )
+    assert result.ok, [d.model_dump() for d in result.diagnostics]
+    compare_to_golden(f"stack-card-{case}", load_png(out))
