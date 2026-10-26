@@ -133,8 +133,8 @@ children:
 
 Draw wedges and triangles with a `path` node, e.g. `d: "M0 0 L120 0 L120 60 Z"`, a `style.fill`,
 and explicit constraints. Path coordinates are points. Do not calculate rotated rectangle angles
-for a shape the path language can express. For art direction, format design, or a missing effect,
-read [art-direction.md](references/art-direction.md), [multi-format.md](references/multi-format.md),
+for a shape the path language can express. For art direction, compositing photos into patterns,
+format design, or a missing effect, read [art-direction.md](references/art-direction.md), [multi-format.md](references/multi-format.md),
 or [extending.md](references/extending.md) only as needed.
 
 ## 3. Inspect → patch → validate → render → look → inspect layout
