@@ -106,3 +106,24 @@ def test_source_distribution_payload_preserves_captured_commit(tmp_path: Path) -
     payload = stage(source, tmp_path / "payload")
     assert json.loads((payload / "build.json").read_text())["commit"] == "captured-release"
     assert "captured-release" in (payload / "skill/SKILL.md").read_text()
+
+
+def test_build_payload_stamps_the_release_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tagged release lane marks the artifact, so its version string cannot be mistaken."""
+    import json
+
+    root = Path(__file__).resolve().parents[2]
+    stage = runpy.run_path(str(root / "packaging/payload.py"))["stage_payload"]
+    source = tmp_path / "sdist"
+    source.mkdir()
+    (source / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n')
+    (source / "build-identity.json").write_text(json.dumps({"commit": "captured-release"}))
+    skill = source / "skills" / SKILL_NAME
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("<!-- engine-build -->")
+    monkeypatch.setenv("ARCAVEX_BUILD_CHANNEL", "release")
+    payload = stage(source, tmp_path / "payload")
+    assert json.loads((payload / "build.json").read_text())["channel"] == "release"
+    assert "channel release" in (payload / "skill/SKILL.md").read_text()

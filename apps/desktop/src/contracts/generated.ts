@@ -14,7 +14,7 @@ export type Diagnostic = { readonly code: string; readonly hint?: string | null;
 
 export type DoctorCheck = { readonly detail: string; readonly hint?: string | null; readonly name: string; readonly status: "ok" | "warn" | "fail"; };
 
-export type DoctorReport = { readonly checks: ReadonlyArray<DoctorCheck>; readonly engine_version: string; readonly ok: boolean; readonly response_version?: number; };
+export type DoctorReport = { readonly build_channel?: string; readonly build_commit?: string | null; readonly checks: ReadonlyArray<DoctorCheck>; readonly engine_version: string; readonly ok: boolean; readonly response_version?: number; };
 
 export type DuplicateCommand = { readonly kind: "duplicate"; readonly layer_id: string; };
 
@@ -346,6 +346,23 @@ const desktopContractSchemas: Readonly<Record<DesktopContractName, JsonSchema>> 
       "DoctorReport": {
         "description": "The result of ``arcavex doctor``: engine version plus per-probe check rows.",
         "properties": {
+          "build_channel": {
+            "default": "unknown",
+            "title": "Build Channel",
+            "type": "string"
+          },
+          "build_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Build Commit"
+          },
           "checks": {
             "items": {
               "$ref": "#/$defs/DoctorCheck"
@@ -5225,6 +5242,8 @@ export const desktopContractFixtures: Readonly<Record<DesktopContractName, Reado
       }
     ],
     "doctor": {
+      "build_channel": "release",
+      "build_commit": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
       "checks": [
         {
           "detail": "3 families",
