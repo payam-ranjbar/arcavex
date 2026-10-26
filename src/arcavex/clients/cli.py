@@ -191,6 +191,16 @@ def _exit_code_for(diagnostics: list[Diagnostic], ok: bool) -> int:
     return EXIT_VALIDATION
 
 
+def _strict_diagnostics(diagnostics: list[Diagnostic], strict: bool) -> list[Diagnostic]:
+    """--strict: promote every warning to an error so the command fails on it (A3)."""
+    if not strict:
+        return diagnostics
+    return [
+        d if d.is_error() else d.model_copy(update={"severity": "error"})
+        for d in diagnostics
+    ]
+
+
 def _force_utf8_stdout() -> None:
     """Make JSON and human output codepage-independent on Windows consoles."""
     for stream in (sys.stdout, sys.stderr):
@@ -315,6 +325,10 @@ def render(
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
+    strict: bool = typer.Option(
+        False, "--strict",
+        help="Treat warnings as errors (exit non-zero); the output file is still written.",
+    ),
 ) -> None:
     """Render a template to an image or PDF, or (no template) the current project's runs."""
     if json_out:
@@ -327,11 +341,19 @@ def render(
             project=project, formats=[format_name] if format_name else None,
             locales=[locale] if locale else None, dpi=dpi,
         )
+        diagnostics = _strict_diagnostics(list(report.diagnostics), strict)
+        report = report.model_copy(
+            update={"diagnostics": diagnostics, "ok": report.ok and not has_errors(diagnostics)}
+        )
         _emit_run_report(console, report, json_out, quiet)
         raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
     if record:
         report = facade.record_render(
             template, data=data, format_name=format_name, locale=locale, style=style, dpi=dpi
+        )
+        diagnostics = _strict_diagnostics(list(report.diagnostics), strict)
+        report = report.model_copy(
+            update={"diagnostics": diagnostics, "ok": report.ok and not has_errors(diagnostics)}
         )
         _emit_run_report(console, report, json_out, quiet)
         raise typer.Exit(_exit_code_for(report.diagnostics, report.ok))
@@ -352,16 +374,18 @@ def render(
         quality=quality,
         lossless=lossless,
     )
+    diagnostics = _strict_diagnostics(list(result.diagnostics), strict)
+    ok = result.ok and not has_errors(diagnostics)
     if json_out:
         typer.echo(
             json.dumps(
                 {
                     "response_version": RESPONSE_VERSION,
-                    "ok": result.ok,
+                    "ok": ok,
                     "output_path": result.output_path,
                     "content_sha256": result.content_sha256,
                     "inferred": result.inferred,
-                    "diagnostics": [_diag_to_dict(d) for d in result.diagnostics],
+                    "diagnostics": [_diag_to_dict(d) for d in diagnostics],
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -372,10 +396,10 @@ def render(
         # the pipeline are reported now, without repeating what the plan already showed.
         remaining = {k: v for k, v in result.inferred.items() if k not in plan}
         _report_inferences(console, remaining, quiet)
-        _print_diagnostics(console, result.diagnostics, quiet)
-        if result.ok and not quiet:
+        _print_diagnostics(console, diagnostics, quiet)
+        if ok and not quiet:
             console.print(f"[green]Rendered[/green] {result.output_path}")
-    raise typer.Exit(_exit_code_for(result.diagnostics, result.ok))
+    raise typer.Exit(_exit_code_for(diagnostics, ok))
 
 
 @app.command()
@@ -399,6 +423,7 @@ def validate(
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human diagnostics."),
+    strict: bool = typer.Option(False, "--strict", help="Treat warnings as errors."),
 ) -> None:
     """Validate a template, or (with no template) the current project, without rendering."""
     if json_out:
@@ -419,6 +444,8 @@ def validate(
             template=template, data=data, format_name=format_name, locale=locale, style=style
         )
         ok = not has_errors(diagnostics)
+    diagnostics = _strict_diagnostics(diagnostics, strict)
+    ok = not has_errors(diagnostics)
     if json_out:
         typer.echo(
             json.dumps(

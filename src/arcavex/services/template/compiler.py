@@ -527,7 +527,9 @@ class Compiler:
                     )
                 )
 
-            doc = CompiledDocument(canvas=canvas, seed=seed, root=root)
+            doc = CompiledDocument(
+                canvas=canvas, seed=seed, root=root, format_name=resolved_format
+            )
             # The resolved variable snapshot (defaults/overlays applied) drops derived
             # injections like ``palette`` (re-derived from the style on rerun) so it captures
             # exactly the authored/derived variable values a rerun needs (§5.3).
