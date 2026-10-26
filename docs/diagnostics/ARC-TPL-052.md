@@ -1,5 +1,5 @@
-# ARC-TPL-052 — Stacks not supported yet
+# ARC-TPL-052 — Retired: stacks are supported
 
-Stack layouts (hstack/vstack) are not available in this build.
+Reserved from the build that had no stack layout; no current build raises it. A group with 'layout: vstack' or 'layout: hstack' lays out its children with 'gap', 'padding', 'main_align' and 'cross_align', mirrors under rtl, and sizes to its children with 'h: fit_content'.
 
-**Typical fix:** Use anchor constraints; stacks arrive in Phase 2.
+**Typical fix:** Put variable-height siblings in a 'layout: vstack' group instead of chaining '<node>.bottom+N' anchors; a format patch can override its 'gap'.

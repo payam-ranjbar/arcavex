@@ -174,3 +174,13 @@ def test_rejected_construct_explanations_match_this_build() -> None:
     assert "ellipse" in (shape.fix or "")
     mask = facade.explain_diagnostic("ARC-FX-902")
     assert "px" in (mask.summary or "") and "pt or mm" not in (mask.summary or "")
+
+
+def test_explain_does_not_hide_the_shipped_stack_layout() -> None:
+    """Agents hand-chained sibling anchors after `explain` said stacks arrive in a later phase (A2)."""
+    facade = build_facade()
+    for code in ("ARC-TPL-052", "ARC-LAY-020"):
+        help_ = facade.explain_diagnostic(code)
+        text = f"{help_.title} {help_.summary} {help_.fix}"
+        assert "vstack" in text, code
+        assert "Phase 2" not in text and "not supported yet" not in text.lower(), code

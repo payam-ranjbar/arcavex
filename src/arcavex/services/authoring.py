@@ -189,9 +189,9 @@ root:
         anchor: {left: parent.left+64px, top: parent.center_y+70px}
         size: {w: 82%, h: fit_content}
 
-    # Conditional node: included only when `badge` is supplied. `if:` is fully usable today
-    # because this single node has its own distinct anchor. (Laying out a *dynamic* number of
-    # repeated nodes needs layout stacks, which arrive in Phase 2 — see the template README.)
+    # Conditional node: included only when `badge` is supplied. This single node has its own
+    # distinct anchor; for blocks of variable height or a dynamic number of repeated nodes, put
+    # them in a `layout: vstack` group with a `gap` instead of chaining sibling anchors.
     - if: "{{ badge is not none }}"
       node:
         id: badge

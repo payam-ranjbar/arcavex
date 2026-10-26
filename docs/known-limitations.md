@@ -29,8 +29,9 @@ These are intentional v1 boundaries (spec §12 / §7.4), tracked in [backlog.md]
 Each of these is a *located* diagnostic, so you learn the boundary at authoring time rather than
 getting silently-wrong output:
 
-- **`fit_content` is text-only.** Sizing an image or group to its intrinsic content is not available
-  (`ARC-LAY-020`); give those nodes an explicit size or an `aspect` ratio.
+- **`fit_content` covers text and stacks only.** A text node sizes to its text and a `vstack`/`hstack`
+  group to its children; an image, a shape or an anchored group has no intrinsic size
+  (`ARC-LAY-020`), so give it an explicit size or an `aspect` ratio.
 - **Wrapping stacks are deferred.** A stack with `wrap: true` reports `ARC-LAY-056` rather than faking
   multi-row flow; lay wrapped rows out with nested stacks for now.
 - **`line_height` is not yet honored.** The bundled text stack (skia-python 144) exposes no strut
