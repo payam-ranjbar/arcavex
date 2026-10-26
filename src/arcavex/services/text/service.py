@@ -47,6 +47,10 @@ _MAX_FIT_ITERS = 8
 # renderable glyphs. 1.2 is the CSS `normal` line-height default, i.e. a conventional stand-in
 # for an unmeasurable line, never a substitute for a metric the shaper did report.
 _FALLBACK_LINE_HEIGHT_RATIO = 1.2
+# Hard line-break characters SkParagraph treats as forced breaks. The per-line probe removes
+# them so it measures exactly one line; without this a "A\nB" probe laid out as two lines and
+# the height ratio reported 1 line for text that plainly had 2 (ADR-0001: no per-line metrics).
+_HARD_BREAK_CHARS = "\n\r\u2028\u2029"
 
 # The one file type the font database is built from. Every reader of the font store (the loader
 # below, ``arcavex font list/add/remove``) filters on this, so "what counts as a font file" has a
@@ -365,9 +369,11 @@ class TextService:
         """Return ``(width_pt, height_pt, line_count)`` for a laid-out paragraph.
 
         The line count divides total height by a *measured* single-line height (the paragraph's
-        natural height at unbounded width) rather than an invented ``size * 1.2`` constant
-        (CR-19). The estimate is exact for uniform text and degrades gracefully only for text
-        carrying explicit line breaks, which none of the fit policies produce.
+        natural height at unbounded width with hard breaks stripped) rather than an invented
+        ``size * 1.2`` constant (CR-19). Stripping matters because explicit ``\n`` breaks are
+        counted against ``max_lines``: the probe must measure exactly one line or a two-line
+        value would divide its own height and report one. The estimate is exact for a single
+        style and approximate when lines carry different font sizes.
         """
         w = float(para.LongestLine)
         h = float(para.Height)
@@ -378,8 +384,16 @@ class TextService:
     def _unit_line_height(
         self, runs: tuple[ResolvedRun, ...], req: MeasureRequest, size: float
     ) -> float:
-        """Measure one line's height for the given runs/size at unbounded width."""
-        probe = self._build(runs, req, size)
+        """Measure one line's height, with hard breaks stripped so the probe is a single line.
+
+        Stripping is what makes ``round(h / per_line)`` count explicit hard breaks; before this
+        the probe included them, so a two-line ``"A\\nB"`` divided two lines by two lines and
+        reported one, and the break slipped past ``max_lines``.
+        """
+        probe_runs = tuple(
+            run.model_copy(update={"text": _without_hard_breaks(run.text)}) for run in runs
+        )
+        probe = self._build(probe_runs, req, size)
         probe.layout(_UNBOUNDED_WIDTH)
         h = float(probe.Height)
         return h if h > 0 else size * _FALLBACK_LINE_HEIGHT_RATIO
@@ -457,6 +471,11 @@ class TextService:
 
 def _nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
+
+
+def _without_hard_breaks(text: str) -> str:
+    """Drop hard-break characters so a probe lays out as exactly one line."""
+    return text.translate({ord(c): None for c in _HARD_BREAK_CHARS})
 
 
 def _result(
