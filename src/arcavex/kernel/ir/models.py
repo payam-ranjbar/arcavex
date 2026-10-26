@@ -312,7 +312,7 @@ class CompiledImage(_CompiledNodeBase):
 
 
 class CompiledShape(_CompiledNodeBase):
-    """A shape node: a primitive (``rect``/``rrect``/``circle``/``ellipse``) or a registered generator.
+    """A shape node: a primitive (``rect``/``rrect``/``circle``/``ellipse``) or a generator.
 
     When ``generator`` is set (e.g. ``starburst``, ``qr_code``), the renderer resolves it
     through the shape-generator registry and builds a parametric path within the node bounds;

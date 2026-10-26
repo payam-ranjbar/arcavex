@@ -130,7 +130,7 @@ def _pixels(path: Path):  # noqa: ANN202 - numpy array
 
 
 def test_ellipse_primitive_fills_its_box(facade, tmp_path) -> None:  # noqa: ANN001
-    """``shape: ellipse`` touches all four box edges; ``circle`` stays inscribed in the short side."""
+    """``shape: ellipse`` spans its box; ``circle`` stays inscribed in the short side."""
     template = _write(
         tmp_path,
         "formats: {sq: {canvas: {width: 200px, height: 100px, dpi: 96}}}\n"

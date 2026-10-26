@@ -1593,8 +1593,8 @@ class Compiler:
                         f"Shape node {node_id!r} has unsupported shape {shape!r}",
                         file=str(template),
                         keypath=f"{keypath}.shape",
-                        hint="Use 'rect', 'rrect', 'circle', 'ellipse', or a 'generator:' (starburst, "
-                        "speech_bubble, qr_code).",
+                        hint="Use 'rect', 'rrect', 'circle', 'ellipse', or a 'generator:' "
+                        "(starburst, speech_bubble, qr_code).",
                     )
                 )
             return CompiledShape(**common, shape=shape)
