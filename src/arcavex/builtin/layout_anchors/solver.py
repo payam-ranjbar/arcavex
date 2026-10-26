@@ -769,6 +769,7 @@ class AnchorLayoutSolver(LayoutSolver):
             letter_spacing_pt=node.style.letter_spacing_pt,
             language=node.style.language,
             clip=clip,
+            layout_width_pt=result.layout_width_pt,
         )
         overflow = OverflowState(
             kind=kind,  # type: ignore[arg-type]
@@ -894,6 +895,7 @@ class AnchorLayoutSolver(LayoutSolver):
             fit_policy=node.fit.policy,
             min_size_pt=node.fit.min_size_pt,
             max_lines=node.fit.max_lines,
+            balance=node.fit.balance,
         )
 
     # ------------------------------------------------------------------ transforms

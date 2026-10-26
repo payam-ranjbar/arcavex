@@ -310,3 +310,48 @@ def test_hard_break_golden(facade, tmp_path):  # noqa: ANN001,ANN201
     )
     array = _render(facade, tmp_path, text, "text-hard-break")
     compare_to_golden("text-hard-break", array)
+
+
+def test_balanced_wrap_golden(facade, tmp_path):  # noqa: ANN001,ANN201
+    """Golden for `fit.balance`: the same copy wrapped greedily (top) and balanced (bottom).
+
+    Both sit in the same 224px box, drawn as a pale column. Greedy wrapping fills the first line
+    and leaves a short second one; the balanced block holds the same two lines at the tightest
+    width, centered in the box.
+    """
+
+    def block(node_id: str, top: str, balance: str) -> str:
+        return (
+            f"    - id: {node_id}\n"
+            "      type: text\n"
+            "      text: 'The quick brown fox jumps over the dog'\n"
+            "      style: {font: Inter, font_size: 18pt, color: '#1a1a1a'}\n"
+            "      paragraph: {align: center}\n"
+            f"      fit: {{policy: wrap, balance: {balance}}}\n"
+            f"      constraints: {{anchor: {{top: {top}, left: parent.left+16px}}, "
+            "size: {w: 224px, h: fit_content}}\n"
+        )
+
+    template = (
+        "formats: {square: {canvas: {width: 256px, height: 288px, dpi: 96}}}\n"
+        "root:\n"
+        "  id: root\n"
+        "  type: group\n"
+        "  children:\n"
+        "    - id: bg\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#f4f2ec'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: fill, h: fill}}\n"
+        "    - id: box\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#e2ddd0'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left+16px}, "
+        "size: {w: 224px, h: fill}}\n"
+        + block("greedy", "parent.top+24px", "false")
+        + block("balanced", "greedy.bottom+40px", "true")
+    )
+    array = _render(facade, tmp_path, template, "text-balanced-wrap")
+    compare_to_golden("text-balanced-wrap", array)

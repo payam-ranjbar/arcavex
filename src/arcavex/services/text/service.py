@@ -43,6 +43,10 @@ _SHRINK_SEARCH_EPS_PT = 0.25
 # bracket of (base - min) / 256 — finer than _SHRINK_SEARCH_EPS_PT for any realistic range, so
 # the tolerance above is what normally ends the loop and this is the hard ceiling.
 _MAX_FIT_ITERS = 8
+# Balance search: the same ≤8-iteration cap as the fit search, and a quarter-point resolution
+# like the shrink bracket — widths closer than this are indistinguishable once rasterized.
+_MAX_BALANCE_ITERS = 8
+_BALANCE_SEARCH_EPS_PT = 0.25
 # Used only when the probe layout reports zero height, which SkParagraph does for a run with no
 # renderable glyphs. 1.2 is the CSS `normal` line-height default, i.e. a conventional stand-in
 # for an unmeasurable line, never a substitute for a metric the shaper did report.
@@ -231,6 +235,8 @@ class TextService:
         else:
             # wrap (default): does not fit; the solver applies the overflow policy.
             result = _result(w, h, para, lines, base_size, "overflowing")
+        if req.balance:
+            result = self._apply_balance(req, runs, result)
         return result.model_copy(update={"missing_glyphs": missing})
 
     def _shrink(
@@ -262,6 +268,71 @@ class TextService:
         bw, bh, bl = best_metrics
         kind = "shrunk" if best < base_size - _FIT_EPS else "none"
         return _result(bw, bh, best_para, bl, best, kind)
+
+    def _apply_balance(
+        self,
+        req: MeasureRequest,
+        runs: tuple[ResolvedRun, ...],
+        result: MeasureResult,
+    ) -> MeasureResult:
+        """Narrow the layout width to the tightest that keeps the line count.
+
+        ``balance`` is orthogonal to ``policy``: it runs after the font size is fixed, so it
+        composes with ``shrink_to_fit``/``truncate``, and narrowing the width cannot reintroduce
+        overflow because the line count (and therefore the height) is held constant. A single
+        line has nothing to balance, and an unbounded request (``max_width_pt is None``, e.g. a
+        ``fit_content`` measurement that feeds its width back) is left as measured.
+        """
+        if not req.balance or req.max_width_pt is None or req.max_width_pt <= 0:
+            return result
+        if result.overflow_kind == "overflowing" or not result.converged:
+            return result
+        if result.line_count <= 1:
+            return result
+        probe_runs = (
+            (runs[0].model_copy(update={"text": result.out_text}),)
+            if result.out_text is not None
+            else runs
+        )
+        size = result.resolved_size_pt or req.font_size_pt
+        width = self._narrowest_width(probe_runs, req, size, result.line_count)
+        return result if width is None else result.model_copy(update={"layout_width_pt": width})
+
+    def _narrowest_width(
+        self,
+        runs: tuple[ResolvedRun, ...],
+        req: MeasureRequest,
+        size: float,
+        line_budget: int,
+    ) -> float | None:
+        """Narrowest layout width that still yields ``line_budget`` lines at ``size``.
+
+        Binary-searches width with the same ≤8-iteration cap as the fit search and a
+        quarter-point resolution like the shrink bracket, since narrower differences are
+        indistinguishable once rasterized. The predicate only distinguishes "within the line
+        budget" from "over", so the result is a near-minimal balanced width, not an exact
+        infimum — good enough because the caller only needs the longest line to come out tight.
+        """
+        hi = req.max_width_pt
+        if hi is None or hi <= 0:
+            return None
+        per_line = self._unit_line_height(runs, req, size)
+        lo = 0.0
+        for _ in range(_MAX_BALANCE_ITERS):
+            mid = (lo + hi) / 2.0
+            if mid <= 0.0:
+                break
+            para = self._build(runs, req, size)
+            para.layout(mid)
+            h = float(para.Height)
+            n = max(1, round(h / per_line)) if h > 0 and per_line > 0 else 1
+            if n <= line_budget:
+                hi = mid
+            else:
+                lo = mid
+            if hi - lo < _BALANCE_SEARCH_EPS_PT:
+                break
+        return hi
 
     def _truncate(
         self, req: MeasureRequest, runs: tuple[ResolvedRun, ...], base_size: float

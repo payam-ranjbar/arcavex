@@ -116,6 +116,80 @@ def test_rtl_farsi_measures() -> None:
     assert res.width_pt > 0 and res.height_pt > 0
 
 
+# ---------------------------------------------------------------- fit.balance (balanced wrap)
+#
+# `balance` narrows the layout width to the tightest that still holds the line count, so "two
+# lines, same width" needs no guessed box width. It runs after the font size is fixed, so it
+# composes with `shrink_to_fit` rather than competing with it.
+def test_wrap_balance_produces_minimal_two_line_width() -> None:
+    text = "The quick brown fox jumps over the lazy dog"
+    greedy = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0)
+    bal = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0, balance=True)
+
+    assert greedy.layout_width_pt is None  # balance was not requested
+    assert bal.layout_width_pt is not None
+    assert bal.layout_width_pt < 260.0
+    assert bal.line_count == 2
+    # The narrowed width still lays out in two lines, and a few points narrower tips it over,
+    # so the returned width is the tightest that holds the count (the lines are as even as the
+    # wrap allows).
+    at_balanced = _measure(text=text, font_size_pt=20.0, max_width_pt=bal.layout_width_pt)
+    assert at_balanced.line_count == 2
+    assert (
+        _measure(text=text, font_size_pt=20.0, max_width_pt=bal.layout_width_pt - 4.0).line_count
+        > 2
+    )
+
+
+def test_balance_evens_line_lengths() -> None:
+    """The balanced longest line is tighter than the greedy longest line (same line count)."""
+    text = "The quick brown fox jumps over the lazy dog"
+    greedy = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0)
+    bal = _measure(text=text, font_size_pt=20.0, max_width_pt=260.0, balance=True)
+    assert bal.line_count == greedy.line_count == 2
+    # At the balanced width every line fits within it, so the longest balanced line is at most
+    # layout_width_pt — and that is strictly below the greedy longest line, i.e. the two lines
+    # are more even without adding a line. This is the "same width, two lines" guarantee.
+    assert bal.layout_width_pt is not None
+    assert bal.layout_width_pt < greedy.width_pt
+
+
+def test_balance_rtl_farsi() -> None:
+    text = "این یک متن آزمایشی برای چیدمان دو خطی است"
+    bal = _measure(
+        text=text, font_families=("Vazirmatn",), direction="rtl",
+        font_size_pt=20.0, max_width_pt=300.0, balance=True,
+    )
+    assert bal.layout_width_pt is not None
+    assert bal.layout_width_pt < 300.0
+    at_balanced = _measure(
+        text=text, font_families=("Vazirmatn",), direction="rtl",
+        font_size_pt=20.0, max_width_pt=bal.layout_width_pt,
+    )
+    assert at_balanced.line_count == bal.line_count
+
+
+def test_balance_with_shrink_to_fit() -> None:
+    """balance composes with shrink_to_fit: it narrows at the resolved size, not the base size."""
+    text = "A rather long headline that will not fit at one size and needs shrinking"
+    common = {
+        "text": text,
+        "font_size_pt": 40.0,
+        "max_width_pt": 180.0,
+        "max_height_pt": 44.0,
+        "fit_policy": "shrink_to_fit",
+        "min_size_pt": 8.0,
+    }
+    res = _measure(**common, balance=True)
+    assert res.overflow_kind == "shrunk"
+    assert res.layout_width_pt is not None
+    assert res.layout_width_pt < 180.0
+    # The same line count holds at the narrowed width, at the same resolved size.
+    at_balanced = _measure(**{**common, "max_width_pt": res.layout_width_pt})
+    assert at_balanced.line_count == res.line_count
+    assert abs(at_balanced.resolved_size_pt - res.resolved_size_pt) < 0.01
+
+
 # ------------------------------------------------------------ solver-level fit policies
 _HEADER = """
 version: 0.1.0
