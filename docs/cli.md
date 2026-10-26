@@ -216,7 +216,7 @@ Template authoring commands.
 | `check PATH [-f -l --style]` | Validate a template without data (schema + structure + `preview_data`). |
 | `inspect PATH [--json] [--resolved -f -l]` | Report the authored contract; `--resolved` shows the resolved direction/digits and each applied patch with its originating layer. |
 | `split PATH` | Convert a one-file template into a split directory, losslessly. |
-| `patch PATH …` | Apply path-addressed `set`/`remove`/`insert_before`/`insert_after` ops to a template on disk (comment-preserving). The AI-mutation contract, also on the CLI. |
+| `patch PATH …` | Apply path-addressed `set`/`remove`/`insert_before`/`insert_after` ops to a template on disk (comment-preserving). The AI-mutation contract, also on the CLI. `[--format F] [--locale L] [--unset]` scope the op to a format/locale patch list. |
 | `publish DIR --name N --version V [--no-default]` | Publish a template into the library as an immutable `N@V`. |
 | `detach [--project P]` | Copy the project's library template into the project (disables version upgrades). |
 
@@ -246,6 +246,15 @@ functions:
 `template patch` takes one of `--set P --value V`, `--remove P`, `--insert-before P --node J`,
 `--insert-after P --node J`, or `--ops-file F`, with an optional `--base-sha256 H` guard that
 refuses the write if the file changed on disk since it was read (`ARC-TPL-110`).
+
+`--format F` and/or `--locale L` do not touch the root AST: the op is upserted into the matching
+patch list the compiler already applies at render time — `formats.<F>.patch`, `locales.<L>.patch`,
+or, with both flags, the narrowest `locales.<L>.formats.<F>.patch`. A second `--set` on the same
+path replaces the value rather than appending a duplicate; `--unset --set P` deletes the op
+addressing `P`. Locale font overrides use `--locale L --set fonts.<Family> --value <stack>`,
+which writes `locales.<L>.fonts.<Family>`. An unknown format/locale is a located `ARC-TPL-092` and
+nothing is written. For a split template the write goes to the sidecar that owns the section
+(`formats.yaml`/`locales.yaml`), and `--base-sha256`/`sha256` cover that file.
 
 ## layout inspect
 
