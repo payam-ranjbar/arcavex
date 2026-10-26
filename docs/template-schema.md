@@ -117,7 +117,23 @@ Common fields on any node: `visible: true|false` (a hidden node and its subtree 
 `z` (draw order within siblings), `style`, `style_role`, `constraints`, `transform`
 (`translate`, `rotate`, `scale`, `origin` — composed as translate ∘ rotate ∘ scale about the
 pivot), and `mask` (`{component, params}` — built-ins: `rounded_rect`, `circle`,
-`diamond_grid`). Any node may also carry an `effects:` list or an `effect_preset:` shorthand.
+`diamond_grid`, and `linear_fade`). Any node may also carry an `effects:` list or an
+`effect_preset:` shorthand.
+
+A `linear_fade` mask fades the node's alpha along `direction`
+(`to_bottom`|`to_top`|`to_left`|`to_right`); `start`/`end` are fractions of the node box along that
+axis (a `0..1` number or `"NN%"`, default `0%`/`100%`), opaque before `start` and clear after
+`end`. It is a soft alpha mask, so a photo can fade into a patterned background with no
+pre-baked PNG:
+
+```yaml
+- id: hero
+  type: image
+  asset: photo.png
+  fit: cover
+  mask: {component: linear_fade, params: {direction: to_bottom, start: 10%, end: 80%}}
+  constraints: {anchor: {top: parent.top, left: parent.left}, size: {w: 60%, h: 50%}}
+```
 
 Beyond those, each kind adds only its own fields — and nothing else is accepted (`ARC-TPL-064`):
 

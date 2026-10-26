@@ -118,6 +118,41 @@ def test_effect_golden(facade, tmp_path, effect_name):  # noqa: ANN001,ANN201
     compare_to_golden(f"effect-{effect_name}", array)
 
 
+def test_linear_fade_mask_golden(facade, tmp_path):  # noqa: ANN001,ANN201
+    """A photo with a directional alpha fade over a diamond-lattice patterned background."""
+    text = (
+        "formats: {square: {canvas: {width: 256px, height: 256px, dpi: 96}}}\n"
+        "seed: 5\n"
+        "root:\n"
+        "  id: root\n"
+        "  type: group\n"
+        "  children:\n"
+        "    - id: bg\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#101820'}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100%, h: 100%}}\n"
+        "    - id: pattern\n"
+        "      type: shape\n"
+        "      shape: rect\n"
+        "      style: {fill: '#3aa0ff'}\n"
+        "      mask: {component: diamond_grid, params: {cell: 22pt, gutter: 8pt, angle: 45}}\n"
+        "      constraints: {anchor: {top: parent.top, left: parent.left}, "
+        "size: {w: 100%, h: 100%}}\n"
+        "    - id: photo\n"
+        "      type: image\n"
+        f"      asset: {_SUBJECT.as_posix()!r}\n"
+        "      fit: cover\n"
+        "      mask: {component: linear_fade, params: {direction: to_bottom, "
+        "start: 0.1, end: 0.85}}\n"
+        "      constraints: {anchor: {center_x: parent.center_x, center_y: parent.center_y}, "
+        "size: {w: 68%, h: 68%}}\n"
+    )
+    array = _render(facade, tmp_path, text, "mask-linear-fade")
+    compare_to_golden("mask-linear-fade", array)
+
+
 def test_fused_color_chain_golden(facade, tmp_path):  # noqa: ANN001,ANN201
     """A three-effect color chain (two fusing matrices + a table) rendered on the fixture."""
     effects = (

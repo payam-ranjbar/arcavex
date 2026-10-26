@@ -100,7 +100,7 @@ implementations.
 | Contract | Responsibility | Built-in(s) |
 |---|---|---|
 | `Effect` | Transform a node's geometry/color/raster/composite | `effects_core` (15 built-ins) |
-| `MaskGenerator` | Produce a clip/alpha mask | `masks_core` (`rounded_rect`, `circle`, `diamond_grid`) |
+| `MaskGenerator` | Produce a clip/alpha mask | `masks_core` (`rounded_rect`, `circle`, `diamond_grid`, `linear_fade`) |
 | `ShapeGenerator` | Build a shape path | `shapes_core` (`starburst`, `speech_bubble`, `qr_code`) |
 | `Exporter` | Encode a surface to a file format | `export_raster` (PNG/JPEG/WebP), `export_pdf` |
 | `LayoutSolver` | Resolve constraints to geometry | `layout_anchors` |

@@ -170,9 +170,16 @@ class SkiaBackend(RendererBackend):
         saves = 0
         if self._apply_local_transform(canvas, node):
             saves += 1
+        alpha: object | None = None
         if node.mask is not None:
-            path = self._mask_path(node.mask, node.bounds, node.source)
-            if path is not None:
+            path, alpha = self._resolve_mask(node.mask, node.bounds, node.source)
+            if alpha is not None:
+                # A soft alpha mask needs its own layer so DstIn can scale the painted content.
+                canvas.save()  # type: ignore[attr-defined]
+                canvas.clipRect(_skrect(node.bounds))  # type: ignore[attr-defined]
+                canvas.saveLayer(None)  # type: ignore[attr-defined]
+                saves += 2
+            elif path is not None:
                 canvas.save()  # type: ignore[attr-defined]
                 canvas.clipPath(path, skia.ClipOp.kIntersect, True)  # type: ignore[attr-defined]
                 saves += 1
@@ -189,6 +196,9 @@ class SkiaBackend(RendererBackend):
                 self._draw_node(canvas, child)
             if did_clip:
                 canvas.restore()  # type: ignore[attr-defined]
+
+        if alpha is not None:
+            self._paint_alpha_mask(canvas, node.bounds, alpha)
 
         for _ in range(saves):
             canvas.restore()  # type: ignore[attr-defined]
@@ -239,12 +249,19 @@ class SkiaBackend(RendererBackend):
         ecanvas.save()
         ecanvas.scale(scale, scale)
         ecanvas.translate(-rb.x, -rb.y)
+        alpha: object | None = None
         if node.mask is not None:
-            mask_path = self._mask_path(node.mask, node.bounds, node.source)
-            if mask_path is not None:
-                ecanvas.clipPath(mask_path, skia.ClipOp.kIntersect, True)
+            mask_path, alpha = self._resolve_mask(node.mask, node.bounds, node.source)
+            if alpha is not None:
+                ecanvas.clipRect(_skrect(node.bounds))  # type: ignore[attr-defined]
+                ecanvas.saveLayer(None)  # type: ignore[attr-defined]
+            elif mask_path is not None:
+                ecanvas.clipPath(mask_path, skia.ClipOp.kIntersect, True)  # type: ignore[attr-defined]
         self._paint_element_content(ecanvas, node, plan)
-        ecanvas.restore()
+        if alpha is not None:
+            self._paint_alpha_mask(ecanvas, node.bounds, alpha)
+            ecanvas.restore()  # type: ignore[attr-defined]  # pop the alpha layer
+        ecanvas.restore()  # type: ignore[attr-defined]
         image = element.makeImageSnapshot()
         self._pool.release(element)
 
@@ -336,18 +353,38 @@ class SkiaBackend(RendererBackend):
         elif isinstance(content, ResolvedImage):
             self._draw_image(canvas, node.bounds, content, opacity, node.source)
 
-    def _mask_path(
+    def _resolve_mask(
         self, mask: MaskSpec, bounds: Rect, source: SourceRef | None
-    ) -> object | None:
+    ) -> tuple[object | None, object | None]:
+        """Resolve a mask to a ``(clip_path, alpha_shader)`` pair (at most one is set).
+
+        Params are validated once here. ``build_alpha`` is optional and defaults to ``None``, so a
+        pure path mask yields ``(path, None)``; a generator that opts in yields ``(None, shader)``.
+        Either way the resolution error surfaces as a located ARC-FX-902.
+        """
         generator = self._masks.get(mask.component)
         if generator is None:
             # Compilation rejects unknown masks (ARC-FX-901); guard defensively for isolated use.
-            return None
+            return None, None
         try:
             params = generator.param_schema(**mask.params)
-            return generator.build(params, bounds)
+            shader = generator.build_alpha(params, bounds)
+            if shader is not None:
+                return None, shader
+            return generator.build(params, bounds), None
         except Exception as exc:  # noqa: BLE001 - surface a located diagnostic, never a leak
             raise _component_error("ARC-FX-902", "Mask", mask.component, exc, source) from exc
+
+    def _paint_alpha_mask(self, canvas: object, bounds: Rect, shader: object) -> None:
+        """Multiply the current layer's alpha by the mask shader (Skia ``DstIn``).
+
+        ``DstIn`` scales the destination by the source alpha, so drawing the gradient after the
+        content clears the faded part of the layer without shifting any colour.
+        """
+        paint = skia.Paint()
+        paint.setShader(shader)
+        paint.setBlendMode(skia.BlendMode.kDstIn)
+        canvas.drawRect(_skrect(bounds), paint)  # type: ignore[attr-defined]
 
     def _shape_path(
         self, shape: ResolvedShape, bounds: Rect, source: SourceRef | None
