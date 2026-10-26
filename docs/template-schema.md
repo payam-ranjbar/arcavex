@@ -333,12 +333,19 @@ base file) is a common mistake; the missing-variable hint calls it out. Full rat
 
 ### Patches
 
-`formats.<name>.patch` and `locales.<L>.patch` apply ordered
+`formats.<name>.patch`, `locales.<L>.patch`, and `locales.<L>.formats.<name>.patch` apply ordered
 `set`/`remove`/`insert_before`/`insert_after` operations addressing authored node IDs
 (`nodes.<id>[.<field>…]`, `nodes.root` included; field edits see through `repeat`/`if` wrappers).
 `set` modifies an **existing** field — an unknown final path segment is a located error
 (`ARC-TPL-092`), never a silent new key. Resolution order is style → template → format patch →
-locale patch → project override, before expressions.
+locale patch → locale+format patch → project override, before expressions.
+
+`arcavex template patch --format F --set …` upserts an op into `formats.<F>.patch`;
+`--locale L --set …` into `locales.<L>.patch`; both together into the narrowest
+`locales.<L>.formats.<F>.patch`. An existing op addressing the same path has its value replaced
+rather than duplicated, and `--unset --set P` deletes it. Locale fonts are set with
+`--locale L --set fonts.<Family> --value <stack>` (written to `locales.<L>.fonts`). For a split
+template the op is written to the sidecar that owns the section.
 
 `arcavex template inspect --resolved [--format F] [--locale L]` reports the resolved
 direction/digits and each applied patch with the value it produced and its originating layer (the

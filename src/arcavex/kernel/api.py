@@ -1522,7 +1522,14 @@ class AuthoringProtocol(Protocol):
         ...
 
     def patch_template(
-        self, template: Path, ops: list[PatchOp], base_sha256: str | None
+        self,
+        template: Path,
+        ops: list[PatchOp],
+        base_sha256: str | None,
+        *,
+        format_name: str | None = None,
+        locale: str | None = None,
+        unset: bool = False,
     ) -> PatchTemplateResult:
         """Apply path-addressed patch ops to a template file on disk (ruamel round-trip)."""
         ...
@@ -2943,7 +2950,14 @@ class Facade:
             )
 
     def patch_template(
-        self, template: Path, ops: list[PatchOp], base_sha256: str | None = None
+        self,
+        template: Path,
+        ops: list[PatchOp],
+        base_sha256: str | None = None,
+        *,
+        format_name: str | None = None,
+        locale: str | None = None,
+        unset: bool = False,
     ) -> PatchTemplateResult:
         """Apply path-addressed patch ops to a template file on disk (§3.7, §4.1.4). Never raises.
 
@@ -2952,11 +2966,24 @@ class Facade:
         located ``ARC-TPL-092`` rather than a silent no-op. When ``base_sha256`` is given and no
         longer matches the file on disk the patch is refused (``ARC-TPL-110``) so a concurrent
         edit is never clobbered (§8.3). Reachable via CLI/API, so MCP adds no exclusive power.
+
+        ``format_name`` and/or ``locale`` target a format/locale patch list instead of the root
+        AST: the op is upserted into ``formats.<F>.patch`` / ``locales.<L>.patch`` / the narrowest
+        ``locales.<L>.formats.<F>.patch``, and ``unset`` deletes the op that addresses the same
+        path. ``PatchTemplateResult.path`` is then the file that owns that section — the sidecar
+        for a split template — and ``sha256``/``base_sha256`` hash *that* file.
         """
         if self._authoring is None:  # pragma: no cover - always wired in production
             return PatchTemplateResult(ok=False, diagnostics=[_unwired("authoring")])
         try:
-            return self._authoring.patch_template(Path(template), ops, base_sha256)
+            return self._authoring.patch_template(
+                Path(template),
+                ops,
+                base_sha256,
+                format_name=format_name,
+                locale=locale,
+                unset=unset,
+            )
         except DiagnosticError as exc:
             return PatchTemplateResult(ok=False, diagnostics=list(exc.diagnostics))
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak

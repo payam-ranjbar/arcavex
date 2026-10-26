@@ -983,6 +983,20 @@ def template_patch(
     base_sha256: str | None = typer.Option(
         None, "--base-sha256", help="Reject the patch if the file changed (from a prior inspect)."
     ),
+    format_name: str | None = typer.Option(
+        None, "--format", "-f", help="Write the op into formats.<F>.patch instead of the root."
+    ),
+    locale: str | None = typer.Option(
+        None,
+        "--locale",
+        "-l",
+        help="Write into locales.<L>.patch (or locales.<L>.formats.<F>.patch with --format).",
+    ),
+    unset: bool = typer.Option(
+        False,
+        "--unset",
+        help="With --format/--locale, delete the op addressing the same --set path.",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
     no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
     quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
@@ -990,11 +1004,19 @@ def template_patch(
     """Apply path-addressed set/remove/insert ops to a template on disk (comment-preserving).
 
     The AI mutation contract (spec §4.1.4), also reachable from the CLI: each op addresses a
-    stable node id. Pass one op via the flags, or a batch via --ops-file.
+    stable node id. Pass one op via the flags, or a batch via --ops-file. With --format and/or
+    --locale the op is upserted into that scope's patch list (and locale fonts via
+    --set fonts.<Family> --value <stack>); --unset removes the op addressing the same path.
     """
     if json_out:
         _force_utf8_stdout()
     console = Console(no_color=no_color, stderr=True)
+    if unset and format_name is None and locale is None:
+        console.print("[red]--unset needs a target[/red]: pass --format and/or --locale.")
+        raise typer.Exit(EXIT_USAGE)
+    if unset and ops_file is None and set_path is None:
+        console.print("[red]--unset needs a path[/red]: pass --set PATH.")
+        raise typer.Exit(EXIT_USAGE)
     node_map = _parse_scalar(node) if node is not None else None
     if ops_file is not None:
         try:
@@ -1020,7 +1042,14 @@ def template_patch(
             raise typer.Exit(EXIT_USAGE)
         ops = [op]
     facade = _build_facade_or_exit(console, quiet)
-    result = facade.patch_template(template, ops, base_sha256)
+    result = facade.patch_template(
+        template,
+        ops,
+        base_sha256,
+        format_name=format_name,
+        locale=locale,
+        unset=unset,
+    )
     if json_out:
         _emit_json(result)
     else:
