@@ -247,7 +247,7 @@ first child sits at the right edge and `main_align: start` packs from the right;
 
 ### Text fit
 
-A text node may set `fit: {policy, overflow, min_size, max_lines}`:
+A text node may set `fit: {policy, overflow, min_size, max_lines, balance}`:
 
 - `policy`: `wrap` (default), `shrink_to_fit` (binary-search the largest size in
   `[min_size, font_size]` that fits — combine with `fit_content` height + `max_lines` to hug the
@@ -260,6 +260,12 @@ A text node may set `fit: {policy, overflow, min_size, max_lines}`:
   allows, `overflow: error` reports `ARC-LAY-057` — line count vs cap and the floor reached —
   instead of `ARC-LAY-050`. The box height is not the constraint there, so enlarging it cannot
   help; widen the box, lower `min_size`, or raise `max_lines`.
+- `balance: true` narrows the wrap width to the tightest that still holds the current line
+  count, evening the line lengths — set "two lines, same width" without guessing a box width.
+  The narrowed block is positioned inside the box by `paragraph.align`. It composes with
+  `policy` (the font size is fixed first, so it also applies under `shrink_to_fit`/`truncate`)
+  and is a no-op for a single line or when the layout width is unknown (`w: fit_content`). A
+  non-boolean value is `ARC-TPL-041`.
 - Non-convergent shrink and sub-line-height truncation emit `ARC-LAY-051` warnings with the measured
   numbers. `paragraph: {align, direction}` sets alignment (`start`/`end` follow the base direction)
   and BiDi base direction (`ltr`/`rtl`/`auto` = first strong character).

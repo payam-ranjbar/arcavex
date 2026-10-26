@@ -229,6 +229,9 @@ class FitSpec(BaseModel):
     ``policy`` is ``wrap`` (default), ``shrink_to_fit`` (reduce size to ``min_size_pt``), or
     ``truncate`` (clip to an ellipsis). ``overflow`` decides what happens when text still does
     not fit: ``clip`` (hard clip), ``allow`` (paint beyond bounds), or ``error`` (fail).
+    ``balance`` narrows the wrap width to the tightest that still holds the line count, evening
+    the line lengths; it composes with any policy (it runs after the size is fixed) and the
+    narrowed block is positioned inside the box per the paragraph alignment.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -237,6 +240,7 @@ class FitSpec(BaseModel):
     min_size_pt: float | None = None
     overflow: OverflowPolicy = "clip"
     max_lines: int | None = None
+    balance: bool = False
 
 
 OverflowKind = Literal["none", "clipped", "truncated", "shrunk", "overflowing"]
@@ -416,7 +420,8 @@ class ResolvedText(BaseModel):
 
     ``font_size_pt`` is the *resolved* size after any ``shrink_to_fit`` pass; the runs carry
     the same size unless a run overrode it. ``clip`` tells the renderer to clip painting to the
-    node bounds (``overflow: clip`` or ``truncate``).
+    node bounds (``overflow: clip`` or ``truncate``). ``layout_width_pt`` is the narrowed layout
+    width when ``fit.balance`` ran, else ``None`` (the painter lays out at the box width).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -434,6 +439,9 @@ class ResolvedText(BaseModel):
     letter_spacing_pt: float
     language: str | None = None
     clip: bool = False
+    # The narrowed layout width when fit.balance ran, else None (box width). The painter lays
+    # out at this width and offsets the block inside the box per align.
+    layout_width_pt: float | None = None
 
 
 class ResolvedImage(BaseModel):

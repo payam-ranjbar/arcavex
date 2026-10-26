@@ -114,7 +114,7 @@ _STYLE_KEYS = frozenset({
     "letter_spacing",
 })
 _PARAGRAPH_KEYS = frozenset({"align", "direction"})
-_FIT_KEYS = frozenset({"policy", "min_size", "overflow", "max_lines"})
+_FIT_KEYS = frozenset({"policy", "min_size", "overflow", "max_lines", "balance"})
 _CONSTRAINT_KEYS = frozenset({"anchor", "size"})
 _SIZE_MAP_KEYS = frozenset({"value", "aspect", "min", "max"})
 _RUN_KEYS = frozenset({
@@ -2704,8 +2704,24 @@ class Compiler:
             if max_lines is not None
             else None
         )
+        balance = f.get("balance", False)
+        if not isinstance(balance, bool):
+            raise DiagnosticError(
+                diagnostic(
+                    "ARC-TPL-041",
+                    f"Text node {node_id!r} has invalid fit balance {balance!r}",
+                    file=str(template),
+                    keypath=f"{keypath}.fit.balance",
+                    line=line_of(f, "balance"),
+                    hint="Use true or false.",
+                )
+            )
         return FitSpec(
-            policy=policy, min_size_pt=min_pt, overflow=overflow, max_lines=max_lines_int
+            policy=policy,
+            min_size_pt=min_pt,
+            overflow=overflow,
+            max_lines=max_lines_int,
+            balance=balance,
         )
 
     def _parse_transform(

@@ -52,9 +52,9 @@ class MeasureRequest(BaseModel):
     synthesized). A rich request supplies ``runs`` (each a fully resolved run) and leaves
     ``text`` as the concatenated plain string; when ``runs`` is non-empty it drives shaping.
 
-    Fit fields (``fit_policy``/``min_size_pt``/``max_lines`` plus ``max_width_pt`` and
-    ``max_height_pt``) let the text service run the ≤8-iteration fit loop (ADR-0001) and report
-    the outcome, so the layout solver calls the shaper once per node.
+    Fit fields (``fit_policy``/``min_size_pt``/``max_lines``/``balance`` plus ``max_width_pt``
+    and ``max_height_pt``) let the text service run the ≤8-iteration fit loop (ADR-0001) and
+    report the outcome, so the layout solver calls the shaper once per node.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -76,6 +76,8 @@ class MeasureRequest(BaseModel):
     fit_policy: Literal["wrap", "shrink_to_fit", "truncate"] = "wrap"
     min_size_pt: float | None = None
     max_lines: int | None = None
+    # Narrow the layout width to the tightest that keeps the line count (even line lengths).
+    balance: bool = False
 
 
 class MeasureResult(BaseModel):
@@ -84,7 +86,8 @@ class MeasureResult(BaseModel):
     ``resolved_size_pt`` is the font size actually used (after ``shrink_to_fit``);
     ``overflow_kind`` classifies the outcome; ``out_text`` carries a truncated string when the
     ``truncate`` policy trimmed it; ``converged`` is ``False`` when the fit loop hit its
-    iteration cap without settling.
+    iteration cap without settling. ``layout_width_pt`` is the narrowed width the balance
+    search settled on (``None`` unless ``balance`` was requested and the text wrapped).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -94,6 +97,7 @@ class MeasureResult(BaseModel):
     baseline_pt: float
     line_count: int
     resolved_size_pt: float = 0.0
+    layout_width_pt: float | None = None
     overflow_kind: Literal[
         "none", "clipped", "truncated", "shrunk", "overflowing"
     ] = "none"

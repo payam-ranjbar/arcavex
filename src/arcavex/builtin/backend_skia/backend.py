@@ -437,7 +437,13 @@ class SkiaBackend(RendererBackend):
             canvas.save()  # type: ignore[attr-defined]
             canvas.clipRect(_skrect(bounds))  # type: ignore[attr-defined]
             did_clip = True
-        self._text.paint(canvas, req, bounds.x, bounds.y, bounds.w)
+        # fit.balance narrows the layout width; the block is then positioned inside the original
+        # box per align, so a balanced left/center/right block stays where the author asked.
+        layout_w = text.layout_width_pt if text.layout_width_pt is not None else bounds.w
+        offset = 0.0
+        if layout_w < bounds.w:
+            offset = (bounds.w - layout_w) * _align_fraction(text.align, text.direction)
+        self._text.paint(canvas, req, bounds.x + offset, bounds.y, layout_w)
         if did_clip:
             canvas.restore()  # type: ignore[attr-defined]
 
@@ -573,6 +579,24 @@ class SkiaBackend(RendererBackend):
         canvas.drawRect(  # type: ignore[attr-defined]
             skia.Rect.MakeXYWH(mx, my, width_pt - 2 * mx, height_pt - 2 * my), paint
         )
+
+
+def _align_fraction(align: str, direction: str) -> float:
+    """Fraction of the leftover box width to inset a narrowed balanced block (align mapping).
+
+    Mirrors the ``_resolve_align`` mapping in the text service so the narrowed block lands at the
+    same horizontal position its paragraph alignment implies: logical ``start``/``end`` resolve by
+    base direction, physical ``left``/``right`` stay put.
+    """
+    if align == "left":
+        return 0.0
+    if align == "right":
+        return 1.0
+    if align == "center":
+        return 0.5
+    if align == "end":
+        return 0.0 if direction == "rtl" else 1.0
+    return 1.0 if direction == "rtl" else 0.0  # start
 
 
 def _place_label(
