@@ -29,6 +29,7 @@ from arcavex.kernel.api import (
     ExtensionListReport,
     Facade,
     FontListReport,
+    FontMetricsReport,
     LayoutReport,
     PatchOp,
     PreviewResult,
@@ -2040,6 +2041,37 @@ def font_list(
     raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
 
 
+@font_app.command("metrics")
+def font_metrics(
+    family: str = typer.Argument(..., help="Font family name a template uses (not a file)."),
+    size: str = typer.Argument(
+        ..., help="Text size: 40pt or 54px; a bare number is pixels, as in a template."
+    ),
+    sample: str = typer.Option(
+        "Hamburgefonstiv", "--sample", help="One-line string whose advance is measured."
+    ),
+    weight: int = typer.Option(400, "--weight", help="Font weight (1-1000)."),
+    italic: bool = typer.Option(False, "--italic", help="Measure the italic face."),
+    dpi: int = typer.Option(96, "--dpi", help="DPI used to resolve a px size (pt is exact)."),
+    json_out: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable colored output."),
+    quiet: bool = typer.Option(False, "--quiet", help="Suppress human output."),
+) -> None:
+    """Report line height, cap height, x-height, and a sample's advance for a font family."""
+    if json_out:
+        _force_utf8_stdout()
+    console = Console(no_color=no_color)
+    facade = _build_facade_or_exit(Console(no_color=no_color, stderr=True), quiet)
+    report = facade.font_metrics(
+        family, size, sample=sample, weight=weight, italic=italic, dpi=dpi
+    )
+    if json_out:
+        _emit_json(report)
+    elif not quiet:
+        _print_font_metrics(console, report)
+    raise typer.Exit(EXIT_OK if report.ok else _exit_code_for(report.diagnostics, report.ok))
+
+
 @font_app.command("add")
 def font_add(
     path: Path = typer.Argument(..., help="Font file (.ttf) to install."),
@@ -2119,6 +2151,34 @@ def _print_font_list(console: Console, report: FontListReport) -> None:
             console.print(f"  [dim]{_esc(file.name)}[/dim]")
     console.print(f"[dim]install fonts into:[/dim] {report.install_dir}")
     console.print("[dim]add one with:[/dim] arcavex font add <path/to/font.ttf>")
+
+
+def _print_font_metrics(console: Console, report: FontMetricsReport) -> None:
+    _print_diagnostics(console, report.diagnostics, quiet=False)
+    if not report.ok:
+        return
+    # Both bases are printed so a box authored in px and one authored in pt both read off the
+    # same row, and the dpi that linked them is never implicit.
+    console.print(
+        f"[cyan]{_esc(report.resolved_family)}[/cyan] {_esc(report.size)} "
+        f"= {report.size_pt:.3f} pt = {report.size_px:.3f} px (dpi {report.dpi})"
+    )
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("metric")
+    table.add_column("pt", justify="right")
+    for label, value in (
+        ("ascent", report.ascent_pt),
+        ("descent", report.descent_pt),
+        ("line height", report.line_height_pt),
+        ("cap height", report.cap_height_pt),
+        ("x-height", report.x_height_pt),
+    ):
+        table.add_row(label, f"{value:.3f}")
+    console.print(table)
+    console.print(
+        f"advance of {_esc(report.sample)!r}: [bold]{report.advance_pt:.3f} pt[/bold]"
+    )
+
 
 # --------------------------------------------------------------------------- skill install
 @skill_app.command("install")

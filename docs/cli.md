@@ -370,6 +370,7 @@ four bundled families must be installed before a template may name it.
 | Subcommand | Purpose |
 |---|---|
 | `list [--json]` | List every resolvable family, its files, and whether it is bundled or installed; names the install directory. |
+| `metrics FAMILY SIZE [--sample TEXT] [--weight N] [--italic] [--dpi N] [--json]` | Report line height, cap/x-height, and a sample's advance without rendering. |
 | `add PATH [--license PATH]` | Install a `.ttf` into `$ARCAVEX_HOME/fonts` and report the family name templates must use. |
 | `remove FAMILY [--json]` | Remove an installed family. A family bundled with the engine is refused (`ARC-RND-032`). |
 
@@ -389,6 +390,33 @@ Vazirmatn bundled (5 file(s))
 install fonts into: C:\Users\you\.arcavex\fonts
 add one with: arcavex font add <path/to/font.ttf>
 ```
+
+`metrics` measures one family at an authored size without rendering, so a `fit_content` box can be
+sized from the engine's own numbers instead of a second metrics library. The line height is exactly
+what a one-line text node occupies at that size; `cap height` and `x-height` come from the font's
+tables; `advance` is the shaped width of the sample. A size takes a unit (`40pt`, `54px`) or is a
+bare number of pixels, exactly like a template's `font_size`, so a value copied from a template
+measures what it renders. A `px` size resolves at `--dpi` (default 96), which the report states:
+
+```console
+$ arcavex font metrics Inter 40pt
+Inter 40pt = 40.000 pt = 53.333 px (dpi 96)
+┌─────────────┬────────┐
+│ metric      │     pt │
+├─────────────┼────────┤
+│ ascent      │ 38.750 │
+│ descent     │  9.250 │
+│ line height │ 48.000 │
+│ cap height  │ 29.102 │
+│ x-height    │ 21.836 │
+└─────────────┴────────┘
+advance of 'Hamburgefonstiv': 325.234 pt
+```
+
+Use `--sample TEXT` to measure a different string, `--weight N` / `--italic` to choose a face, and
+`--json` for the machine-readable report. A family that is not available measures the fallback
+family but reports [`ARC-RND-010`](diagnostics/ARC-RND-010.md) and exits 3, so a wrong name is
+never mistaken for real metrics.
 
 `add` reports the family name **as the engine resolves it**, read from the file itself. A file stem
 and its internal family name routinely differ, and `style.font` must name the *family*, so this is

@@ -199,6 +199,9 @@ def build_facade(font_dirs: list[Path] | None = None) -> Facade:
         registries,
         compiler,
         text_service.measure,
+        # The one shaper backs both layout and 'font metrics', so a box sized from the report
+        # matches what the same text node would occupy.
+        font_metrics_fn=text_service.font_metrics,
         doctor_probe=doctor_probe,
         explain_lookup=explain_code,
         authoring=authoring,

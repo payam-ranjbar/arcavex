@@ -21,8 +21,11 @@ from pathlib import Path
 
 import skia  # type: ignore[import-untyped]
 
-from arcavex.kernel.contracts.types import MeasureRequest, MeasureResult
+from arcavex.kernel.api import FontMetricsReport
+from arcavex.kernel.contracts.types import FontMetricsRequest, MeasureRequest, MeasureResult
+from arcavex.kernel.diagnostics import Diagnostic, diagnostic
 from arcavex.kernel.ir.models import ResolvedRun
+from arcavex.kernel.ir.units import Dim, pt_to_px
 from arcavex.services.fsutil import home_dir
 
 _LRI = "⁦"  # LEFT-TO-RIGHT ISOLATE
@@ -61,6 +64,16 @@ _HARD_BREAK_CHARS = "\n\r\u2028\u2029"
 # single definition and ``font add`` can never accept a file the loader would then ignore.
 FONT_SUFFIX = ".ttf"
 FONT_GLOB = f"*{FONT_SUFFIX}"
+
+
+
+def _size_to_pt(raw: str, dpi: float) -> float:
+    """Resolve a ``font metrics`` size to points with the template grammar.
+
+    A bare number is pixels, exactly as in a template's ``font_size``, so a value copied from
+    a template measures the face that template renders; ``40pt`` and ``54px`` are explicit.
+    """
+    return Dim.parse(raw).to_pt(dpi)
 
 
 def find_font_dirs() -> list[Path]:
@@ -212,6 +225,134 @@ class TextService:
     def families(self) -> set[str]:
         """The set of font family names available in the bundled database."""
         return set(self._families)
+
+    def font_metrics(self, req: FontMetricsRequest) -> FontMetricsReport:
+        """Measure one family at a size: line/ascent/descent/cap/x-height and sample advance.
+
+        Line height, ascent/descent, and advance go through :meth:`measure` — the one shaper —
+        so line height is exactly what a one-line ``fit_content`` text node resolves to. Cap
+        height and x-height are not exposed by SkParagraph, so they come from
+        ``skia.Font.getMetrics``, which reads the font's own tables. A family not in the
+        database still measures with the fallback family but reports ``ARC-RND-010`` as an
+        error, so the caller sizes a box for the family it asked for (or fixes the name) rather
+        than silently measuring a different face.
+        """
+
+        def _err(code: str, message: str, hint: str) -> FontMetricsReport:
+            return FontMetricsReport(
+                ok=False,
+                family=req.family,
+                size=req.size,
+                dpi=req.dpi,
+                sample=req.sample,
+                weight=req.weight,
+                italic=req.italic,
+                diagnostics=[diagnostic(code, message, hint=hint)],
+            )
+
+        if req.dpi <= 0:
+            return _err(
+                "ARC-IR-013",
+                f"DPI must be positive (got {req.dpi})",
+                "Pass a positive --dpi such as 96.",
+            )
+        if "\n" in req.sample or "\r" in req.sample:
+            return _err(
+                "ARC-IR-011",
+                "The sample must be a single line",
+                "Pass a one-line --sample; the advance of multiple lines is ambiguous.",
+            )
+        try:
+            size_pt = _size_to_pt(req.size, req.dpi)
+        except (ValueError, TypeError):
+            return _err(
+                "ARC-IR-011",
+                f"Invalid size {req.size!r}",
+                "Use a length such as '40pt' or '54px'; a bare number is pixels.",
+            )
+        if size_pt <= 0:
+            return _err(
+                "ARC-IR-011",
+                f"Font size must be positive: {req.size!r}",
+                "Use a positive length such as '40pt'.",
+            )
+
+        if req.family in self._families:
+            families, fallback = (req.family,), False
+        else:
+            families, fallback = (self._fallback_family(),), True
+
+        run = ResolvedRun(
+            text=req.sample,
+            font_families=families,
+            font_size_pt=size_pt,
+            font_weight=req.weight,
+            italic=req.italic,
+            color=(0.0, 0.0, 0.0, 1.0),
+            letter_spacing_pt=0.0,
+        )
+        measured = self.measure(
+            MeasureRequest(
+                text=req.sample,
+                font_families=families,
+                font_size_pt=size_pt,
+                font_weight=req.weight,
+                italic=req.italic,
+                runs=(run,),
+            )
+        )
+
+        style = skia.FontStyle(
+            req.weight,
+            skia.FontStyle.kNormal_Width,
+            skia.FontStyle.kItalic_Slant if req.italic else skia.FontStyle.kUpright_Slant,
+        )
+        typeface = self._provider.matchFamilyStyle(families[0], style)
+        resolved = families[0] if typeface is None else typeface.getFamilyName()
+        cap = x_height = 0.0
+        if typeface is not None:
+            font_metrics = skia.Font(typeface, size_pt).getMetrics()
+            cap, x_height = float(font_metrics.fCapHeight), float(font_metrics.fXHeight)
+
+        line_height = float(measured.height_pt)
+        ascent = float(measured.baseline_pt)
+        diagnostics: list[Diagnostic] = []
+        if fallback:
+            diagnostics.append(
+                diagnostic(
+                    "ARC-RND-010",
+                    f"Font family {req.family!r} is not available; measured the fallback "
+                    f"family {resolved!r} instead.",
+                    hint="Use a family from 'arcavex font list', or install it with "
+                    "'arcavex font add <path/to/font.ttf>'.",
+                )
+            )
+        return FontMetricsReport(
+            ok=not fallback,
+            family=req.family,
+            resolved_family=resolved,
+            fallback=fallback,
+            size=req.size,
+            size_pt=size_pt,
+            size_px=pt_to_px(size_pt, req.dpi),
+            dpi=req.dpi,
+            sample=req.sample,
+            weight=req.weight,
+            italic=req.italic,
+            ascent_pt=ascent,
+            descent_pt=max(0.0, line_height - ascent),
+            line_height_pt=line_height,
+            cap_height_pt=cap,
+            x_height_pt=x_height,
+            advance_pt=float(measured.width_pt),
+            diagnostics=diagnostics,
+        )
+
+    def _fallback_family(self) -> str:
+        """The family a missing request is measured with: Inter, else the first available."""
+        if "Inter" in self._families:
+            return "Inter"
+        return sorted(self._families)[0] if self._families else "Inter"
 
     # ------------------------------------------------------------------ measurement
     def measure(self, req: MeasureRequest) -> MeasureResult:

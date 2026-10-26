@@ -79,6 +79,7 @@ def test_generated_reference_matches_live_cli() -> None:
     for command in (
         "font add",
         "font list",
+        "font metrics",
         "template new",
         "template patch",
         "layout inspect",

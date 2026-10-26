@@ -25,6 +25,7 @@ from pydantic import UUID4, BaseModel, ConfigDict, Field, FiniteFloat, field_val
 
 from arcavex.kernel.contracts.types import (
     ExportOptions,
+    FontMetricsRequest,
     MeasureFn,
 )
 from arcavex.kernel.diagnostics import (
@@ -422,6 +423,40 @@ class FontListReport(BaseModel):
     ok: bool
     install_dir: str
     families: list[FontFamilyInfo] = Field(default_factory=list)
+    diagnostics: list[Diagnostic] = Field(default_factory=list)
+
+
+class FontMetricsReport(BaseModel):
+    """The result of ``arcavex font metrics`` — typographic measurements for one family/size.
+
+    ``line_height_pt`` is a single line's natural height exactly as the engine's layout measures
+    it, so a ``fit_content`` text box sized from it is not one wrap short. ``cap_height_pt`` and
+    ``x_height_pt`` come from the font's own tables via Skia; ``advance_pt`` is the shaped width
+    of ``sample``. ``size_pt``/``size_px`` state the resolved size on both bases, so the ``dpi``
+    used to interpret a ``px`` size is never implicit. A family not in the database resolves to
+    ``resolved_family`` with ``fallback`` set and an ``ARC-RND-010`` error.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    response_version: int = RESPONSE_VERSION
+    ok: bool
+    family: str
+    resolved_family: str | None = None
+    fallback: bool = False
+    size: str = ""
+    size_pt: float = 0.0
+    size_px: float = 0.0
+    dpi: int = 96
+    sample: str = ""
+    weight: int = 400
+    italic: bool = False
+    ascent_pt: float = 0.0
+    descent_pt: float = 0.0
+    line_height_pt: float = 0.0
+    cap_height_pt: float = 0.0
+    x_height_pt: float = 0.0
+    advance_pt: float = 0.0
     diagnostics: list[Diagnostic] = Field(default_factory=list)
 
 
@@ -1970,6 +2005,7 @@ class Facade:
         extensions: ExtensionServiceProtocol | None = None,
         extension_load_diagnostics: list[Diagnostic] | None = None,
         fonts: FontServiceProtocol | None = None,
+        font_metrics_fn: Callable[[FontMetricsRequest], FontMetricsReport] | None = None,
         skills: SkillServiceProtocol | None = None,
         budget: BudgetProtocol | None = None,
         engine_version: str = "",
@@ -2003,6 +2039,7 @@ class Facade:
         self._extensions = extensions
         self._extension_load_diagnostics = list(extension_load_diagnostics or [])
         self._fonts = fonts
+        self._font_metrics_fn = font_metrics_fn
         self._skills = skills
         self._budget = budget
         self._engine_version = engine_version
@@ -2724,6 +2761,55 @@ class Facade:
         except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
             return FontActionReport(
                 ok=False, diagnostics=[internal_error("font remove failed", detail=repr(exc))]
+            )
+
+    def font_metrics(
+        self,
+        family: str,
+        size: str,
+        *,
+        sample: str = "Hamburgefonstiv",
+        weight: int = 400,
+        italic: bool = False,
+        dpi: int = 96,
+    ) -> FontMetricsReport:
+        """Report a family's line/cap/x-height and the advance of a sample string. Never raises.
+
+        The measurement itself lives behind an injected shaper method (``font_metrics_fn``),
+        exactly as ``measure_fn`` does for layout, so the kernel never imports the shaper and
+        there is only ever one shaping implementation.
+        """
+        try:
+            request = FontMetricsRequest(
+                family=family,
+                size=size,
+                dpi=dpi,
+                sample=sample,
+                weight=weight,
+                italic=italic,
+            )
+            if self._font_metrics_fn is None:  # pragma: no cover - always wired in production
+                return FontMetricsReport(
+                    ok=False,
+                    family=family,
+                    size=size,
+                    dpi=dpi,
+                    sample=sample,
+                    weight=weight,
+                    italic=italic,
+                    diagnostics=[_unwired("font metrics")],
+                )
+            return self._font_metrics_fn(request)
+        except Exception as exc:  # noqa: BLE001 - facade boundary must not leak
+            return FontMetricsReport(
+                ok=False,
+                family=family,
+                size=size,
+                dpi=dpi,
+                sample=sample,
+                weight=weight,
+                italic=italic,
+                diagnostics=[internal_error("font metrics failed", detail=repr(exc))],
             )
 
     # ----------------------------------------------------------------------- skill install
