@@ -8,9 +8,10 @@ description: Author, inspect, patch, validate, preview, and render reusable post
 <!-- engine-build -->
 
 Use the CLI as the primary surface. Ground design decisions in the supplied brief, preserve brand
-constraints, and never invent factual copy. Build one reusable template with data and explicit
-format/locale variations. Start a small working template early; read additional references only
-when needed. The live binary's help and diagnostics are authoritative.
+constraints, and never invent copy or facts (rules in Step 1). Build one reusable
+template with data and explicit format/locale variations. Start a small working template early;
+read additional references only when needed. The live binary's help and diagnostics are
+authoritative.
 
 ## 0. Identify the build and set up once
 
@@ -60,6 +61,24 @@ copy is also loaded from `.claude/skills` or `.agents/skills`, flag the conflict
 preserve any local edits before retiring it. Skill installation does not delete other skills.
 
 ## 1. Scaffold, then inspect
+
+Four rules govern the whole loop:
+
+- **Ask exactly one question when it matters** — before the first render when a fact the design
+  needs is missing (an event's date, start time, place, or a name), and before acting on feedback
+  that is ambiguous or garbled. A pronoun or vague noun ("make it bigger", "the image") is ambiguous
+  whenever the canvas has more than one candidate: offer every candidate as an option (hero photo /
+  headshot / both). A wrong guess costs a full revision; clear feedback needs no question.
+- **Never invent** — no facts, and no decorative copy (taglines, eyebrows, kickers, slogans) unless
+  the user or brand kit supplied it, and never another organization's slogan or trademark. Sample data and
+  stress fixtures use obviously fake values (`00:00 TBD`, `Speaker Name`) and never mix fake with
+  real facts.
+- **Match a reference by its pixels** — "match X" means open X's delivered render and measure it,
+  not read its source; the source can differ from what the user saw.
+- **Attachments are files** — locate the attached file on disk, copy it into the project, and record
+  where it came from; never search the web for a lookalike.
+
+Full rules: [briefs-and-feedback.md](references/briefs-and-feedback.md).
 
 ```bash
 arcavex template new templates/card
@@ -162,6 +181,14 @@ Look at the preview. View a reduced-DPI image first to conserve context; open th
 the final check. Use `render --debug` to see node IDs, bounds, baselines, and safe areas before
 writing pixel-measurement scripts. Debug overlays belong to inspection output, not delivery.
 
+Run one of two loops. **Draft loop** (the default while the user gives art feedback): patch, render
+only the format/locale cell the user is looking at or named, look, show it, stop. One render per
+feedback turn; no full matrix, no hashes, no new docs or reports. Report problems you notice that the
+user did not raise instead of fixing them in the same turn. **Finalize loop** only when the
+user says finalize, make (or register/publish) a template, ship, deliver, or push, or asks for
+every format: then run the matrix in [verification.md](references/verification.md). A full matrix
+after every tweak spends the user's time and context on cells nobody asked about.
+
 Use JSON and filter it instead of loading a whole layout report:
 
 ```bash
@@ -196,17 +223,20 @@ For tracked campaigns, use `project new`, then project-mode `render`, `validate`
 inspection. `batch 'campaigns/*'` renders project directories; it is not CSV row rendering.
 The generated [commands.md](references/commands.md) lists only commands this CLI implements.
 
-Verify every required format × locale × realistic content profile: longest headline, optional
-fields omitted, RTL digits, transparency and crops. Inspect overflow, collisions, margins,
-contrast against the real backdrop, missing glyphs, and hierarchy. Record a render with
-`render --record`, list run ids with `list-runs`, then reproduce it byte-identically into a new
-run directory with `rerun <run>`; use `diff` to compare two runs. See
+When finalizing, verify every required format × locale × realistic content profile: longest
+headline, optional fields omitted, RTL digits, transparency and crops. Inspect overflow,
+collisions, margins, contrast against the real backdrop, missing glyphs, and hierarchy. Record a
+render with `render --record`, list run ids with `list-runs`, then reproduce it byte-identically
+into a new run directory with `rerun <run>`; use `diff` to compare two runs. See
 [verification.md](references/verification.md).
 
 If an independent reviewer is available and authorized, request that pass. If it cannot run,
-complete the same fixed checklist yourself and say the independent pass did not run. Do not
-claim a second review occurred. Deliver the renders, editable template, data, assets, fonts/style
-references, and a short statement of the formats/locales/content limits actually verified.
+complete the same fixed checklist yourself and say the independent pass did not run. Label your
+own pass a self-check and never call it independent; restate the user's last correction and the
+measurement that shows it fixed (see
+[verification.md](references/verification.md#self-check-each-iteration)). Do not claim a second
+review occurred. Deliver the renders, editable template, data, assets, fonts/style references, and
+a short statement of the formats/locales/content limits actually verified.
 
 ## MCP appendix
 

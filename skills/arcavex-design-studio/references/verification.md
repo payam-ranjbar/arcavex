@@ -4,9 +4,20 @@ A warning-free render is **necessary and not sufficient**. Bad typography valida
 engine checks that a design is well-formed; whether it is any good is your judgement, and this is
 where you exercise it.
 
+## Draft loop and finalize loop
+
+Match effort to the moment. Most art feedback is a draft turn; the full matrix is for the end.
+
+| Loop | When | Do | Skip |
+|---|---|---|---|
+| Draft | Default during feedback rounds | Patch → render the one cell the user asked about (low DPI is fine) → look → self-check the correction → show; report other problems you notice rather than fixing them unasked | The matrix, determinism hashes, docs, reports |
+| Finalize | Finalize, make/register/publish a template, ship, deliver, push, or "all formats" | The matrix, `layout inspect` per cell, determinism, and the report below | — |
+
+If unsure which loop the user wants, stay in draft and offer to finalize.
+
 ## The matrix
 
-Cross **every format × every locale × at least two content profiles**:
+The finalize-loop checklist. Cross **every format × every locale × at least two content profiles**:
 
 - **Production copy** — realistic content
 - **Boundary copy** — every field at its declared maximum
@@ -21,6 +32,28 @@ cell.
 2. **Look at the pixels** — full resolution, not a thumbnail
 3. `layout inspect` — resolved geometry
 4. Render
+
+## Self-check each iteration
+
+Every iteration, including draft renders:
+
+1. Quote the user's last correction **verbatim**.
+2. Choose a measurement that can fail:
+   - a **pixel scan** — sample the rendered PNG along a row or column and report where the colour changes
+   - a **crop at full resolution** of the exact region
+   - `layout inspect` numbers for boxes (bounds, gaps, overflow)
+3. Report it with this template:
+
+```
+Self-check (not an independent review)
+Correction: "<user's words>"
+Measured: <method> on <file> -> <numbers, e.g. headline cap height 64px, was 48px>
+Result: fixed | not fixed | could not measure (why)
+```
+
+Never write "no visible X" without a measurement. If the measurement cannot see the problem (e.g. a
+soft edge), say so instead of claiming it is gone — claims like "no visible photo edge" were made
+while the user still saw the edge.
 
 ## What to hunt
 
